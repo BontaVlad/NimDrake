@@ -3,11 +3,12 @@ import ../../src/[api, datachunk, types, vector, query_result]
 
 suite "Test datachunk":
   test "Test datachunk creation":
-    let columns = @[
-      newColumn(idx=0, name="index", kind=DuckType.Integer),
-      newColumn(idx=1, name="name", kind=DuckType.Varchar),
-      newColumn(idx=2, name="truth", kind=DuckType.Boolean)
-    ]
+    let columns =
+      @[
+        newColumn(idx = 0, name = "index", kind = DuckType.Integer),
+        newColumn(idx = 1, name = "name", kind = DuckType.Varchar),
+        newColumn(idx = 2, name = "truth", kind = DuckType.Boolean),
+      ]
     var chunk = newDataChunk(columns=columns)
     let
       intValues = @[1'i32, 2'i32, 3'i32]

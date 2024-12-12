@@ -155,7 +155,6 @@ proc `=copy`(a: var LogicalTypeBase, b: LogicalTypeBase) {.error.}
 # proc `=copy`(a: var Column, b: Column) {.error.}
 
 proc `=destroy`*(ltp: LogicalTypeBase) =
-  echo "destroy logical"
   if not isNil(ltp.addr) and not isNil(ltp.handle.addr):
     duckdb_destroy_logical_type(ltp.handle.addr)
 
@@ -167,22 +166,31 @@ proc `=destroy`(qresult: QueryResult) =
   if not isNil(qresult.addr):
     duckdbDestroyResult(qresult.addr)
 
-proc newDataChunk*(handle: duckdb_data_chunk, shouldDestroy: bool=true): DataChunk =
+proc newDataChunk*(handle: duckdb_data_chunk, shouldDestroy: bool = true): DataChunk =
   var columns = newSeq[Column]()
   result = DataChunk(handle: handle, columns: columns, shouldDestroy: shouldDestroy)
 
-proc newDataChunk*(handle: duckdb_data_chunk, columns: sink seq[Column], shouldDestroy: bool=true): DataChunk =
+proc newDataChunk*(
+    handle: duckdb_data_chunk, columns: sink seq[Column], shouldDestroy: bool = true
+): DataChunk =
   result = DataChunk(handle: handle, columns: columns, shouldDestroy: shouldDestroy)
 
-proc newDataChunk*(columns: sink seq[Column], shouldDestroy: bool=true): DataChunk =
-  var types = columns.map(c => c.logicalType.handle)
-  let chunk = duckdb_create_data_chunk(cast[ptr duckdb_logical_type](types[0].addr), len(columns).idx_t)
+proc newDataChunk*(columns: sink seq[Column], shouldDestroy: bool = true): DataChunk =
+  let
+    types = columns.map(c => c.logicalType.handle)
+    chunk = duckdb_create_data_chunk(
+      cast[ptr duckdb_logical_type](types[0].addr), len(columns).idx_t
+    )
   result = newDataChunk(chunk, columns, shouldDestroy)
 
-proc newDataChunk*(qresult: QueryResult, columns: seq[Column], shouldDestroy: bool=true): DataChunk =
+proc newDataChunk*(
+    qresult: QueryResult, columns: seq[Column], shouldDestroy: bool = true
+): DataChunk =
   result = newDataChunk(duckdb_stream_fetch_chunk(qresult), columns, shouldDestroy)
 
-proc newDataChunk*(qresult: QueryResult, idx: idxt, columns: seq[Column], shouldDestroy: bool=true): DataChunk =
+proc newDataChunk*(
+    qresult: QueryResult, idx: idxt, columns: seq[Column], shouldDestroy: bool = true
+): DataChunk =
   result = newDataChunk(duckdb_result_get_chunk(qresult, idx), columns, shouldDestroy)
 
 converter toC*(d: DataChunk): duckdbdatachunk =
@@ -314,10 +322,6 @@ proc newLogicalType*(pt: DuckType): LogicalType =
   # Returns an invalid logical type, if type is complex
   # TODO: why do I need to cast it to duckdb_type, maybe from distinct
   let tp = cast[duckdb_type](pt)
-  # let tp = enum_DUCKDB_TYPE.DUCKDB_TYPE_VARCHAR
-  # if registry.contains($tp):
-  #   result = registry[$tp]
-  # else:
   let handle = duckdb_create_logical_type(tp)
   result = newLogicalType(handle)
 

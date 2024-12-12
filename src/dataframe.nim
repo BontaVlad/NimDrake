@@ -3,8 +3,8 @@ import terminaltables
 import /[types, vector, value]
 
 type DataFrame* = ref object
-  columns*: seq[Column]
-  values*: seq[Vector]
+  columns: seq[Column]
+  values: seq[Vector]
 
 proc newDataFrame*(data: Table[string, Vector]): DataFrame =
   let
@@ -30,6 +30,9 @@ proc newDataFrame*(data: Table[string, Vector]): DataFrame =
 proc len*(df: DataFrame): int =
   result = len(df.values[0])
 
+proc columns*(df: DataFrame): seq[string] =
+  result = df.columns.map(c => c.name)
+
 # TODO: temporary
 iterator rows*(df: DataFrame): seq[Value] =
   let
@@ -47,6 +50,16 @@ proc clipString(str: string, at: int = 20): string =
     result = fmt"{str[0..at]}..."
   else:
     result = str
+
+proc `[]`*(df: DataFrame, colIdx: int): Vector =
+  result = df.values[colIdx]
+
+proc `[]`*(df: DataFrame, colName: string): Vector =
+  let colIdx = df.columns.filter(c => c.name == colName).map(c => c.idx)
+  if len(colIdx) == 0:
+    let validColumnNames = df.columns.map(c => c.name)
+    raise newException(ValueError, fmt"Column with name {colName} does not exist, valid ones are {validColumnNames}")
+  result = df.values[colIdx[0]]
 
 proc `$`*(df: DataFrame): string =
   var rows = df.rows.toSeq

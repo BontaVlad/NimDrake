@@ -60,7 +60,7 @@ macro scalar*(body: typed): untyped =
     DuckType.UUID: ident"valueUUID",
     DuckType.Union: ident"valueUnion",
     DuckType.Bit: ident"valueBit",
-    DuckType.TimeTz: ident"valueTimeTz"
+    DuckType.TimeTz: ident"valueTimeTz",
   }.toTable
 
   body.assertMatch:
@@ -79,9 +79,9 @@ macro scalar*(body: typed): untyped =
     params = formalParams.toSeq
     scalarFunc = ident(name) # the name of the actual function we want to pass to duckdb
     callbackNode = ident(name & "callBack")
-    callback = newProc(name = callbackNode, params = params, body = implementation) # the actual proc we want to call on the rows
+    callback = newProc(name = callbackNode, params = params, body = implementation)
+      # the actual proc we want to call on the rows
     wrapperName = ident("scalarWrapper" & name) # proc that will be called by duckdb
-
 
   # The function that will be called by duckdb
   # wrapper(info: duckdb_function_info, chunk: duckdb_data_chunk, output: duckdb_vector)
@@ -103,14 +103,14 @@ macro scalar*(body: typed): untyped =
     # define the parameters required by the wrapper function
     let parameters = [
       newEmptyNode(),
-      newIdentDefs(ident("info"), ident("duckdb_function_info")),  # Function context
-      newIdentDefs(rawChunk, ident("duckdb_data_chunk")), # The result chunk that will contain the passed parameters
+      newIdentDefs(ident("info"), ident("duckdb_function_info")), # Function context
+      newIdentDefs(rawChunk, ident("duckdb_data_chunk")),
+        # The result chunk that will contain the passed parameters
       newIdentDefs(output, ident("duckdb_vector")), # Obj where to dump the results
     ]
 
     let wrapperBody = buildAst(stmtList):
-
-      var arguments= initTable[string, DuckType]()
+      var arguments = initTable[string, DuckType]()
       StmtList:
         VarSection:
           IdentDefs:
@@ -124,12 +124,23 @@ macro scalar*(body: typed): untyped =
       for param in params[1 ..^ 1]:
         let duckTp = newDuckType(param[^2])
         for idx, p in param[0 ..< ^2]:
-          newCall(bindSym "add", columnsNode, newCall(bindSym "newColumn", newLit idx, newLit p.strVal, newLit duckTp))
+          newCall(
+            bindSym "add",
+            columnsNode,
+            newCall(bindSym "newColumn", newLit idx, newLit p.strVal, newLit duckTp),
+          )
           arguments[genSym(nskLet, p.strVal).strVal] = duckTp
 
-
-      newLetStmt(size, newDotExpr(newCall(bindSym "duckdb_data_chunk_get_size", rawChunk), ident("int")))
-      newLetStmt(chunk, newCall(bindSym"newDataChunk", ident("rawChunk"), columnsNode, newLit false))
+      newLetStmt(
+        size,
+        newDotExpr(
+          newCall(bindSym "duckdb_data_chunk_get_size", rawChunk), ident("int")
+        ),
+      )
+      newLetStmt(
+        chunk,
+        newCall(bindSym"newDataChunk", ident("rawChunk"), columnsNode, newLit false),
+      )
 
       echo arguments
       for idx, p, tp in enumerate(arguments.pairs):
@@ -223,4 +234,7 @@ macro scalar*(body: typed): untyped =
   echo result.repr
 
 proc register*(con: Connection, fun: ScalarFunction) =
-  check(duckdb_register_scalar_function(con, fun.handle), fmt"Failed to register function '{fun.name}'")
+  check(
+    duckdb_register_scalar_function(con, fun.handle),
+    fmt"Failed to register function '{fun.name}'",
+  )
