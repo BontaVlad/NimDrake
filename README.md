@@ -1,7 +1,7 @@
 <div align="center">
   <picture>
-    <source media="(prefers-color-scheme: light)" srcset="drake-svg-dark-theme.svg">
-    <source media="(prefers-color-scheme: dark)" srcset="drake-svg-light-theme.svg">
+    <source media="(prefers-color-scheme: light)" srcset="drake-svg-light-theme.svg">
+    <source media="(prefers-color-scheme: dark)" srcset="drake-svg-dark-theme.svg">
     <img alt="NimDrake logo" src="drake-svg-light-theme.svg" height="100">
   </picture>
 </div>
