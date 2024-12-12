@@ -1,7 +1,7 @@
 # NimDrake
 
-<div style="text-align: center;">
-  <img src="drake.svg" alt="NimDrake logo" style="width: 200px; height: auto;">
+<div style="display: flex; justify-content: center; align-items: center;">
+  <img src="drake.svg" alt="NimDrake logo" style="width: 150px; height: auto;">
 </div>
 
 Here should be a short description of the project, this is alpha stage, this is a Nim wrapper over duckdb.
