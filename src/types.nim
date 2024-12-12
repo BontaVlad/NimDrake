@@ -304,19 +304,48 @@ proc newDuckType*[T](t: typedesc[T]): DuckType =
 proc newDuckType*(node: NimNode): DuckType =
   let kind = node.strVal
   case kind
+  of "bool":
+    result = newDuckType(bool)
+  of "int8":
+    result = newDuckType(int8)
+  of "int16":
+    result = newDuckType(int16)
+  of "int32", "int":
+    result = newDuckType(int32)
   of "int64":
     result = newDuckType(int64)
-  of "int":
-    result = newDuckType(int)
+  of "uint8":
+    result = newDuckType(uint8)
+  of "uint16":
+    result = newDuckType(uint16)
+  of "uint32":
+    result = newDuckType(uint32)
+  of "uint64":
+    result = newDuckType(uint64)
+  of "float32":
+    result = newDuckType(float32)
+  of "float64":
+    result = newDuckType(float64)
   of "string":
     result = newDuckType(string)
+  of "seq[byte]":
+    result = newDuckType(seq[byte])
+  of "Time":
+    result = newDuckType(Time)
+  of "DateTime":
+    result = newDuckType(DateTime)
+  of "tuple":
+    result = newDuckType(tuple)
+  of "seq":
+    result = newDuckType(seq)
+  of "void":
+    result = newDuckType(void)
   else:
     raise newException(ValueError, fmt"invalid type {kind}")
 
+
 proc newLogicalType*(i: duckdb_logical_type): LogicalType =
   result = LogicalType(handle: i)
-
-# var registry = initTable[string, LogicalType]()
 
 proc newLogicalType*(pt: DuckType): LogicalType =
   # Returns an invalid logical type, if type is complex
