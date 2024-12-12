@@ -1,8 +1,13 @@
-# NimDrake
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="drake-svg-dark-theme.svg">
+    <source media="(prefers-color-scheme: dark)" srcset="drake-svg-light-theme.svg">
+    <img alt="NimDrake logo" src="drake-svg-light-theme.svg" height="100">
+  </picture>
+</div>
+<br>
 
-<p align="center">
-  <img src="drake.svg" alt="NimDrake logo" style="width: 150px; height: auto;">
-</p>
+## NimDrake
 
 Here should be a short description of the project, this is alpha stage, this is a Nim wrapper over duckdb.
 Explain what is duckdb and why is it cool.
