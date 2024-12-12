@@ -1,4 +1,8 @@
-# NimDrake ![NimDrake Logo](./drake.svg)
+# NimDrake
+
+<div style="text-align: center;">
+  <img src="drake.svg" alt="NimDrake logo" style="width: 200px; height: auto;">
+</div>
 
 Here should be a short description of the project, this is alpha stage, this is a Nim wrapper over duckdb.
 Explain what is duckdb and why is it cool.
