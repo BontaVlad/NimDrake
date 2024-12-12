@@ -11,5 +11,4 @@ jobs:
       - uses: extractions/setup-just@v2
         env:
          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - run: nimble install -y
-      - run: nimble test
+      - run: just help
