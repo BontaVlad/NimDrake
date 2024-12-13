@@ -36,7 +36,7 @@ Here are a few simple examples of how to use this repository:
 
 ### Example 1: Simple query
 ```nim
-import nimdrake as ndk
+import nimdrake
 
 let duck = ndk.connect()
 

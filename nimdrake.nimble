@@ -7,7 +7,7 @@ author        = "Sergiu Vlad Bonta"
 description   = "Duckdb nim wrapper"
 license       = "MIT"
 srcDir        = "src"
-bin           = @["duckdb"]
+bin           = @["nimdrake"]
 
 # Dependencies
 
