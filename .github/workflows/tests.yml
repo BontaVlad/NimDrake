@@ -14,7 +14,7 @@ jobs:
       - uses: opt-nc/setup-duckdb-action@v1.0.8
         with:
         version: v1.1.2
-      -run: sudo find / -name "*duckdb*.so*" 2>/dev/null
+      - run: sudo find / -name "*duckdb*.so*" 2>/dev/null
       # - uses: extractions/setup-just@v2
       # - name: Install dependencies
       #   run: |
