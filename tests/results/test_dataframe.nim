@@ -10,7 +10,7 @@ suite "Test Dataframe":
   )
 
   test "Test dataframe columns":
-    assert df.columns == @["foo", "bar"]
+    assert df.columnNames == @["foo", "bar"]
 
   test "Test dataframe columns accessed by name":
     assert df["foo"].valueBigInt == @[10'i64, 20'i64]

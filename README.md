@@ -49,21 +49,21 @@ echo duck.execute("SELECT * FROM range(100) AS example;")
 # - **display_clip_column_name**: Limits the length of column names displayed, which can help in keeping outputs clean when dealing with long-named columns. Set it to `20`.
 
 # output:
-┌───────┬───────────────┐
-│  #    │     range     │
-├───────┼───────────────┤
-│  0    │     0         │
-│  1    │     1         │
-│  2    │     2         │
-│  3    │     3         │
-│  4    │     4         │
-│  ...  │     ...       │
-│  95   │     95        │
-│  96   │     96        │
-│  97   │     97        │
-│  98   │     98        │
-│  99   │     99        │
-└───────┴───────────────┘
+# ┌───────┬───────────────┐
+# │  #    │     range     │
+# ├───────┼───────────────┤
+# │  0    │     0         │
+# │  1    │     1         │
+# │  2    │     2         │
+# │  3    │     3         │
+# │  4    │     4         │
+# │  ...  │     ...       │
+# │  95   │     95        │
+# │  96   │     96        │
+# │  97   │     97        │
+# │  98   │     98        │
+# │  99   │     99        │
+# └───────┴───────────────┘
 
 ```
 
@@ -95,6 +95,59 @@ for i, row in enumerate(task.rows):
 # row 0: (1, Value_1)
 # row 1: (2, Value_2)
 # row 2: (3, Value_3)
+```
+
+### Example 4: Using the dataframe
+```nim
+let 
+  # we can also start a session with custom config flags
+  config = newConfig({"threads": "3"}.toTable)
+  duck = connect(config)
+
+let df = newDataFrame(
+  {
+    "foo": newVector(@[10, 30, 20]),
+    "bar": newVector(@["a", "b", "c"])
+  }.toTable)
+duck.register("df", df)
+echo duck.execute("SELECT * FROM df ORDER BY foo;")
+  
+#output:
+# ┌─────┬─────────────┬─────────────┐
+# │  #  │     bar     │     foo     │
+# ├─────┼─────────────┼─────────────┤
+# │  0  │     a       │     10      │
+# │  1  │     c       │     20      │
+# │  2  │     b       │     30      │
+# └─────┴─────────────┴─────────────┘
+```
+
+### Example 5: Insert with prepared statement
+
+```nim
+let duck = connect()
+duck.execute(
+    """
+    CREATE TABLE prepared_table (
+        bool_val BOOLEAN,
+        int32_val INTEGER,
+        float64_val DOUBLE,
+        string_val VARCHAR,
+    );
+    """
+)
+
+let prepared = duck.newStatement("INSERT INTO prepared_table VALUES (?, ?, ?, ?);")
+duck.execute(prepared, (true, int32(-2147483648), float64(3.14159265359'f64), "hello"))
+echo duck.execute("SELECT * FROM prepared_table;")
+
+# output:
+# ┌─────┬──────────────────┬────────────────────┬─────────────────────┬───────────────────────┐
+# │  #  │     bool_val     │     string_val     │     int32_val       │     float64_val       │
+# ├─────┼──────────────────┼────────────────────┼─────────────────────┼───────────────────────┤
+# │  0  │     true         │     hello          │     -2147483648     │     3.14159265359     │
+# └─────┴──────────────────┴────────────────────┴─────────────────────┴───────────────────────┘
+
 ```
 
 ---

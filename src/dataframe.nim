@@ -3,8 +3,8 @@ import terminaltables
 import /[types, vector, value]
 
 type DataFrame* = ref object
-  columns: seq[Column]
-  values: seq[Vector]
+  columns*: seq[Column]
+  values*: seq[Vector]
 
 proc newDataFrame*(data: Table[string, Vector]): DataFrame =
   let
@@ -30,7 +30,7 @@ proc newDataFrame*(data: Table[string, Vector]): DataFrame =
 proc len*(df: DataFrame): int =
   result = len(df.values[0])
 
-proc columns*(df: DataFrame): seq[string] =
+proc columnNames*(df: DataFrame): seq[string] =
   result = df.columns.map(c => c.name)
 
 # TODO: temporary
