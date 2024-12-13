@@ -38,9 +38,30 @@ Here are a few simple examples of how to use this repository:
 ```nim
 import nimdrake
 
-let duck = ndk.connect()
+let duck = connect()
 
-echo duck.execute("SELECT * FROM range(5);")
+echo duck.execute("SELECT * FROM range(100) AS example;")
+
+# Environment Variables for Controlling Dataframe Display Options
+# - **display_show_index** (True/False): Determines whether to show or hide row index columns. Set `True` to display indexes, `False` to hide them.  
+# - **display_max_rows**: Specifies the maximum number of rows displayed in a dataframe output. For instance, setting it to 20 will only show the first n=20 rows.
+# - **display_max_columns** (Default 100): Restricts the maximum number of columns to be shown at once to prevent overwhelming displays; set to `100` as default.
+# - **display_clip_column_name**: Limits the length of column names displayed, which can help in keeping outputs clean when dealing with long-named columns. Set it to `20`.
+┌───────┬───────────────┐
+│  #    │     range     │
+├───────┼───────────────┤
+│  0    │     0         │
+│  1    │     1         │
+│  2    │     2         │
+│  3    │     3         │
+│  4    │     4         │
+│  ...  │     ...       │
+│  95   │     95        │
+│  96   │     96        │
+│  97   │     97        │
+│  98   │     98        │
+│  99   │     99        │
+└───────┴───────────────┘
 
 ```
 
