@@ -8,10 +8,13 @@ jobs:
     steps:
       - uses: egor-tensin/setup-clang@v1
       - uses: actions/checkout@v2
-      - uses: iffy/install-nim@v5
+      - uses: iffy/install-nim@v6
+        with:
+         nim-version: 'latest'
       - uses: extractions/setup-just@v2
         env:
          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-         PATH:/usr/local/bin:$PATH
+      - run: echo 'export PATH=$PATH:/usr/local/opt/llvm/bin' >> $GITHUB_ENV
+      - run: sudo apt-get update && sudo apt-get install -y libcurl4-gnutls-dev
       - run: nimble install -y
       - run: just test
