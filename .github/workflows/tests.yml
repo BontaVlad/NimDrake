@@ -9,12 +9,11 @@ jobs:
       - uses: egor-tensin/setup-clang@v1
       - uses: actions/checkout@v2
       - uses: iffy/install-nim@v5
-      - uses: opt-nc/setup-duckdb-action@v1.0.8
       - uses: extractions/setup-just@v2
         env:
          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Install dependencies
         run: |
-          sudo apt install clang libclang-dev
+          sudo apt install clang libclang-dev duckdb
       - run: nimble install -y
       - run: just test
