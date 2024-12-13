@@ -12,5 +12,6 @@ jobs:
       - uses: extractions/setup-just@v2
         env:
          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+         PATH:/usr/local/bin:$PATH
       - run: nimble install -y
       - run: just test
