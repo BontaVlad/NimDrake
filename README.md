@@ -150,6 +150,32 @@ echo duck.execute("SELECT * FROM prepared_table;")
 
 ```
 
+### Example 6: Using UDF(user defined functions)
+
+```nim
+let duck = connect()
+
+template doubleValue(val, bar: int64): int64 {.scalar.} =
+  result = val * bar
+
+duck.register(doubleValue)
+
+duck.execute("CREATE TABLE test_table AS SELECT i FROM range(3, 9) t(i);")
+echo duck.execute("SELECT i, doubleValue(i, i) as doubled FROM test_table")
+
+# output:
+# ┌─────┬─────────────────┬───────────┐
+# │  #  │     doubled     │     i     │
+# ├─────┼─────────────────┼───────────┤
+# │  0  │     9           │     3     │
+# │  1  │     16          │     4     │
+# │  2  │     25          │     5     │
+# │  3  │     36          │     6     │
+# │  4  │     49          │     7     │
+# │  5  │     64          │     8     │
+# └─────┴─────────────────┴───────────┘
+
+```
 ---
 
 ## Contribution
