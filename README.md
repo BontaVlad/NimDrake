@@ -9,8 +9,9 @@
 
 ## NimDrake
 
-Here should be a short description of the project, this is alpha stage, this is a Nim wrapper over duckdb.
-Explain what is duckdb and why is it cool.
+NimDrake is a [Nim](https://nim-lang.org/) language wrapper for [DuckDB](https://duckdb.org/), a high-performance analytical database system known for its speed, reliability, portability, and ease of use. DuckDB provides a rich SQL dialect that goes far beyond basic SQL, supporting features like arbitrary and nested correlated subqueries, window functions, collations, and complex types (arrays, structs, maps).  Several extensions further simplify SQL usage. 
+
+**Please note:** NimDrake is currently in a pre-alpha stage and is considered experimental. It contains bugs and lacks some intended features. Use with caution and report any issues you encounter.
 
 ---
 

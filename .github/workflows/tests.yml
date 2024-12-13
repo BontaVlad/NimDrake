@@ -8,16 +8,11 @@ jobs:
   default:
     runs-on: ubuntu-latest
     steps:
-      - uses: egor-tensin/setup-clang@v1
       - uses: actions/checkout@v2
       - uses: iffy/install-nim@v5
-      - uses: opt-nc/setup-duckdb-action@v1.0.8
-        with:
-         version: v1.1.2
-      - run: sudo find / -name "*duckdb*.so*" 2>/dev/null
-      # - uses: extractions/setup-just@v2
-      # - name: Install dependencies
-      #   run: |
-      #     sudo apt install clang libclang-dev
-      # - run: nimble install -y
-      # - run: just test
+      - uses: extractions/setup-just@v2
+      - name: Install dependencies
+        run: |
+          sudo apt install clang libclang-dev
+      - run: nimble install -y
+      - run:
