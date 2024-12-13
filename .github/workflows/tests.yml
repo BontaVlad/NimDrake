@@ -8,13 +8,14 @@ jobs:
     steps:
       - uses: egor-tensin/setup-clang@v1
       - uses: actions/checkout@v2
-      - uses: iffy/install-nim@v5
-        with:
-         nim-version: 'latest'
+      - uses: iffy/install-nim@v6
       - uses: extractions/setup-just@v2
         env:
          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - run: echo 'export PATH=$PATH:/usr/local/opt/llvm/bin' >> $GITHUB_ENV
-      - run: sudo apt-get update && sudo apt-get install -y libcurl4-gnutls-dev
+      - name: Update package list
+        run: sudo xbps-install -S
+      - name: Install dependencies
+        run: |
+          sudo xbps-install clang clang17-devel libclang
       - run: nimble install -y
       - run: just test
