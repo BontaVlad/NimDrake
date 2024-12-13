@@ -12,10 +12,8 @@ jobs:
       - uses: extractions/setup-just@v2
         env:
          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Update package list
-        run: sudo xbps-install -S
       - name: Install dependencies
         run: |
-          sudo xbps-install clang clang17-devel libclang
+          sudo apt install clang libclang-dev
       - run: nimble install -y
       - run: just test
