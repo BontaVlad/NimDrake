@@ -102,91 +102,43 @@ proc `$`*(v: Value): string =
   of DuckType.TimeTz:
     result = $v.valueTimeTz
 
-proc newValue*(kind: DuckType, isValid: bool, val: bool): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.Boolean:
-    result.valueBoolean = val
-  else:
-    raise newException(ValueError, "Expected DuckType.Boolean for boolean value")
+proc newValue*(val: bool, isValid=true): Value =
+  result = Value(kind: DuckType.Boolean, isValid: isValid, valueBoolean: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: int8): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.TinyInt:
-    result.valueTinyint = val
-  else:
-    raise newException(ValueError, "Expected DuckType.TinyInt for int8 value")
+proc newValue*(val: int8, isValid=true): Value =
+  result = Value(kind: DuckType.TinyInt, isValid: isValid, valueTinyint: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: int16): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.SmallInt:
-    result.valueSmallint = val
-  else:
-    raise newException(ValueError, "Expected DuckType.SmallInt for int16 value")
+proc newValue*(val: int16, isValid=true): Value =
+  result = Value(kind: DuckType.SmallInt, isValid: isValid, valueSmallint: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: int32): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.Integer:
-    result.valueInteger = val
-  else:
-    raise newException(ValueError, "Expected DuckType.Integer for int32 value")
+proc newValue*(val: int32, isValid=true): Value =
+  result = Value(kind: DuckType.Integer, isValid: isValid, valueInteger: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: int64): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.BigInt:
-    result.valueBigint = val
-  else:
-    raise newException(ValueError, "Expected DuckType.BigInt for int64 value")
+proc newValue*(val: int64, isValid=true): Value =
+  result = Value(kind: DuckType.BigInt, isValid: isValid, valueBigint: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: Int128): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.HugeInt:
-    result.valueHugeint = val
-  else:
-    raise newException(ValueError, "Expected DuckType.HugeInt for int64 value")
+proc newValue*(val: Int128, isValid=true): Value =
+  result = Value(kind: DuckType.HugeInt, isValid: isValid, valueHugeInt: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: uint8): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.UTinyInt:
-    result.valueUTinyint = val
-  else:
-    raise newException(ValueError, "Expected DuckType.UTinyInt for uint8 value")
+proc newValue*(val: uint8, isValid=true): Value =
+  result = Value(kind: DuckType.UTinyInt, isValid: isValid, valueUTinyint: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: uint16): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.USmallInt:
-    result.valueUSmallint = val
-  else:
-    raise newException(ValueError, "Expected DuckType.USmallInt for uint16 value")
+proc newValue*(val: uint16, isValid=true): Value =
+  result = Value(kind: DuckType.USmallInt, isValid: isValid, valueUSmallint: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: uint32): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.UInteger:
-    result.valueUInteger = val
-  else:
-    raise newException(ValueError, "Expected DuckType.UInteger for uint32 value")
+proc newValue*(val: uint32, isValid=true): Value =
+  result = Value(kind: DuckType.UInteger, isValid: isValid, valueUInteger: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: uint64): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.UBigInt:
-    result.valueUBigint = val
-  else:
-    raise newException(ValueError, "Expected DuckType.UBigInt for uint64 value")
+proc newValue*(val: uint64, isValid=true): Value =
+  result = Value(kind: DuckType.UBigInt, isValid: isValid, valueUBigint: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: float32): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.Float:
-    result.valueFloat = val
-  else:
-    raise newException(ValueError, "Expected DuckType.Float for float32 value")
+proc newValue*(val: float32, isValid=true): Value =
+  result = Value(kind: DuckType.Float, isValid: isValid, valueFloat: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: float64): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.Double:
-    result.valueDouble = val
-  else:
-    raise newException(ValueError, "Expected DuckType.Double for float64 value")
+proc newValue*(val: float64, isValid=true): Value =
+  result = Value(kind: DuckType.Double, isValid: isValid, valueDouble: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: DateTime): Value =
+proc newValue*(val: DateTime, kind: DuckType, isValid=true): Value =
   result = Value(kind: kind, isValid: isValid)
   case kind
   of DuckType.Timestamp:
@@ -204,65 +156,38 @@ proc newValue*(kind: DuckType, isValid: bool, val: DateTime): Value =
       ValueError, "Expected DuckType.Timestamp, Date, or Timestamp variants"
     )
 
-proc newValue*(kind: DuckType, isValid: bool, val: Time): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.Time:
-    result.valueTime = val
-  else:
-    raise newException(ValueError, "Expected DuckType.Time for Time value")
+proc newValue*(val: Time, isValid=true): Value =
+  result = Value(kind: DuckType.Time, isValid: isValid, valueTime: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: ZonedTime): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.TimeTz:
-    result.valueTimeTz = val
-  else:
-    raise newException(ValueError, "Expected DuckType.Time for Time value")
+proc newValue*(val: ZonedTime, isValid=true): Value =
+  result = Value(kind: DuckType.TimeTz, isValid: isValid, valueTimeTz: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: TimeInterval): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.Interval:
-    result.valueInterval = val
-  else:
-    raise newException(ValueError, "Expected DuckType.Interval for TimeInterval value")
+proc newValue*(val: TimeInterval, isValid=true): Value =
+  result = Value(kind: DuckType.Interval, isValid: isValid, valueInterval: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: string): Value =
+proc newValue*(val: string, isValid=true): Value =
+  result = Value(kind: DuckType.Varchar, isValid: isValid, valueVarchar: val)
+
+proc newValue*(val: string, kind: DuckType, isValid=true): Value =
   result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.Varchar:
-    result.valueVarchar = val
-  elif kind == DuckType.Bit:
+  if kind == DuckType.Bit:
     result.valueBit = val
   else:
-    raise newException(ValueError, "Expected DuckType.Varchar or Bit for string value")
+    raise newException(ValueError, "Expected DuckType.Bit for string value with kind specified")
 
-proc newValue*(kind: DuckType, isValid: bool, val: seq[byte]): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.Blob:
-    result.valueBlob = val
-  else:
-    raise newException(ValueError, "Expected DuckType.Blob for seq[byte] value")
+proc newValue*(val: seq[byte], isValid=true): Value =
+  result = Value(kind: DuckType.Blob, isValid: isValid, valueBlob: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: DecimalType): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.Decimal:
-    result.valueDecimal = val
-  else:
-    raise newException(ValueError, "Expected DuckType.Decimal for DecimalType value")
+proc newValue*(val: DecimalType, isValid=true): Value =
+  result = Value(kind: DuckType.Decimal, isValid: isValid, valueDecimal: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: uint): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.Enum:
-    result.valueEnum = val
-  else:
-    raise newException(ValueError, "Expected DuckType.Enum for uint value")
+proc newValue*(val: uint, kind: DuckType, isValid=true): Value =
+  result = Value(kind: DuckType.Enum, isValid: isValid, valueEnum: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: seq[Value]): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.List:
-    result.valueList = val
-  else:
-    raise newException(ValueError, "Expected DuckType.List for seq[Value] value")
+proc newValue*(val: seq[Value], isValid=true): Value =
+  result = Value(kind: DuckType.List, isValid: isValid, valueList: val)
 
-proc newValue*(kind: DuckType, isValid: bool, val: Table[string, Value]): Value =
+proc newValue*(val: Table[string, Value], kind: DuckType, isValid=true): Value =
   result = Value(kind: kind, isValid: isValid)
   if kind == DuckType.Struct:
     result.valueStruct = val
@@ -276,12 +201,8 @@ proc newValue*(kind: DuckType, isValid: bool, val: Table[string, Value]): Value 
       "Expected DuckType.Struct or Map or Union for Table[string, Value] value",
     )
 
-proc newValue*(kind: DuckType, isValid: bool, val: Uuid): Value =
-  result = Value(kind: kind, isValid: isValid)
-  if kind == DuckType.UUID:
-    result.valueUuid = val
-  else:
-    raise newException(ValueError, "Expected DuckType.Enum for uint value")
+proc newValue*(val: Uuid, isValid=true): Value =
+  result = Value(kind: DuckType.UUID, isValid: isValid, valueUuid: val)
 
 # Default constructor for Invalid type
 proc newValue*(kind: DuckType, isValid: bool): Value =

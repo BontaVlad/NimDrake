@@ -2,7 +2,6 @@ import std/[unittest, sequtils, sugar]
 import ../../src/[api, database, query, query_result, vector, table_functions, types]
 
 suite "table_functions":
-
   test "Iterator with one parameter":
     let con = connect()
 
@@ -19,7 +18,7 @@ suite "table_functions":
     let con = connect()
 
     # providing a default will do nothing
-    iterator countToN(count, step: int, val: int=3): int {.producer, closure.} =
+    iterator countToN(count, step: int, val: int = 3): int {.producer, closure.} =
       for i in countUp(0, count, step):
         yield val
 

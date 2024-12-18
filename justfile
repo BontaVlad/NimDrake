@@ -62,7 +62,7 @@ coverage:
     lcov ${LCOV_ARGS} --remove "${FILEINFO}" "${CURRENT_DIR}/tests/*" -o "${FILEINFO}"
 
     # Generate HTML report
-    genhtml --branch-coverage --ignore-errors range --legend --output-directory coverage/ "${FILEINFO}"
+    genhtml --branch-coverage --ignore-errors missing,range,corrupt,inconsistent --legend --output-directory coverage/ "${FILEINFO}"
 
 # Generate test coverage
 test:

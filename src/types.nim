@@ -158,9 +158,12 @@ proc `=destroy`*(ltp: LogicalTypeBase) =
   if not isNil(ltp.addr) and not isNil(ltp.handle.addr):
     duckdb_destroy_logical_type(ltp.handle.addr)
 
-proc `=destroy`(d: DataChunkBase) =
-  if not isNil(d.addr) and not isNil(d.handle.addr) and d.shouldDestroy:
-    duckdbdestroydatachunk(d.handle.addr)
+proc `=destroy`(d: var DataChunkBase) =
+  # I have no ideea why without this
+  # there is a memory leak
+  d.columns = newSeq[Column]()
+  if d.handle != nil and d.shouldDestroy:
+    duckdb_destroy_datachunk(d.handle.addr)
 
 proc `=destroy`(qresult: QueryResult) =
   if not isNil(qresult.addr):
@@ -342,7 +345,6 @@ proc newDuckType*(node: NimNode): DuckType =
     result = newDuckType(void)
   else:
     raise newException(ValueError, fmt"invalid type {kind}")
-
 
 proc newLogicalType*(i: duckdb_logical_type): LogicalType =
   result = LogicalType(handle: i)

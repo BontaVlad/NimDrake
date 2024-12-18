@@ -226,65 +226,65 @@ proc vecToValue*(vec: Vector, idx: int): Value =
   of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
     raise newException(ValueError, fmt"got invalid enum type: {vec.kind}")
   of DuckType.Boolean:
-    result = newValue(vec.kind, isValid, vec.valueBoolean[idx])
+    result = newValue(vec.valueBoolean[idx], isValid)
   of DuckType.TinyInt:
-    result = newValue(vec.kind, isValid, vec.valueTinyint[idx])
+    result = newValue(vec.valueTinyint[idx], isValid)
   of DuckType.SmallInt:
-    result = newValue(vec.kind, isValid, vec.valueSmallint[idx])
+    result = newValue(vec.valueSmallint[idx], isValid)
   of DuckType.Integer:
-    result = newValue(vec.kind, isValid, vec.valueInteger[idx])
+    result = newValue(vec.valueInteger[idx], isValid)
   of DuckType.BigInt:
-    result = newValue(vec.kind, isValid, vec.valueBigint[idx])
+    result = newValue(vec.valueBigint[idx], isValid)
   of DuckType.UTinyInt:
-    result = newValue(vec.kind, isValid, vec.valueUTinyint[idx])
+    result = newValue(vec.valueUTinyint[idx], isValid)
   of DuckType.USmallInt:
-    result = newValue(vec.kind, isValid, vec.valueUSmallint[idx])
+    result = newValue(vec.valueUSmallint[idx], isValid)
   of DuckType.UInteger:
-    result = newValue(vec.kind, isValid, vec.valueUInteger[idx])
+    result = newValue(vec.valueUInteger[idx], isValid)
   of DuckType.UBigInt:
-    result = newValue(vec.kind, isValid, vec.valueUBigint[idx])
+    result = newValue(vec.valueUBigint[idx], isValid)
   of DuckType.Float:
-    result = newValue(vec.kind, isValid, vec.valueFloat[idx])
+    result = newValue(vec.valueFloat[idx], isValid)
   of DuckType.Double:
-    result = newValue(vec.kind, isValid, vec.valueDouble[idx])
+    result = newValue(vec.valueDouble[idx], isValid)
   of DuckType.Timestamp:
-    result = newValue(vec.kind, isValid, vec.valueTimestamp[idx])
+    result = newValue(vec.valueTimestamp[idx], vec.kind , isValid)
   of DuckType.TimestampS:
-    result = newValue(vec.kind, isValid, vec.valueTimestampS[idx])
+    result = newValue(vec.valueTimestampS[idx], vec.kind, isValid)
   of DuckType.TimestampMs:
-    result = newValue(vec.kind, isValid, vec.valueTimestampMs[idx])
+    result = newValue(vec.valueTimestampMs[idx], vec.kind, isValid, )
   of DuckType.TimestampNs:
-    result = newValue(vec.kind, isValid, vec.valueTimestampNs[idx])
+    result = newValue(vec.valueTimestampNs[idx], vec.kind, isValid)
   of DuckType.Date:
-    result = newValue(vec.kind, isValid, vec.valueDate[idx])
+    result = newValue(vec.valueDate[idx], vec.kind, isValid)
   of DuckType.Time:
-    result = newValue(vec.kind, isValid, vec.valueTime[idx])
+    result = newValue(vec.valueTime[idx], isValid)
   of DuckType.Interval:
-    result = newValue(vec.kind, isValid, vec.valueInterval[idx])
+    result = newValue(vec.valueInterval[idx], isValid)
   of DuckType.HugeInt:
-    result = newValue(vec.kind, isValid, vec.valueHugeint[idx])
+    result = newValue(vec.valueHugeint[idx], isValid)
   of DuckType.Varchar:
-    result = newValue(vec.kind, isValid, vec.valueVarchar[idx])
+    result = newValue(vec.valueVarchar[idx], isValid)
   of DuckType.Blob:
-    result = newValue(vec.kind, isValid, vec.valueBlob[idx])
+    result = newValue(vec.valueBlob[idx], isValid)
   of DuckType.Decimal:
-    result = newValue(vec.kind, isValid, vec.valueDecimal[idx])
+    result = newValue(vec.valueDecimal[idx], isValid)
   of DuckType.Enum:
-    result = newValue(vec.kind, isValid, vec.valueEnum[idx])
+    result = newValue(vec.valueEnum[idx], isValid)
   of DuckType.List:
-    result = newValue(vec.kind, isValid, vec.valueList[idx])
+    result = newValue(vec.valueList[idx], isValid)
   of DuckType.Struct:
-    result = newValue(vec.kind, isValid, vec.valueStruct[idx])
+    result = newValue(vec.valueStruct[idx], vec.kind, isValid)
   of DuckType.Map:
-    result = newValue(vec.kind, isValid, vec.valueMap[idx])
+    result = newValue(vec.valueMap[idx], vec.kind, isValid)
   of DuckType.UUID:
-    result = newValue(vec.kind, isValid, vec.valueUuid[idx])
+    result = newValue(vec.valueUuid[idx], isValid)
   of DuckType.Union:
-    result = newValue(vec.kind, isValid, vec.valueUnion[idx])
+    result = newValue(vec.valueUnion[idx], vec.kind, isValid)
   of DuckType.Bit:
-    result = newValue(vec.kind, isValid, vec.valueBit[idx])
+    result = newValue(vec.valueBit[idx], vec.kind, isValid)
   of DuckType.TimeTz:
-    result = newValue(vec.kind, isValid, vec.valueTimeTz[idx])
+    result = newValue(vec.valueTimeTz[idx], isValid)
 
 iterator items*(vec: Vector): Value =
   for idx in 0 ..< vec.len:

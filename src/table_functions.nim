@@ -111,7 +111,7 @@ proc newTableFunction*(
 proc arguments(params: seq[NimNode]): seq[NimNode] =
   for param in params[1 ..^ 1]:
     let tp = param[^2]
-    for p in param[0..^3]:
+    for p in param[0 ..^ 3]:
       if param[^1].kind == nnkEmpty:
         result.add(newIdentDefs(ident($p), tp))
       else:
@@ -133,16 +133,17 @@ proc createBindData(name: NimNode, params: seq[NimNode]): NimNode =
               objFields
 
 proc createInitData(name: NimNode): NimNode =
-  result = quote do:
-    type
-      `name` = ref object
-        pos: int
-        exausted: bool
+  result = quote:
+    type `name` = ref object
+      pos: int
+      exausted: bool
 
-
-proc createBindFunctionStmt(returnColumnName: string, bindDataName, bindFunctionName: NimNode, params: seq[NimNode], producerReturnType: DuckType): NimNode =
-
-
+proc createBindFunctionStmt(
+    returnColumnName: string,
+    bindDataName, bindFunctionName: NimNode,
+    params: seq[NimNode],
+    producerReturnType: DuckType,
+): NimNode =
   let typeToField = {
     DuckType.Invalid: ident"valueInvalid",
     DuckType.ANY: ident"valueInvalid",
@@ -185,26 +186,31 @@ proc createBindFunctionStmt(returnColumnName: string, bindDataName, bindFunction
   let paramSeqName = ident"parameter"
   for param in params[1 ..^ 1]:
     let tp = param[^2]
-    for p in param[0..^3]:
+    for p in param[0 ..^ 3]:
       let i = newLit paramCount
       let tp = ident typeToField[newDuckType(tp)]
-      let node = newNimNode(nnkExprColonExpr).add(p, quote do: `paramSeqName`[`i`].`tp`)
+      let node = newNimNode(nnkExprColonExpr).add(
+          p,
+          quote do:
+            `paramSeqName`[`i`].`tp`,
+        )
       bindDataCreateStmt.add(node)
       paramCount += 1
 
-  result = quote do:
+  result = quote:
     proc `bindFunctionName`(info: BindInfo) =
       info.add_result_column(`returnColumnName`, `producerReturnType`)
       let
         `paramSeqName` = info.parameters.toSeq
         data = `bindDataCreateStmt`
       GC_ref(data)
-      duckdb_bind_set_bind_data(info.handle, cast[ptr `bindDataName`](data), destroyBind)
+      duckdb_bind_set_bind_data(
+        info.handle, cast[ptr `bindDataName`](data), destroyBind
+      )
 
 # TODO: prototype code, take what is in scalar functions and build some abstractions
 # from what we learn here
 macro producer*(body: typed): untyped =
-
   # will be refactored out(duplicated from scalar_functions.nim)
 
   if body.kind != nnkIteratorDef:
@@ -241,33 +247,37 @@ macro producer*(body: typed): untyped =
   let bindDataNode = createBindData(bindDataName, params)
   let initDataNode = createInitData(initDataName)
 
-  let typeDefinitions = quote("@") do:
-
-    `@bindDataNode`
-    `@initDataNode`
+  let typeDefinitions = quote("@"):
+    `@ bindDataNode`
+    `@ initDataNode`
 
     proc destroyBind(p: pointer) {.cdecl.} =
       `=destroy`(cast[@bindDataName](p))
 
     proc destroyInit(p: pointer) {.cdecl.} =
-      `=destroy`(cast[`@initDataName`](p))
+      `=destroy`(cast[`@ initDataName`](p))
 
-  let bindFunctionStmt = createBindFunctionStmt(name, bindDataName, bindFunctionName, params, producerReturnType)
+  let bindFunctionStmt = createBindFunctionStmt(
+    name, bindDataName, bindFunctionName, params, producerReturnType
+  )
 
-  let initFunctionStmt = quote do:
+  let initFunctionStmt = quote:
     proc `initFunctionName`(info: InitInfo) =
       let data = `initDataName`(pos: 0, exausted: false)
       GC_ref(data)
-      duckdb_init_set_init_data(info.handle, cast[ptr `initDataName`](data), destroyInit)
+      duckdb_init_set_init_data(
+        info.handle, cast[ptr `initDataName`](data), destroyInit
+      )
 
   let producerFactory = newNimNode(nnkIteratorDef).add(
       producerCallback,
       newEmptyNode(),
       newEmptyNode(),
-      newNimNode(nnkFormalParams).add(returnTp).add(formalParams[1..^1]),
+      newNimNode(nnkFormalParams).add(returnTp).add(formalParams[1 ..^ 1]),
       pragmas,
       newEmptyNode(),
-      implementation)
+      implementation,
+    )
 
   let
     producerIteratorName = ident"producerIterator"
@@ -275,17 +285,14 @@ macro producer*(body: typed): untyped =
     producerIterator = newLetStmt(producerIteratorName, producerCallback)
     producerInvoke = newCall(producerIteratorName, producerArguments)
 
-
-  let mainFunctionStmt = quote do:
+  let mainFunctionStmt = quote:
     proc `mainFunctionName`(info: FunctionInfo, rawChunk: duckdb_datachunk) =
-
       var `bindDataSymName` = cast[`bindDataName`](duckdb_function_get_bind_data(info))
       var initInfo = cast[`initDataName`](duckdb_function_get_init_data(info))
 
       `producerFactory`
 
-      let
-        vecPtr = duckdb_data_chunk_get_vector(rawChunk, 0.idx_t)
+      let vecPtr = duckdb_data_chunk_get_vector(rawChunk, 0.idx_t)
 
       `producerIterator`
 
@@ -301,11 +308,13 @@ macro producer*(body: typed): untyped =
       duckdb_data_chunk_set_size(rawChunk, count.idx_t)
 
   var tableFunctionParameters = newSeq[NimNode]()
-  for param in params[1..^1]:
+  for param in params[1 ..^ 1]:
     let tp = param[^2]
-    for p in param[0..^3]:
+    for p in param[0 ..^ 3]:
       echo p.repr
-      tableFunctionParameters.add(newCall(bindSym"newLogicalType", newLit newDuckType(tp)))
+      tableFunctionParameters.add(
+        newCall(bindSym"newLogicalType", newLit newDuckType(tp))
+      )
 
   let tblFuncParams = buildAst(stmtList):
     Prefix:
@@ -313,7 +322,7 @@ macro producer*(body: typed): untyped =
       Bracket:
         tableFunctionParameters
 
-  let tableFunction = quote do:
+  let tableFunction = quote:
     let `producerName` = newTableFunction(
       name = `name`,
       parameters = `tblFuncParams`,
@@ -325,7 +334,6 @@ macro producer*(body: typed): untyped =
       extraData = nil,
       projectionPushdown = true,
     )
-
 
   result = nnkStmtList.newTree()
   result.add quote do:

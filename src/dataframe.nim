@@ -58,7 +58,10 @@ proc `[]`*(df: DataFrame, colName: string): Vector =
   let colIdx = df.columns.filter(c => c.name == colName).map(c => c.idx)
   if len(colIdx) == 0:
     let validColumnNames = df.columns.map(c => c.name)
-    raise newException(ValueError, fmt"Column with name {colName} does not exist, valid ones are {validColumnNames}")
+    raise newException(
+      ValueError,
+      fmt"Column with name {colName} does not exist, valid ones are {validColumnNames}",
+    )
   result = df.values[colIdx[0]]
 
 proc `$`*(df: DataFrame): string =
@@ -76,13 +79,13 @@ proc `$`*(df: DataFrame): string =
   if showIndex:
     headers.insert(newCell("#", pad = 2), 0)
     for i, row in rows.mpairs:
-      row.insert(newValue(DuckType.BigInt, true, i), 0)
+      row.insert(newValue(i), 0)
 
   if len(rows) > maxRows:
     let
       middleIdx = len(rows) div 2
       padding = min(middleIdx div 2, 5)
-      middleRow = newSeqWith(len(headers), newValue(DuckType.Varchar, true, "..."))
+      middleRow = newSeqWith(len(headers), newValue("..."))
     rows = rows[0 ..< padding] & middleRow & rows[len(rows) - padding .. ^1]
 
   t.setHeaders(headers)

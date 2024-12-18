@@ -41,4 +41,3 @@ proc `[]`*(chunk: DataChunk, colIdx: int): Vector =
     col = chunk.columns[colIdx]
     vec = duckdb_data_chunk_get_vector(chunk.handle, col.idx.idx_t)
   result = newVector(vec, 0, chunk.len, col.kind, col.logicalType)
-  echo result

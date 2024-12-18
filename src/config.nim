@@ -12,7 +12,6 @@ converter toBase*(c: Config): duckdbConfig =
   cast[duckdbConfig](c)
 
 proc `=destroy`*(conf: Config) =
-  echo "destroy called on config"
   if not isNil(conf.addr):
     duckdbDestroyConfig(conf.addr)
 

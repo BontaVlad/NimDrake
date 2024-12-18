@@ -9,7 +9,7 @@ suite "Test datachunk":
         newColumn(idx = 1, name = "name", kind = DuckType.Varchar),
         newColumn(idx = 2, name = "truth", kind = DuckType.Boolean),
       ]
-    var chunk = newDataChunk(columns=columns)
+    var chunk = newDataChunk(columns = columns)
     let
       intValues = @[1'i32, 2'i32, 3'i32]
       strValues = @["foo", "bar", "baz"]

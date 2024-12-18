@@ -175,6 +175,45 @@ echo duck.execute("SELECT i, powerTo(i, i) as powerTo FROM test_table")
 # │  5  │     64          │     8     │
 # └─────┴─────────────────┴───────────┘
 ```
+## DuckDB to Nim Type Mapping
+
+| **DuckType**         | **Nim Equivalent**           |
+|-----------------------|------------------------------|
+| `Invalid`            | `uint8`                     |
+| `ANY`                | `uint8`                     |
+| `VARINT`             | `uint8`                     |
+| `SQLNULL`            | `uint8`                     |
+| `Boolean`            | `seq[bool]`                 |
+| `TinyInt`            | `seq[int8]`                 |
+| `SmallInt`           | `seq[int16]`                |
+| `Integer`            | `seq[int32]`                |
+| `BigInt`             | `seq[int64]`                |
+| `UTinyInt`           | `seq[uint8]`                |
+| `USmallInt`          | `seq[uint16]`               |
+| `UInteger`           | `seq[uint32]`               |
+| `UBigInt`            | `seq[uint64]`               |
+| `Float`              | `seq[float32]`              |
+| `Double`             | `seq[float64]`              |
+| `Timestamp`          | `seq[DateTime]`             |
+| `Date`               | `seq[DateTime]`             |
+| `Time`               | `seq[Time]`                 |
+| `Interval`           | `seq[TimeInterval]`         |
+| `HugeInt`            | `seq[Int128]`               |
+| `Varchar`            | `seq[string]`               |
+| `Blob`               | `seq[seq[byte]]`            |
+| `Decimal`            | `seq[DecimalType]`          |
+| `TimestampS`         | `seq[DateTime]`             |
+| `TimestampMs`        | `seq[DateTime]`             |
+| `TimestampNs`        | `seq[DateTime]`             |
+| `Enum`               | `seq[uint]`                 |
+| `List`               | `seq[seq[Value]]`           |
+| `Struct`             | `seq[Table[string, Value]]` |
+| `Map`                | `seq[Table[string, Value]]` |
+| `UUID`               | `seq[Uuid]`                 |
+| `Union`              | `seq[Table[string, Value]]` |
+| `Bit`                | `seq[string]`               |
+| `TimeTz`             | `seq[ZonedTime]`            |
+
 ---
 
 ## Contribution
