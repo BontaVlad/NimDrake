@@ -183,36 +183,36 @@ echo duck.execute("SELECT i, powerTo(i, i) as powerTo FROM test_table")
 | `ANY`                | `uint8`                     |
 | `VARINT`             | `uint8`                     |
 | `SQLNULL`            | `uint8`                     |
-| `Boolean`            | `seq[bool]`                 |
-| `TinyInt`            | `seq[int8]`                 |
-| `SmallInt`           | `seq[int16]`                |
-| `Integer`            | `seq[int32]`                |
-| `BigInt`             | `seq[int64]`                |
-| `UTinyInt`           | `seq[uint8]`                |
-| `USmallInt`          | `seq[uint16]`               |
-| `UInteger`           | `seq[uint32]`               |
-| `UBigInt`            | `seq[uint64]`               |
-| `Float`              | `seq[float32]`              |
-| `Double`             | `seq[float64]`              |
-| `Timestamp`          | `seq[DateTime]`             |
-| `Date`               | `seq[DateTime]`             |
-| `Time`               | `seq[Time]`                 |
-| `Interval`           | `seq[TimeInterval]`         |
-| `HugeInt`            | `seq[Int128]`               |
-| `Varchar`            | `seq[string]`               |
-| `Blob`               | `seq[seq[byte]]`            |
-| `Decimal`            | `seq[DecimalType]`          |
-| `TimestampS`         | `seq[DateTime]`             |
-| `TimestampMs`        | `seq[DateTime]`             |
-| `TimestampNs`        | `seq[DateTime]`             |
-| `Enum`               | `seq[uint]`                 |
-| `List`               | `seq[seq[Value]]`           |
-| `Struct`             | `seq[Table[string, Value]]` |
-| `Map`                | `seq[Table[string, Value]]` |
-| `UUID`               | `seq[Uuid]`                 |
-| `Union`              | `seq[Table[string, Value]]` |
-| `Bit`                | `seq[string]`               |
-| `TimeTz`             | `seq[ZonedTime]`            |
+| `Boolean`            | `bool`                      |
+| `TinyInt`            | `int8`                      |
+| `SmallInt`           | `int16`                     |
+| `Integer`            | `int32`                     |
+| `BigInt`             | `int64`                     |
+| `UTinyInt`           | `uint8`                     |
+| `USmallInt`          | `uint16`                    |
+| `UInteger`           | `uint32`                    |
+| `UBigInt`            | `uint64`                    |
+| `Float`              | `float32`                   |
+| `Double`             | `float64`                   |
+| `Timestamp`          | `DateTime`                  |
+| `Date`               | `DateTime`                  |
+| `Time`               | `Time`                      |
+| `Interval`           | `TimeInterval`              |
+| `HugeInt`            | `Int128`                    |
+| `Varchar`            | `string`                    |
+| `Blob`               | `seq[byte]`                 |
+| `Decimal`            | `DecimalType`               |
+| `TimestampS`         | `DateTime`                  |
+| `TimestampMs`        | `DateTime`                  |
+| `TimestampNs`        | `DateTime`                  |
+| `Enum`               | `uint`                      |
+| `List`               | `seq[Value]`                |
+| `Struct`             | `Table[string, Value]`      |
+| `Map`                | `Table[string, Value]`      |
+| `UUID`               | `Uuid`                      |
+| `Union`              | `Table[string, Value]`      |
+| `Bit`                | `string`                    |
+| `TimeTz`             | `ZonedTime`                 |
 
 ---
 
