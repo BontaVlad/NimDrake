@@ -25,7 +25,7 @@ suite "table_functions":
 
     con.register(countToN)
 
-    let outcome = con.execute("SELECT * FROM countToN(9, 3)").fetchall()
+    let outcome = con.execute("SELECT * FROM countToN(9, 3, -1)").fetchall()
     check outcome[0].valueInteger == @[-1'i32, -1'i32, -1'i32, -1'i32]
 
   test "Iterator with multiple parameters, string output":

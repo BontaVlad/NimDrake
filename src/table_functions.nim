@@ -336,7 +336,6 @@ macro producer*(body: typed): untyped =
     `mainFunctionStmt`
 
     `tableFunction`
-  echo result.repr
 
 proc register*(con: Connection, fun: TableFunction) =
   check(duckdb_register_table_function(con, fun.handle), "Failed to regiter function")

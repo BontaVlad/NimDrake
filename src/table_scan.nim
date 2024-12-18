@@ -67,7 +67,7 @@ proc scanColumn(
     kind: DuckType,
     values: Vector,
     rowOffset, scanCount, resultIdx: int,
-    chunk: DataChunk,
+    chunk: duckdb_data_chunk,
 ) =
   let vec = duckdb_data_chunk_get_vector(chunk, resultIdx.idx_t)
 
@@ -218,7 +218,7 @@ proc initLocalFunction(info: InitInfo) =
   GC_ref(data)
   duckdb_init_set_init_data(info.handle, cast[ptr LocalData](data), destroyLocalData)
 
-proc mainFunction(info: FunctionInfo, chunk: DataChunk) =
+proc mainFunction(info: FunctionInfo, chunk: duckdb_data_chunk) =
   let bindInfo = cast[BindData](duckdb_function_get_bind_data(info))
   var
     globalData = cast[GlobalData](duckdb_function_get_init_data(info))
@@ -254,8 +254,8 @@ proc mainFunction(info: FunctionInfo, chunk: DataChunk) =
     )
     resultIdx += 1
 
-  GC_ref(chunk)
-  duckdb_data_chunk_set_size(chunk.handle, scanCount.idx_t)
+  # GC_ref(chunk)
+  duckdb_data_chunk_set_size(chunk, scanCount.idx_t)
 
 proc newExtraData(): ExtraData =
   result = ExtraData(data: initTable[string, DataFrame]())
