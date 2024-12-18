@@ -224,11 +224,21 @@ Talk about justfiles and the commands
 
 ## Acknowledgments
 
+# Acknowledgements
+
+This project relies on several Nim packages:
+
+- [Nim](https://nim-lang.org/) (version 2.0.0 or higher)
+- [futhark](https://github.com/arnetheduck/nim-futhark)
+- [nint128](https://github.com/cheatfate/nim-nint128)
+- [decimal](https://github.com/ba0f3/decimal) (version 0.0.2 or higher)
+- [terminaltables](https://github.com/ThomasTJdev/nim-terminaltables) (version 0.1.1 or higher)
+- [uuid4](https://github.com/krux02/uuid4) (version 0.9.3 or higher)
+
 A special thanks to:
 
-- The **Nim programming community** for their support and inspiration.
-- Some third party libraries
-- Futhhark project
+- A lot of code ported from [Duckdb Julia](https://duckdb.org/docs/api/julia.html)
+- Futhark was a life saver
 
 Feel free to fork, contribute, and share this repository. 
 
