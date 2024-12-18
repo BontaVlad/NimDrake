@@ -176,7 +176,7 @@ echo duck.execute("SELECT i, powerTo(i, i) as powerTo FROM test_table")
 # └─────┴─────────────────┴───────────┘
 ```
 
-### Example 6: Using UDF(user defined functions)
+### Example 7: Using UDF as table generators
 
 ```nim
 
