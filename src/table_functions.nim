@@ -109,6 +109,7 @@ proc newTableFunction*(
   duckdb_table_function_supports_projection_pushdown(result.handle, projectionPushdown)
 
 proc arguments(params: seq[NimNode]): seq[NimNode] =
+  result = newSeq[NimNode]()
   for param in params[1 ..^ 1]:
     let tp = param[^2]
     for p in param[0 ..^ 3]:
@@ -140,7 +141,7 @@ proc createInitData(name: NimNode): NimNode =
 
 proc createBindFunctionStmt(
     returnColumnName: string,
-    bindDataName, bindFunctionName: NimNode,
+    bindDataName, bindFunctionName, destroyBindData: NimNode,
     params: seq[NimNode],
     producerReturnType: DuckType,
 ): NimNode =
@@ -205,7 +206,7 @@ proc createBindFunctionStmt(
         data = `bindDataCreateStmt`
       GC_ref(data)
       duckdb_bind_set_bind_data(
-        info.handle, cast[ptr `bindDataName`](data), destroyBind
+        info.handle, cast[ptr `bindDataName`](data), `destroyBindData`
       )
 
 # TODO: prototype code, take what is in scalar functions and build some abstractions
@@ -235,14 +236,18 @@ macro producer*(body: typed): untyped =
     params = formalParams.toSeq
     producerName = ident(name)
     producerCallback = ident(name & "callBack")
-    initFunctionName = ident("initFunction")
-    bindFunctionName = ident("bindFunction")
-    mainFunctionName = ident("mainFunction")
+    initFunctionName = genSym(nskProc, "initFunction")
+    bindFunctionName = genSym(nskProc, "bindFunction")
+    mainFunctionName = genSym(nskProc, "mainFunction")
     returnTp = params[0]
     producerReturnType = newDuckType(returnTp)
-    bindDataName = ident("BindData")
-    bindDataSymName = genSym(nskVar, $bindDataName)
-    initDataName = ident("InitData")
+    bindDataName = genSym(nskType, "BindData")
+    bindDataSymName = genSym(nskVar, "bindData")
+    initDataName = genSym(nskType, "InitData")
+    # destroyBindDataName = ident(genSym(nskProc, "destroyBind"))
+    destroyBindData = genSym(nskProc, "destroyBind")
+    # destroyInitDataName = genSym(nskProc, "destroyInit")
+    destroyInitData = genSym(nskProc, "destroyInit")
 
   let bindDataNode = createBindData(bindDataName, params)
   let initDataNode = createInitData(initDataName)
@@ -251,14 +256,14 @@ macro producer*(body: typed): untyped =
     `@ bindDataNode`
     `@ initDataNode`
 
-    proc destroyBind(p: pointer) {.cdecl.} =
+    proc `@destroyBindData`(p: pointer) {.cdecl.} =
       `=destroy`(cast[@bindDataName](p))
 
-    proc destroyInit(p: pointer) {.cdecl.} =
+    proc `@destroyInitData`(p: pointer) {.cdecl.} =
       `=destroy`(cast[`@ initDataName`](p))
 
   let bindFunctionStmt = createBindFunctionStmt(
-    name, bindDataName, bindFunctionName, params, producerReturnType
+    name, bindDataName, bindFunctionName, destroyBindData, params, producerReturnType
   )
 
   let initFunctionStmt = quote:
@@ -266,7 +271,7 @@ macro producer*(body: typed): untyped =
       let data = `initDataName`(pos: 0, exausted: false)
       GC_ref(data)
       duckdb_init_set_init_data(
-        info.handle, cast[ptr `initDataName`](data), destroyInit
+        info.handle, cast[ptr `initDataName`](data), `destroyInitData`
       )
 
   let producerFactory = newNimNode(nnkIteratorDef).add(
@@ -285,7 +290,7 @@ macro producer*(body: typed): untyped =
     producerIterator = newLetStmt(producerIteratorName, producerCallback)
     producerInvoke = newCall(producerIteratorName, producerArguments)
 
-  let mainFunctionStmt = quote:
+  let mainFunctionStmt = quote do:
     proc `mainFunctionName`(info: FunctionInfo, rawChunk: duckdb_datachunk) =
       var `bindDataSymName` = cast[`bindDataName`](duckdb_function_get_bind_data(info))
       var initInfo = cast[`initDataName`](duckdb_function_get_init_data(info))
@@ -344,6 +349,7 @@ macro producer*(body: typed): untyped =
     `mainFunctionStmt`
 
     `tableFunction`
+  echo result.repr
 
 proc register*(con: Connection, fun: TableFunction) =
   check(duckdb_register_table_function(con, fun.handle), "Failed to regiter function")

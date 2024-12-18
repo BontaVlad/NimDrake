@@ -17,7 +17,7 @@ suite "table_functions":
   test "Iterator with multiple parameters and default value":
     let con = connect()
 
-    # providing a default will do nothing
+    # providing a default will have no affect for now
     iterator countToN(count, step: int, val: int = 3): int {.producer, closure.} =
       for i in countUp(0, count, step):
         yield val
@@ -32,10 +32,8 @@ suite "table_functions":
 
     iterator progress(count: int, sigil: string): string {.producer, closure.} =
       var output = ""
-      var progress = 0
       for _ in 0 ..< count:
-        for _ in 0 .. progress:
-          output &= sigil
+        output &= sigil
         yield output
 
     con.register(progress)
@@ -44,7 +42,7 @@ suite "table_functions":
 
     check outcome[0].valueVarChar == @["#", "##", "###", "####", "#####"]
 
-  test "Infinite iterator":
+  test "Lazy iterator":
     let con = connect()
 
     iterator floatCounter(): float {.producer, closure.} =

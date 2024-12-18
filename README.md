@@ -175,6 +175,68 @@ echo duck.execute("SELECT i, powerTo(i, i) as powerTo FROM test_table")
 # │  5  │     64          │     8     │
 # └─────┴─────────────────┴───────────┘
 ```
+
+### Example 6: Using UDF(user defined functions)
+
+```nim
+
+let duck = connect()
+
+iterator countToN(count: int): int {.producer, closure.} =
+    for i in 0 ..< count:
+      yield i
+
+iterator progress(count: int, sigil: string): string {.producer, closure.} =
+    var output = ""
+    for _ in 0 ..< count:
+      output &= sigil
+      yield output
+
+iterator floatCounter(): float {.producer, closure.} =
+    var counter = 0.0
+    while true:
+      yield counter
+      counter += 1.0
+
+duck.register(floatCounter)
+
+duck.register(progress)
+
+duck.register(countToN)
+
+echo duck.execute("SELECT * FROM countToN(3)")
+echo duck.execute("SELECT * FROM progress(5, '#')")
+echo duck.execute("SELECT * FROM floatCounter() LIMIT 5;")
+
+# output:
+# ┌─────┬──────────────────┐
+# │  #  │     countToN     │
+# ├─────┼──────────────────┤
+# │  0  │     0            │
+# │  1  │     1            │
+# │  2  │     2            │
+# └─────┴──────────────────┘
+# 
+# ┌─────┬──────────────────┐
+# │  #  │     progress     │
+# ├─────┼──────────────────┤
+# │  0  │     #            │
+# │  1  │     ##           │
+# │  2  │     ###          │
+# │  3  │     ####         │
+# │  4  │     #####        │
+# └─────┴──────────────────┘
+# 
+# ┌─────┬──────────────────────┐
+# │  #  │     floatCounter     │
+# ├─────┼──────────────────────┤
+# │  0  │     0.0              │
+# │  1  │     1.0              │
+# │  2  │     2.0              │
+# │  3  │     3.0              │
+# │  4  │     4.0              │
+# └─────┴──────────────────────┘
+```
 ## DuckDB to Nim Type Mapping
 
 | **DuckType**         | **Nim Equivalent**           |
