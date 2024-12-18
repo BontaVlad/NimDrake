@@ -17,8 +17,8 @@ suite "Test scalar functions":
     con.execute("CREATE TABLE test_table AS SELECT i FROM range(3) t(i);")
     let outcome =
       con.execute("SELECT i, doubleValue(i, i) as doubled FROM test_table").fetchAll()
-    assert outcome[0].valueBigInt == @[0'i64, 1'i64, 2'i64]
-    assert outcome[1].valueBigInt == @[0'i64, 1'i64, 4'i64]
+    check outcome[0].valueBigInt == @[0'i64, 1'i64, 2'i64]
+    check outcome[1].valueBigInt == @[0'i64, 1'i64, 4'i64]
 
   test "Test scalar function with strings":
     let con = connect()

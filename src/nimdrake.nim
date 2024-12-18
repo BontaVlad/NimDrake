@@ -1,8 +1,5 @@
-import /[database, query, query_result, value]
-
-let duck = connect()
-
-echo duck.execute("SELECT * FROM range(100) AS example;")
+import std/[enumerate, strutils, tables, strformat, macros]
+import /[types, database, query, query_result]
 
 export database,
        query,

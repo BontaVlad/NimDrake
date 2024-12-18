@@ -4,10 +4,6 @@ import /[api, query_result, database, types, exceptions]
 
 include datachunk
 
-# include datachunk
-
-{.experimental: "caseStmtMacros".}
-
 type
   ScalarFunctionBase* = object of RootObj
     name*: string
@@ -142,7 +138,6 @@ macro scalar*(body: typed): untyped =
         newCall(bindSym"newDataChunk", ident("rawChunk"), columnsNode, newLit false),
       )
 
-      echo arguments
       for idx, p, tp in enumerate(arguments.pairs):
         let container = nnkBracketExpr.newTree(chunk, newLit idx)
         newLetStmt(ident p, newDotExpr(container, typeToField[tp]))

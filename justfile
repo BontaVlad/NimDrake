@@ -10,12 +10,6 @@ format:
         nph "$file"
     done
 
-# Watch for changes and format Nim files (optional helper recipe)
-watch:
-    #!/usr/bin/env bash
-    echo "Watching for .nim file changes..."
-    find . -type f -name "*.nim" | entr -c just format
-
 # Recursively format all Nim files in a specific directory
 format-dir directory:
     #!/usr/bin/env bash
@@ -23,10 +17,6 @@ format-dir directory:
         echo "Formatting $file..."
         nph "$file"
     done
-
-# List all Nim files that would be formatted
-list-nim-files:
-    find . -type f -name "*.nim"
 
 # Generate test coverage
 coverage:

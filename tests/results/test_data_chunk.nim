@@ -18,9 +18,9 @@ suite "Test datachunk":
     chunk[0] = intValues
     chunk[1] = strValues
     chunk[2] = boolValues
-    assert chunk.len == len(intValues)
+    check chunk.len == len(intValues)
 
-    assert bool(chunk) is bool
-    assert chunk[0].valueInteger == intValues
-    assert chunk[1].valueVarchar == strValues
-    assert chunk[2].valueBoolean == boolValues
+    check bool(chunk) is bool
+    check chunk[0].valueInteger == intValues
+    check chunk[1].valueVarchar == strValues
+    check chunk[2].valueBoolean == boolValues

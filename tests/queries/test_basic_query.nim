@@ -21,8 +21,8 @@ suite "tests":
       "INSERT INTO combined VALUES (6, 'foo'), (5, 'bar'), (?, ?);", ("7", "baz")
     )
     let outcome = con.execute("SELECT * FROM combined").fetchall()
-    assert outcome[0].valueInteger == @[6'i32, 5'i32, 7'i32]
-    assert outcome[1].valueVarChar == @["foo", "bar", "baz"]
+    check outcome[0].valueInteger == @[6'i32, 5'i32, 7'i32]
+    check outcome[1].valueVarChar == @["foo", "bar", "baz"]
 
   test "Insert with appender":
     let con = connect()
@@ -30,8 +30,8 @@ suite "tests":
     let expected = @[@["6", "4"], @["5", "6"], @["7", "8"]]
     con.appender("integers", expected)
     let outcome = con.execute("SELECT * FROM integers").fetchall()
-    assert outcome[0].valueInteger == @[6'i32, 5'i32, 7'i32]
-    assert outcome[1].valueInteger == @[4'i32, 6'i32, 8'i32]
+    check outcome[0].valueInteger == @[6'i32, 5'i32, 7'i32]
+    check outcome[1].valueInteger == @[4'i32, 6'i32, 8'i32]
 
   test "Insert with all appenders":
     let con = connect()
@@ -75,18 +75,18 @@ suite "tests":
 
     # Fetch the data and verify correctness
     let outcome = con.execute("SELECT * FROM foo_table").fetchall()
-    assert outcome[0].valueBoolean == @[true]
-    assert outcome[1].valueTinyInt == @[-128'i8]
-    assert outcome[2].valueSmallInt == @[32767'i16]
-    assert outcome[3].valueInteger == @[-2147483648'i32]
-    assert outcome[4].valueBigInt == @[9223372036854775807'i64]
-    assert outcome[5].valueUTinyInt == @[255'u8]
-    assert outcome[6].valueUSmallInt == @[65535'u16]
-    assert outcome[7].valueUInteger == @[4294967295'u32]
-    assert outcome[8].valueUBigInt == @[18446744073709551615'u64]
-    assert outcome[9].valueFloat == @[3.14'f32]
-    assert outcome[10].valueDouble == @[3.14159265359'f64]
-    assert outcome[11].valueVarChar == @["hello"]
+    check outcome[0].valueBoolean == @[true]
+    check outcome[1].valueTinyInt == @[-128'i8]
+    check outcome[2].valueSmallInt == @[32767'i16]
+    check outcome[3].valueInteger == @[-2147483648'i32]
+    check outcome[4].valueBigInt == @[9223372036854775807'i64]
+    check outcome[5].valueUTinyInt == @[255'u8]
+    check outcome[6].valueUSmallInt == @[65535'u16]
+    check outcome[7].valueUInteger == @[4294967295'u32]
+    check outcome[8].valueUBigInt == @[18446744073709551615'u64]
+    check outcome[9].valueFloat == @[3.14'f32]
+    check outcome[10].valueDouble == @[3.14159265359'f64]
+    check outcome[11].valueVarChar == @["hello"]
 
   test "Insert with already made prepared statement":
     let con = connect()
@@ -130,15 +130,15 @@ suite "tests":
       ),
     )
     let outcome = con.execute("SELECT * FROM prepared_table").fetchall()
-    assert outcome[0].valueBoolean == @[true]
-    assert outcome[1].valueTinyInt == @[-128'i8]
-    assert outcome[2].valueSmallInt == @[32767'i16]
-    assert outcome[3].valueInteger == @[-2147483648'i32]
-    assert outcome[4].valueBigInt == @[9223372036854775807'i64]
-    assert outcome[5].valueUTinyInt == @[255'u8]
-    assert outcome[6].valueUSmallInt == @[65535'u16]
-    assert outcome[7].valueUInteger == @[4294967295'u32]
-    assert outcome[8].valueUBigInt == @[18446744073709551615'u64]
-    assert outcome[9].valueFloat == @[3.14'f32]
-    assert outcome[10].valueDouble == @[3.14159265359'f64]
-    assert outcome[11].valueVarChar == @["hello"]
+    check outcome[0].valueBoolean == @[true]
+    check outcome[1].valueTinyInt == @[-128'i8]
+    check outcome[2].valueSmallInt == @[32767'i16]
+    check outcome[3].valueInteger == @[-2147483648'i32]
+    check outcome[4].valueBigInt == @[9223372036854775807'i64]
+    check outcome[5].valueUTinyInt == @[255'u8]
+    check outcome[6].valueUSmallInt == @[65535'u16]
+    check outcome[7].valueUInteger == @[4294967295'u32]
+    check outcome[8].valueUBigInt == @[18446744073709551615'u64]
+    check outcome[9].valueFloat == @[3.14'f32]
+    check outcome[10].valueDouble == @[3.14159265359'f64]
+    check outcome[11].valueVarChar == @["hello"]

@@ -138,7 +138,7 @@ duck.execute(
 )
 
 let prepared = duck.newStatement("INSERT INTO prepared_table VALUES (?, ?, ?, ?);")
-duck.execute(prepared, (true, int32(-2147483648), float64(3.14159265359'f64), "hello"))
+duck.execute(prepared, (true, -2147483648'i32, 3.14159265359'f64, "hello"))
 echo duck.execute("SELECT * FROM prepared_table;")
 
 # output:
@@ -155,17 +155,17 @@ echo duck.execute("SELECT * FROM prepared_table;")
 ```nim
 let duck = connect()
 
-template doubleValue(val, bar: int64): int64 {.scalar.} =
+template powerTo(val, bar: int64): int64 {.scalar.} =
   result = val * bar
 
-duck.register(doubleValue)
+duck.register(powerTo)
 
 duck.execute("CREATE TABLE test_table AS SELECT i FROM range(3, 9) t(i);")
-echo duck.execute("SELECT i, doubleValue(i, i) as doubled FROM test_table")
+echo duck.execute("SELECT i, powerTo(i, i) as powerTo FROM test_table")
 
 # output:
 # ┌─────┬─────────────────┬───────────┐
-# │  #  │     doubled     │     i     │
+# │  #  │     powerTo     │     i     │
 # ├─────┼─────────────────┼───────────┤
 # │  0  │     9           │     3     │
 # │  1  │     16          │     4     │
@@ -174,7 +174,6 @@ echo duck.execute("SELECT i, doubleValue(i, i) as doubled FROM test_table")
 # │  4  │     49          │     7     │
 # │  5  │     64          │     8     │
 # └─────┴─────────────────┴───────────┘
-
 ```
 ---
 

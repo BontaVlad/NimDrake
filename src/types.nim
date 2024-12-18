@@ -324,7 +324,7 @@ proc newDuckType*(node: NimNode): DuckType =
     result = newDuckType(uint64)
   of "float32":
     result = newDuckType(float32)
-  of "float64":
+  of "float64", "float":
     result = newDuckType(float64)
   of "string":
     result = newDuckType(string)
