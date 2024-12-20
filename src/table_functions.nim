@@ -256,10 +256,10 @@ macro producer*(body: typed): untyped =
     `@ bindDataNode`
     `@ initDataNode`
 
-    proc `@destroyBindData`(p: pointer) {.cdecl.} =
+    proc `@ destroyBindData`(p: pointer) {.cdecl.} =
       `=destroy`(cast[@bindDataName](p))
 
-    proc `@destroyInitData`(p: pointer) {.cdecl.} =
+    proc `@ destroyInitData`(p: pointer) {.cdecl.} =
       `=destroy`(cast[`@ initDataName`](p))
 
   let bindFunctionStmt = createBindFunctionStmt(
@@ -290,7 +290,7 @@ macro producer*(body: typed): untyped =
     producerIterator = newLetStmt(producerIteratorName, producerCallback)
     producerInvoke = newCall(producerIteratorName, producerArguments)
 
-  let mainFunctionStmt = quote do:
+  let mainFunctionStmt = quote:
     proc `mainFunctionName`(info: FunctionInfo, rawChunk: duckdb_datachunk) =
       var `bindDataSymName` = cast[`bindDataName`](duckdb_function_get_bind_data(info))
       var initInfo = cast[`initDataName`](duckdb_function_get_init_data(info))
@@ -349,7 +349,6 @@ macro producer*(body: typed): untyped =
     `mainFunctionStmt`
 
     `tableFunction`
-  echo result.repr
 
 proc register*(con: Connection, fun: TableFunction) =
   check(duckdb_register_table_function(con, fun.handle), "Failed to regiter function")

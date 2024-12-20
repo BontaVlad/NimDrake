@@ -34,14 +34,8 @@ proc `=destroy`*(statement: Statement) =
     duckdbDestroyPrepare(statement.addr)
 
 proc newStatement*(con: Connection, query: Query): Statement =
-  # consoleLogger.log(lvlDebug, fmt"Creating statement {query}")
   check(duckdbPrepare(con, query, result.addr), "Failed to create prepared statement")
 
-# proc `$`*(stmt: Statement): string =
-#   echo repr stmt
-#   result = $cast[cstring](stmt)
-
-# duckdb_state duckdb_bind_value(duckdb_prepared_statement prepared_statement, idx_t param_idx, duckdb_value val);
 # duckdb_state duckdb_bind_parameter_index(duckdb_prepared_statement prepared_statement, idx_t *param_idx_out, const char *name);
 # duckdb_state duckdb_bind_hugeint(duckdb_prepared_statement prepared_statement, idx_t param_idx, duckdb_hugeint val);
 # duckdb_state duckdb_bind_uhugeint(duckdb_prepared_statement prepared_statement, idx_t param_idx, duckdb_uhugeint val);
@@ -94,6 +88,10 @@ template bind_val(statement: Statement, i: idx_t, val: float64): Error =
 template bind_val(statement: Statement, i: idx_t, val: string): Error =
   duckdb_bind_varchar(statement, i, val.cstring)
 
+template bind_val(statement: Statement, i: idx_t, val: Value): Error =
+  duckdb_bind_value(statement, i, val.toNativeValue.handle)
+
+# duckdb_state duckdb_bind_value(duckdb_prepared_statement prepared_statement, idx_t param_idx, duckdb_value val);
 proc execute*[T: Values](
     con: Connection, statement: Statement, args: T
 ): QueryResult {.discardable.} =

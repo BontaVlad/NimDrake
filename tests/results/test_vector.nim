@@ -1,7 +1,47 @@
 import std/[unittest, times]
-import ../../src/[types, vector, value]
+import ../../src/[api, types, vector, datachunk, query_result]
 
-suite "Tests Vector":
+suite "Vector from datachunk column":
+  let
+    intColumn = newColumn(idx = 0, name = "index", kind = DuckType.Integer)
+    varCharColumn = newColumn(idx = 1, name = "name", kind = DuckType.Varchar)
+    boolColumn = newColumn(idx = 2, name = "truth", kind = DuckType.Boolean)
+
+  let
+    intValues = @[10'i32, 20'i32]
+    varCharValues = @["same", "different"]
+    boolValues = @[true, false]
+
+  let columns = @[intColumn, varCharColumn, boolColumn]
+  var chunk = newDataChunk(columns = columns)
+
+  chunk[intColumn.idx] = intValues
+  chunk[varCharColumn.idx] = varCharValues
+  chunk[boolColumn.idx] = boolValues
+
+  test "new integer vector":
+    let
+      rawVec = duckdb_data_chunk_get_vector(chunk.handle, intColumn.idx.idx_t)
+      chunkSize = duckdb_data_chunk_get_size(chunk.handle).int
+      vec = newVector(rawVec, 0, chunk_size, intColumn.kind, intColumn.logicalType)
+    check vec.valueInteger == intValues
+
+  test "new varchar vector":
+    let
+      rawVec = duckdb_data_chunk_get_vector(chunk.handle, varCharColumn.idx.idx_t)
+      chunkSize = duckdb_data_chunk_get_size(chunk.handle).int
+      vec =
+        newVector(rawVec, 0, chunk_size, varCharColumn.kind, varCharColumn.logicalType)
+    check vec.valueVarchar == varCharValues
+
+  test "new bool vector":
+    let
+      rawVec = duckdb_data_chunk_get_vector(chunk.handle, boolColumn.idx.idx_t)
+      chunkSize = duckdb_data_chunk_get_size(chunk.handle).int
+      vec = newVector(rawVec, 0, chunk_size, boolColumn.kind, boolColumn.logicalType)
+    check vec.valueBoolean == boolValues
+
+suite "Vector from nim native types":
   test "Test newDuckType from typedesc":
     let kind = newDuckType(int)
     assert kind == DuckType.Integer

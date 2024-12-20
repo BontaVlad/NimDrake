@@ -248,11 +248,11 @@ proc vecToValue*(vec: Vector, idx: int): Value =
   of DuckType.Double:
     result = newValue(vec.valueDouble[idx], isValid)
   of DuckType.Timestamp:
-    result = newValue(vec.valueTimestamp[idx], vec.kind , isValid)
+    result = newValue(vec.valueTimestamp[idx], vec.kind, isValid)
   of DuckType.TimestampS:
     result = newValue(vec.valueTimestampS[idx], vec.kind, isValid)
   of DuckType.TimestampMs:
-    result = newValue(vec.valueTimestampMs[idx], vec.kind, isValid, )
+    result = newValue(vec.valueTimestampMs[idx], vec.kind, isValid)
   of DuckType.TimestampNs:
     result = newValue(vec.valueTimestampNs[idx], vec.kind, isValid)
   of DuckType.Date:
@@ -591,7 +591,6 @@ proc newVector*(
           logicalType = child_type,
         )
 
-      # echo child_name
       vectorStruct[$child_name] = child
     result.valueStruct = collect:
       for i in offset ..< size:

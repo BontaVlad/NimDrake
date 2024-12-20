@@ -1,5 +1,3 @@
-# import std/[logging]
-
 import /[api, config, exceptions]
 
 type
@@ -34,7 +32,7 @@ proc connect*(path: string): Connection =
 
 proc connect*(path: string, config: Config): Connection =
   let db = DataBase()
-  var error: cstring
+  var error: cstring = ""
   let state: duckdbState = duckdbOpenExt(path.cstring, db.addr, config, error.addr)
   check(state, $error, `=destroy`(db))
   check(

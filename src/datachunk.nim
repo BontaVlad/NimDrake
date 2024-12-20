@@ -1,4 +1,5 @@
-import /[api, types, vector, query_result]
+import std/[strformat]
+import /[api, types, vector]
 
 proc len*(chunk: DataChunk): int =
   result = duckdb_data_chunk_get_size(chunk.handle).int
@@ -23,6 +24,12 @@ proc `[]=`*[T](chunk: var DataChunk, colIdx: int, values: seq[T]) =
     vec = duckdb_data_chunk_get_vector(chunk, colIdx.idx_t)
   for i, e in values:
     vec[i] = e
+
+  if chunk.len != 0 and chunk.len != len(values):
+    raise newException(
+      ValueError,
+      fmt"Chunk size is inconsistent, new size of {len(values)} is different from {chunk.len}",
+    )
   chunk.len = len(values)
 
 proc `[]=`*(vec: duckdb_vector, i: int, val: string) =
@@ -35,6 +42,13 @@ proc `[]=`*(chunk: var DataChunk, colIdx: int, values: seq[string]) =
     raise newException(ValueError, "Column is not of type VarChar")
   for i, e in values:
     vec[i] = e
+
+  if chunk.len != 0 and chunk.len != len(values):
+    raise newException(
+      ValueError,
+      fmt"Chunk size is inconsistent, new size of {len(values)} is different from {chunk.len}",
+    )
+  chunk.len = len(values)
 
 proc `[]`*(chunk: DataChunk, colIdx: int): Vector =
   let

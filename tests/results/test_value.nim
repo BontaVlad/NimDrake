@@ -4,7 +4,6 @@ import decimal
 import uuid4
 
 suite "Tests value creations":
-
   test "Create Boolean Value":
     let valTrue = newValue(true)
     check valTrue.valueBoolean == true
@@ -82,7 +81,7 @@ suite "Tests value creations":
   #   check val.valueTimeTz.zoneName == "UTC"
 
   test "Create TimeInterval value":
-    let val = newValue(initTimeInterval(days=1, hours=2))
+    let val = newValue(initTimeInterval(days = 1, hours = 2))
     check val.kind == DuckType.Interval
     check val.valueInterval.days == 1
 
@@ -146,7 +145,6 @@ suite "Tests value creations":
     check $myString == "hello from duckdb"
 
 suite "Test conversions":
-
   test "Test numeric DuckType conversion":
     let
       intDuckValue = duckdb_create_int32(42)
@@ -175,7 +173,7 @@ suite "Test conversions":
       val = newValue(newDuckValue(doubleDuckValue))
     check val.valueDouble == 2.71828'f64
 
-  test "Test unsigned integer DuckType conversions":
+  test "Test number DuckType conversions":
     let
       tinyIntDuckValue = duckdb_create_uint8(255'u8)
       smallIntDuckValue = duckdb_create_uint16(65535'u16)
@@ -184,4 +182,32 @@ suite "Test conversions":
     check newValue(newDuckValue(tinyIntDuckValue)).valueUTinyint == 255'u8
     check newValue(newDuckValue(smallIntDuckValue)).valueUSmallint == 65535'u16
     check newValue(newDuckValue(integerDuckValue)).valueUInteger == 4294967295'u32
-    check newValue(newDuckValue(bigIntDuckValue)).valueUBigint == 18446744073709551615'u64
+    check newValue(newDuckValue(bigIntDuckValue)).valueUBigint ==
+      18446744073709551615'u64
+
+  test "Test timestamp DuckType conversions":
+    let micros = convert(Seconds, Microseconds, 1734685178)
+    let dkTimestamp = duckdb_create_timestamp(duckdb_timestamp(micros:micros))
+    check $newValue(newDuckValue(dkTimestamp)).valueTimestamp == "2024-12-20T08:59:38Z"
+
+  test "Test date DuckType conversions":
+    let dkDate = duckdb_create_date(duckdb_date(days:20077))
+    check $newValue(newDuckValue(dkDate)).valueDate == "2024-12-20T00:00:00Z"
+
+  test "Test interval DuckType conversions":
+    let
+      startDate = parse("01-01-2000", "dd-MM-yyyy")
+      endDate = parse("03-02-2001", "dd-MM-yyyy")
+      interval = between(startDate, endDate)
+      dkInt = duckdb_interval(
+        months: (interval.months + interval.years div 12).int32,
+        days: interval.days.int32,
+        micros: interval.microseconds.int64
+      )
+      dkInterval = duckdb_create_interval(dkInt)
+
+    check $newValue(newDuckValue(dkInterval)).valueInterval == "1 month and 2 days"
+
+  test "Test varchar DuckType conversions":
+    let dkString = duckdb_create_varchar("Hello world".cstring)
+    check newValue(newDuckValue(dkString)).valueVarchar == "Hello world"
