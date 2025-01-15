@@ -1,5 +1,5 @@
 import std/[locks, sequtils, tables, strformat, math, times]
-import /[api, database, dataframe, query, table_functions, types, vector, value]
+import /[api, database, dataframe, query, table_functions, types]
 
 # 2048 is duckdb_vector_size(), but we can't do this at compile time
 const
@@ -25,7 +25,7 @@ type
     rowCount: int
 
 const
-  RoundingEpochToUnixEpochDays = 719163 # Same constant as in Julia
+  # RoundingEpochToUnixEpochDays = 719163 # Same constant as in Julia
   RoundingEpochToUnixEpochMs = 62135596800000 # Milliseconds version
 
 proc destroyBind(p: pointer) {.cdecl.} =
@@ -38,8 +38,8 @@ proc destroyLocalData(p: pointer) {.cdecl.} =
   `=destroy`(cast[LocalData](p))
 
 # Helper functions for date/time conversions
-proc dateToEpochDays(d: DateTime): int32 =
-  (d - initDateTime(1, mJan, 1970, 0, 0, 0, utc())).inDays.int32
+# proc dateToEpochDays(d: DateTime): int32 =
+#   (d - initDateTime(1, mJan, 1970, 0, 0, 0, utc())).inDays.int32
 
 proc timeToMicroseconds(t: Time): int64 =
   t.toUnix * 1_000_000 + t.nanosecond.int64 div 1_000
@@ -63,6 +63,7 @@ proc valueToDuckDB*(val: string): auto =
 proc valueToDuckDB*[T](val: T): T =
   val
 
+# TODO  this needs work
 proc scanColumn(
     kind: DuckType,
     values: Vector,

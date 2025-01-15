@@ -1,8 +1,7 @@
 import std/[unittest]
 import
   ../../src/[
-    api, database, query, query_result, exceptions, scalar_functions, types, value,
-    vector,
+    api, database, query, query_result, scalar_functions, types,
   ]
 
 suite "Test scalar functions":

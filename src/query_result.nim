@@ -46,6 +46,7 @@ proc fetchChunk(qresult: QueryResult, idx: idx_t): seq[Vector] {.inline.} =
 
 # TODO: not great
 proc fetchOne*(qresult: QueryResult): seq[Value] {.inline.} =
+  result = newSeq[Value]()
   for column_vector in fetchChunk(qresult, 0):
     result.add(column_vector[0])
 
@@ -67,6 +68,7 @@ iterator rows*(qresult: QueryResult): seq[Value] =
 
 # TODO: api not definitive
 proc fetchOneNamed*(qresult: QueryResult): Table[string, Value] =
+  result = Table[string, Value]()
   let values = fetchOne((qresult))
   for col in qresult.columns:
     result[col.name] = values[col.idx]

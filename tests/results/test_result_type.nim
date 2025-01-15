@@ -1,6 +1,6 @@
 import std/[unittest, times, tables, strformat, sequtils, sugar]
 import nint128
-import ../../src/[database, query, query_result, value]
+import ../../src/[database, query, query_result]
 
 # TODO: expand tests with more scenarios, especially the unhappy types
 

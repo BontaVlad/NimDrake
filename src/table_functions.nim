@@ -316,7 +316,6 @@ macro producer*(body: typed): untyped =
   for param in params[1 ..^ 1]:
     let tp = param[^2]
     for p in param[0 ..^ 3]:
-      echo p.repr
       tableFunctionParameters.add(
         newCall(bindSym"newLogicalType", newLit newDuckType(tp))
       )

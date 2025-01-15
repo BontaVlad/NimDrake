@@ -226,8 +226,6 @@ macro scalar*(body: typed): untyped =
 
     `createdScalarFunc`
 
-  echo result.repr
-
 proc register*(con: Connection, fun: ScalarFunction) =
   check(
     duckdb_register_scalar_function(con, fun.handle),

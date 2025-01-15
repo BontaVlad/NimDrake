@@ -1,4 +1,4 @@
-import std/[macros, tables, times, typetraits, strutils, strformat, sugar, sequtils]
+import std/[macros, tables, times, typetraits, strformat, sugar, sequtils]
 
 import nint128
 import decimal

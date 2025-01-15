@@ -20,7 +20,6 @@ template `[]=`*(vec: duckdb_vector, i: int, val: bool) =
 
 proc `[]=`*[T](chunk: var DataChunk, colIdx: int, values: seq[T]) =
   let
-    col = chunk.columns[colIdx]
     vec = duckdb_data_chunk_get_vector(chunk, colIdx.idx_t)
   for i, e in values:
     vec[i] = e

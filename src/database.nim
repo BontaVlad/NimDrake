@@ -26,11 +26,13 @@ proc `=destroy`(con: Connection) =
     duckdbDisconnect(con.addr)
 
 proc connect*(path: string): Connection =
+  result = Connection(nil)
   let db = DataBase()
   check(duckdbOpen(path.cstring, db.addr), "Failed to open database")
   check(duckdbConnect(db, result.addr), "Failed to connect to database")
 
 proc connect*(path: string, config: Config): Connection =
+  result = Connection(nil)
   let db = DataBase()
   var error: cstring = ""
   let state: duckdbState = duckdbOpenExt(path.cstring, db.addr, config, error.addr)

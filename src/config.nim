@@ -23,6 +23,7 @@ proc setConfig*(config: Config, name: string, option: string) =
   )
 
 proc newConfig*(): Config =
+  result = newConfig()
   check(duckdbCreateConfig(result.addr), "Failed to create config")
 
 proc newConfig*(values: ConfigValues): Config =

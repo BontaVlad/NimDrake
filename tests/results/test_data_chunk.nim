@@ -1,5 +1,5 @@
-import std/[unittest, macros, tables, sequtils]
-import ../../src/[api, datachunk, types, vector, query_result]
+import std/[unittest]
+import ../../src/[api, datachunk, types, query_result]
 
 suite "Test datachunk":
   test "Test datachunk creation":

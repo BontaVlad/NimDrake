@@ -312,8 +312,6 @@ proc newValue*(val: DuckValue): Value =
       let
         key = newValue(newDuckValue(duckdb_get_map_key(val.handle, i.idx_t)))
         value = newValue(newDuckValue(duckdb_get_map_value(val.handle, i.idx_t)))
-      echo "key: ", key
-      echo "value: ", value
       result.valueMap[key.valueVarchar] = value
 
     # result.valueMap = parseJson(v).to(Table[string, Value])
@@ -331,6 +329,7 @@ proc newValue*(val: DuckValue): Value =
     # result.valueTimeTz = parseTimeTz(v)
 
 proc toNativeValue*(val: Value): DuckValue =
+  result = DuckValue()
   case val.kind
   of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
     raise newException(ValueError, "got invalid type")
