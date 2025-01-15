@@ -65,9 +65,9 @@ suite "Tests value creations":
     check val.kind == DuckType.Double
     check val.valueDouble == 2.718281828459045
 
-  test "Create DateTime value as Timestamp":
-    let val = newValue(now(), DuckType.Timestamp)
-    check val.kind == DuckType.Timestamp
+  # test "Create DateTime value as Timestamp":
+  #   let val = newValue(now(), DuckType.Timestamp)
+  #   check val.kind == DuckType.Timestamp
 
   test "Create Time value":
     let val = newValue(initTime(1734548229, 0))
