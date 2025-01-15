@@ -3,7 +3,7 @@ on:
   push:
 
 env:
-    GH_TOKEN: ${{ secrets.SecretToken }}
+  GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
 jobs:
   tests:
@@ -66,6 +66,7 @@ jobs:
           git checkout --orphan gh-pages
           git --work-tree docs add --all
           git --work-tree docs commit -m "Deploy documentation"
+          git remote set-url origin https://x-access-token:${{ secrets.GH_TOKEN }}@github.com/BontaVlad/NimDrake.git
           git push origin HEAD:gh-pages --force
           git checkout -f main
           git branch -D gh-pages
