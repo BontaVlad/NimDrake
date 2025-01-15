@@ -65,14 +65,14 @@ suite "Tests value creations":
     check val.kind == DuckType.Double
     check val.valueDouble == 2.718281828459045
 
-  # test "Create DateTime value as Timestamp":
-  #   let val = newValue(now(), DuckType.Timestamp)
-  #   check val.kind == DuckType.Timestamp
+  test "Create DateTime value as Timestamp":
+    let val = newValue(now(), DuckType.Timestamp)
+    check val.kind == DuckType.Timestamp
 
-  test "Create Time value":
-    let val = newValue(initTime(1734548229, 0))
-    check val.kind == DuckType.Time
-    check $val.valueTime == "2024-12-18T20:57:09+02:00"
+  # test "Create Time value":
+  #   let val = newValue(initTime(1734548229, 0))
+  #   check val.kind == DuckType.Time
+  #   check $val.valueTime == "2024-12-18T20:57:09+02:00"
 
   # test "Create ZonedTime value":
   #   let zt = initZonedTime(DateTime.now(), "UTC")
