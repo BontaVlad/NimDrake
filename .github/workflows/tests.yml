@@ -38,7 +38,9 @@ jobs:
         just test
 
     - name: Generate documentation
-      run: nim doc --project --out:docs src/nimdrake.nim
+      run: |
+        nimble install -y
+        nim doc --project --out:docs src/nimdrake.nim
 
     - name: Upload documentation
       run: |
