@@ -23,9 +23,6 @@ jobs:
       with:
         version: ${{ matrix.version }}
     - uses: extractions/setup-just@v2
-    - name: Install dependencies
-      run: |
-        sudo apt install clang libclang-dev
     # Install DuckDB
     - name: Install DuckDB
       run: |
