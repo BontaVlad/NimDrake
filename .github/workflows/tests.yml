@@ -5,21 +5,36 @@ on:
 env:
     GH_TOKEN: ${{ secrets.SecretToken }}
 jobs:
-  default:
-    runs-on: ubuntu-latest
+  tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        version:
+          - binary:stable
+          - devel
+          - binary:2.0.2
+          - binary:2.2.0
+        os:
+          - ubuntu-latest
+          - macOS-13
     steps:
-      - uses: actions/checkout@v2
-      - uses: iffy/install-nim@v5
-      - uses: extractions/setup-just@v2
-      - name: Install dependencies
-        run: |
-          sudo apt install clang libclang-dev
-      # Install DuckDB
-      - name: Install DuckDB
-        run: |
-          wget https://github.com/duckdb/duckdb/releases/download/v1.1.2/libduckdb-linux-amd64.zip
-          unzip libduckdb-linux-amd64.zip
-          sudo mv libduckdb.so /usr/lib/
-          sudo ldconfig
-      - run: nimble install -y
-      - run: just test
+    - uses: actions/checkout@v2
+    - uses: iffy/install-nim@v5
+      with:
+        version: ${{ matrix.version }}
+    - uses: extractions/setup-just@v2
+    - name: Install dependencies
+      run: |
+        sudo apt install clang libclang-dev
+    # Install DuckDB
+    - name: Install DuckDB
+      run: |
+        wget https://github.com/duckdb/duckdb/releases/download/v1.1.2/libduckdb-linux-amd64.zip
+        unzip libduckdb-linux-amd64.zip
+        sudo mv libduckdb.so /usr/lib/
+        sudo ldconfig
+    - name: Test
+      continue-on-error: ${{ matrix.version == 'devel' }}
+      run: |
+        nimble install -y
+        just test
