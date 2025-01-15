@@ -14,15 +14,6 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt install clang libclang-dev
-      - uses: opt-nc/setup-duckdb-action@v1.0.8
-        with:
-         version: v1.1.2
-      - name: wget
-        uses: wei/wget@v1
-        with:
-         args: https://github.com/duckdb/duckdb/releases/download/v1.1.2/libduckdb-linux-amd64.zip
-      - name: Extract some files
-        run: 7z x libduckdb-linux-amd64.zip
       # Install DuckDB
       - name: Install DuckDB
         run: |
