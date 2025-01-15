@@ -655,7 +655,7 @@ proc newVector*(
       vec, offset, size, kind = DuckType.Varchar, logicalType = logicalType
     ).valueVarChar
   of DuckType.TimeTz:
-    result = newVector(kind=kind)
+    result = newVector(kind = kind)
     result.valueTimeTz = collectValid[int64, ZonedTime](handle, result, offset, size) do(
       val: int64
     ) -> ZonedTime:

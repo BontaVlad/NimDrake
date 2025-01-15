@@ -17,6 +17,8 @@ requires "nint128"
 requires "decimal >= 0.0.2"
 requires "terminaltables >= 0.1.1"
 requires "uuid4 >= 0.9.3"
+requires "criterion >= 0.3.1"
+requires "fusion >= 1.2"
 
 task test, "run testament":
   echo staticExec("testament p \"./tests/**/test_*.nim\"")

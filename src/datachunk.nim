@@ -19,8 +19,7 @@ template `[]=`*(vec: duckdb_vector, i: int, val: bool) =
   cast[ptr UncheckedArray[uint8]](raw)[i] = val.uint8
 
 proc `[]=`*[T](chunk: var DataChunk, colIdx: int, values: seq[T]) =
-  let
-    vec = duckdb_data_chunk_get_vector(chunk, colIdx.idx_t)
+  let vec = duckdb_data_chunk_get_vector(chunk, colIdx.idx_t)
   for i, e in values:
     vec[i] = e
 

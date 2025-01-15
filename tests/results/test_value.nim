@@ -187,11 +187,11 @@ suite "Test conversions":
 
   test "Test timestamp DuckType conversions":
     let micros = convert(Seconds, Microseconds, 1734685178)
-    let dkTimestamp = duckdb_create_timestamp(duckdb_timestamp(micros:micros))
+    let dkTimestamp = duckdb_create_timestamp(duckdb_timestamp(micros: micros))
     check $newValue(newDuckValue(dkTimestamp)).valueTimestamp == "2024-12-20T08:59:38Z"
 
   test "Test date DuckType conversions":
-    let dkDate = duckdb_create_date(duckdb_date(days:20077))
+    let dkDate = duckdb_create_date(duckdb_date(days: 20077))
     check $newValue(newDuckValue(dkDate)).valueDate == "2024-12-20T00:00:00Z"
 
   test "Test interval DuckType conversions":
@@ -202,7 +202,7 @@ suite "Test conversions":
       dkInt = duckdb_interval(
         months: (interval.months + interval.years div 12).int32,
         days: interval.days.int32,
-        micros: interval.microseconds.int64
+        micros: interval.microseconds.int64,
       )
       dkInterval = duckdb_create_interval(dkInt)
 

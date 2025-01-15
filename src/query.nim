@@ -49,7 +49,10 @@ proc newStatement*(con: Connection, query: Query): Statement =
   check(duckdbPrepare(con, query, result.addr), "Failed to create prepared statement")
 
 proc bind_param_idx*(statement: Statement, name: string, param_idx_out: ptr idx_t) =
-  check(duckdb_bind_parameter_index(statement, param_idx_out, name.cstring), "Failed to bind parameter index")
+  check(
+    duckdb_bind_parameter_index(statement, param_idx_out, name.cstring),
+    "Failed to bind parameter index",
+  )
 
 # template bind_val*(statement: Statement, i: idx_t, val: DuckDBHugeint): Error =
 #   duckdb_bind_hugeint(statement, i, val)
