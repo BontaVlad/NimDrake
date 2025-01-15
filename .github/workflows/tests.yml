@@ -4,6 +4,7 @@ on:
 
 env:
     GH_TOKEN: ${{ secrets.SecretToken }}
+
 jobs:
   tests:
     runs-on: ${{ matrix.os }}
@@ -35,3 +36,27 @@ jobs:
       run: |
         nimble install -y
         just test
+
+  docs:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+        uses: actions/checkout@v3
+
+    - name: Set up Nim
+        uses: iffy/install-nim@v5
+
+    - name: Generate documentation
+        run: nim doc --project --out:docs src/nimdrake.nim
+
+    - name: Upload documentation
+        run: |
+          git checkout --orphan gh-pages
+          git --work-tree docs add --all
+          git --work-tree docs commit -m "Deploy documentation"
+          git push origin HEAD:gh-pages --force
+          git checkout -f main
+          git branch -D gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
