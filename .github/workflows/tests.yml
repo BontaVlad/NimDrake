@@ -22,4 +22,4 @@ jobs:
           sudo mv libduckdb.so /usr/lib/
           sudo ldconfig
       - run: nimble install -y
-      - run: nimble test
+      - run: just test
