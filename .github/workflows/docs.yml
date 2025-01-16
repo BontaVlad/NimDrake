@@ -4,6 +4,9 @@ on:
   push:
     branches: [ main ]  # or master, depending on your default branch
 
+env:
+  GH_TOKEN: ${{ secrets.GH_TOKEN }} # Use the fine-grained PAT here
+
 jobs:
   docs:
     runs-on: ubuntu-latest
