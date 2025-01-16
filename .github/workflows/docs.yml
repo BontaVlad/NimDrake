@@ -34,7 +34,7 @@ jobs:
     - name: Generate documentation
       run: |
         # Or if using direct nimble command
-        nimble doc --project --out:docs src/nimdrake.nim
+        nim doc --project --index:on --docRoot:src --out:docs src/nimdrake.nim
         touch docs/.nojekyll
 
     - name: Deploy to GitHub Pages
