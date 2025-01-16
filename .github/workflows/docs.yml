@@ -1,0 +1,39 @@
+name: Documentation
+
+on:
+  push:
+    branches: [ main ]  # or master, depending on your default branch
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Nim
+      uses: iffy/install-nim@v5
+
+
+    - name: Install DuckDB
+      run: |
+        wget https://github.com/duckdb/duckdb/releases/download/v1.1.2/libduckdb-linux-amd64.zip
+        unzip libduckdb-linux-amd64.zip
+        sudo mv libduckdb.so /usr/lib/
+        sudo ldconfig
+
+    - name: Install dependencies
+      run: nimble install -Y
+
+    - name: Generate documentation
+      run: |
+        # Or if using direct nimble command
+        nimble doc --project --out:docs src/nimdrake.nim
+        touch docs/.nojekyll
+
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GH_TOKEN }}
+        publish_dir: ./docs
+        force_orphan: true
