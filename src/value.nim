@@ -87,7 +87,7 @@ proc `$`*(v: Value): string =
     result = $v.valueDecimal
   of DuckType.Enum:
     result = $v.valueEnum
-  of DuckType.List:
+  of DuckType.List, DuckType.Array:
     result = $v.valueList
   of DuckType.Struct:
     result = $v.valueStruct
@@ -101,6 +101,10 @@ proc `$`*(v: Value): string =
     result = $v.valueBit
   of DuckType.TimeTz:
     result = $v.valueTimeTz
+  of DuckType.TimestampTz:
+    result = $v.valueTimestampTz
+  of DuckType.UHugeInt:
+    result = $v.valueUHugeint
 
 proc newValue*(val: bool, isValid = true): Value =
   result = Value(kind: DuckType.Boolean, isValid: isValid, valueBoolean: val)
@@ -220,7 +224,7 @@ proc newValue*(val: DuckValue): Value =
   let
     logicalTp = duckdb_get_value_type(val.handle)
     logicalId = duckdb_get_type_id(logicalTp)
-    kind = DuckType(ord(logicalId))
+    kind = toEnum[DuckType](logicalId.int)
 
   # TODO: get the actual isValid value
   result = Value(kind: kind, isValid: true)
@@ -299,7 +303,7 @@ proc newValue*(val: DuckValue): Value =
   of DuckType.Enum:
     discard
     # result.valueEnum = parseEnum[EnumType](v)
-  of DuckType.List:
+  of DuckType.List, DuckType.Array:
     discard
     # result.valueList = parseJson(v).to(seq[Value])
   of DuckType.Struct:
@@ -325,6 +329,12 @@ proc newValue*(val: DuckValue): Value =
     discard
     # result.valueBit = v.parseBinaryInt.uint8
   of DuckType.TimeTz:
+    discard
+    # result.valueTimeTz = parseTimeTz(v)
+  of DuckType.TimestampTz:
+    discard
+    # result.valueTimeTz = parseTimeTz(v)
+  of DuckType.UHugeInt:
     discard
     # result.valueTimeTz = parseTimeTz(v)
 

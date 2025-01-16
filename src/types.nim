@@ -48,6 +48,9 @@ type
     Union = enumDuckdbType.DUCKDB_TYPE_UNION
     Bit = enumDuckdbType.DUCKDB_TYPE_BIT
     TimeTz = enumDuckdbType.DUCKDB_TYPE_TIME_TZ
+    TimestampTz = enum_DUCKDB_TYPE.DUCKDB_TYPE_TIMESTAMP_TZ  # Added
+    UHugeInt = enum_DUCKDB_TYPE.DUCKDB_TYPE_UHUGEINT        # Added
+    Array = enum_DUCKDB_TYPE.DUCKDB_TYPE_ARRAY              # Added
     Any = enumDuckdbType.DUCKDB_TYPE_ANY
     VarInt = enumDuckdbType.DUCKDB_TYPE_VARINT
     SqlNull = enumDuckdbType.DUCKDB_TYPE_SQLNULL
@@ -80,13 +83,15 @@ type
     of DuckType.TimestampMs: valueTimestampMs*: DateTime
     of DuckType.TimestampNs: valueTimestampNs*: DateTime
     of DuckType.Enum: valueEnum*: uint
-    of DuckType.List: valueList*: seq[Value]
+    of DuckType.List, DuckType.Array: valueList*: seq[Value]
     of DuckType.Struct: valueStruct*: Table[string, Value]
     of DuckType.Map: valueMap*: Table[string, Value]
     of DuckType.UUID: valueUUID*: Uuid
     of DuckType.Union: valueUnion*: Table[string, Value]
     of DuckType.Bit: valueBit*: string
     of DuckType.TimeTz: valueTimeTz*: ZonedTime
+    of DuckType.TimestampTz: valueTimestampTz*: ZonedTime
+    of DuckType.UHugeInt: valueUHugeint*: Int128
 
   Value* = ref object of ValueBase
 
@@ -118,19 +123,15 @@ type
     of DuckType.TimestampMs: valueTimestampMs*: seq[DateTime]
     of DuckType.TimestampNs: valueTimestampNs*: seq[DateTime]
     of DuckType.Enum: valueEnum*: seq[uint]
-    of DuckType.List: valueList*: seq[seq[Value]]
+    of DuckType.List, DuckType.Array: valueList*: seq[seq[Value]]
     of DuckType.Struct: valueStruct*: seq[Table[string, Value]]
     of DuckType.Map: valueMap*: seq[Table[string, Value]]
     of DuckType.UUID: valueUUID*: seq[Uuid]
     of DuckType.Union: valueUnion*: seq[Table[string, Value]]
     of DuckType.Bit: valueBit*: seq[string]
     of DuckType.TimeTz: valueTimeTz*: seq[ZonedTime]
-    # of DuckType.TimestampTz: valueTimestampTz*: seq[tuple[timestamp: Time, timezone: string]]
-    # of DuckType.UHugeInt: valueUHugeint*: seq[tuple[high: uint64, low: uint64]]
-    # of DuckType.Array: valueArray*: seq[Vector]
-    # of DuckType.Any: valueAny*: seq[RootRef]
-    # of DuckType.VarInt: valueVarint*: seq[int]
-    # of DuckType.SqlNull: valueSqlNull*: seq[bool] # SqlNull could be a boolean
+    of DuckType.TimestampTz: valueTimestampTz*: seq[ZonedTime]
+    of DuckType.UHugeInt: valueUHugeint*: seq[Int128]
 
   LogicalTypeBase = object of RootObj
     handle*: duckdb_logical_type
@@ -254,15 +255,21 @@ proc newValidityMask*(vec: duckdb_vector, size: int): ValidityMask =
     for i in 0 ..< tuples_in_array:
       result.add(raw[i])
 
+template toEnum*[T](x: int): T =
+  if x in T.low.int..T.high.int:
+    T(x)
+  else:
+    raise newException(ValueError, "Value not convertible to enum")
+
 proc newDuckType*(i: LogicalType): DuckType =
   let id = duckdb_get_type_id(i.handle)
-  result = DuckType(ord(id))
+  result = toEnum[DuckType](id.int)
 
 proc newDuckType*(i: duckdb_logical_type): DuckType =
   result = newDuckType(LogicalType(handle: i))
 
 proc newDuckType*(i: enum_DUCKDB_TYPE): DuckType =
-  result = DuckType(ord(i))
+  result = toEnum[DuckType](i.int)
 
 proc newDuckType*[T](t: typedesc[T]): DuckType =
   when T is bool:

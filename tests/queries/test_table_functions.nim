@@ -1,4 +1,4 @@
-import std/[unittest, sequtils, sugar]
+import std/[unittest, sequtils]
 import ../../src/[api, database, query, query_result, vector, table_functions, types]
 
 suite "Lower level table functions":

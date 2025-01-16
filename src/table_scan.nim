@@ -163,7 +163,7 @@ proc scanColumn(
   of DuckType.Enum:
     discard
     # result.valueEnum = newSeq[uint]()
-  of DuckType.List:
+  of DuckType.List, DuckType.Array:
     discard
     # result.valueList = newSeq[seq[Value]]()
   of DuckType.Struct, DuckType.Map:
@@ -179,6 +179,10 @@ proc scanColumn(
     discard
     # result.valueBit = newSeq[string]()
   of DuckType.TimeTz:
+    discard
+  of DuckType.TimestampTz:
+    discard
+  of DuckType.UHugeInt:
     discard
 
 proc bindFunction(info: BindInfo) =

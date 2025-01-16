@@ -1,4 +1,4 @@
-import std/[macros, sequtils, tables, strformat, sugar, enumerate]
+import std/[macros, sequtils, tables, strformat, enumerate]
 import fusion/[matching, astdsl]
 import /[api, query_result, database, types, exceptions]
 

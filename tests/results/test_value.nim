@@ -1,6 +1,5 @@
 import std/[unittest, times, tables]
 import ../../src/[api, types, value]
-import decimal
 import uuid4
 
 suite "Tests value creations":

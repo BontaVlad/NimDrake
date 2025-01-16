@@ -57,7 +57,7 @@ proc `$`*(vector: Vector): string =
     result = $vector.valueTimestampNs
   of DuckType.Enum:
     result = $vector.valueEnum
-  of DuckType.List:
+  of DuckType.List, DuckType.Array:
     result = $vector.valueList
   of DuckType.Struct:
     result = $vector.valueStruct
@@ -71,6 +71,10 @@ proc `$`*(vector: Vector): string =
     result = $vector.valueBit
   of DuckType.TimeTz:
     result = $vector.valueTimeTz
+  of DuckType.TimestampTz:
+    result = $vector.valueTimestampTz
+  of DuckType.UHugeInt:
+    result = $vector.valueUHugeInt
 
 proc len*(vec: Vector): int =
   case vec.kind
@@ -122,7 +126,7 @@ proc len*(vec: Vector): int =
     result = vec.valueDecimal.len
   of DuckType.Enum:
     result = vec.valueEnum.len
-  of DuckType.List:
+  of DuckType.List, DuckType.Array:
     result = vec.valueList.len
   of DuckType.Struct:
     result = vec.valueStruct.len
@@ -136,6 +140,10 @@ proc len*(vec: Vector): int =
     result = vec.valueBit.len
   of DuckType.TimeTz:
     result = vec.valueTimeTz.len
+  of DuckType.TimestampTz:
+    result = vec.valueTimestampTz.len
+  of DuckType.UHugeInt:
+    result = vec.valueUHugeint.len
 
 # has a bug when more chunks are present
 proc isValid*(vec: Vector, idx: int): bool {.inline.} =
@@ -271,7 +279,7 @@ proc vecToValue*(vec: Vector, idx: int): Value =
     result = newValue(vec.valueDecimal[idx], isValid)
   of DuckType.Enum:
     result = newValue(vec.valueEnum[idx], isValid)
-  of DuckType.List:
+  of DuckType.List, DuckType.Array:
     result = newValue(vec.valueList[idx], isValid)
   of DuckType.Struct:
     result = newValue(vec.valueStruct[idx], vec.kind, isValid)
@@ -285,6 +293,10 @@ proc vecToValue*(vec: Vector, idx: int): Value =
     result = newValue(vec.valueBit[idx], vec.kind, isValid)
   of DuckType.TimeTz:
     result = newValue(vec.valueTimeTz[idx], isValid)
+  of DuckType.TimestampTz:
+    result = newValue(vec.valueTimestampTz[idx], isValid)
+  of DuckType.UHugeInt:
+    result = newValue(vec.valueUHugeint[idx], isValid)
 
 iterator items*(vec: Vector): Value =
   for idx in 0 ..< vec.len:
@@ -341,7 +353,7 @@ proc newVector*(kind: DuckType): Vector =
     result.valueTimestampNs = newSeq[DateTime]()
   of DuckType.Enum:
     result.valueEnum = newSeq[uint]()
-  of DuckType.List:
+  of DuckType.List, DuckType.Array:
     result.valueList = newSeq[seq[Value]]()
   of DuckType.Struct, DuckType.Map:
     result.valueStruct = newSeq[Table[string, Value]]()
@@ -353,9 +365,10 @@ proc newVector*(kind: DuckType): Vector =
     result.valueBit = newSeq[string]()
   of DuckType.TimeTz:
     result.valueTimeTz = newSeq[ZonedTime]()
-  # of DuckType.TimestampTz:    result.valueTimestampTz = newSeq[tuple[timestamp: Time, timezone: string]]()
-  # of DuckType.UHugeInt:       result.valueUHugeint    = newSeq[tuple[high: uint64, low: uint64]]()
-  # of DuckType.Array:          result.valueArray       = newSeq[Vector]()
+  of DuckType.TimestampTz:
+    result.valueTimestampTz = newSeq[ZonedTime]()
+  of DuckType.UHugeInt:
+    result.valueUHugeint = newSeq[Int128]()
 
 proc newVector*(data: seq[bool]): Vector =
   result = Vector(kind: DuckType.Boolean, valueBoolean: data, mask: newValidityMask())
@@ -550,7 +563,7 @@ proc newVector*(
       parseHandle(handle, result, uint32, result.valueEnum, uint)
     else:
       raise newException(ValueError, fmt"got invalid enum type: {enum_tp}")
-  of DuckType.List:
+  of DuckType.List, DuckType.Array:
     let
       raw = cast[ptr UncheckedArray[duckdb_list_entry]](handle)
       children = duckdb_list_vector_get_child(vec)
@@ -680,6 +693,10 @@ proc newVector*(
       let tz = newTimezone("Something", zonedTimeFromTime, zonedTimeFromAdjTime)
       let timeValue = zonedTimeFromTime(tz, tm)
       timeValue
+  of DuckType.TimestampTz:
+    raise newException(ValueError, "TimestampTz type not implemented")
+  of DuckType.UHugeInt:
+    raise newException(ValueError, "UHugeInt type not implemented")
 
 proc `[]`*(v: Vector, idx: int): Value =
   result = vecToValue(v, idx)
@@ -742,7 +759,7 @@ proc `&=`*(left: var Vector, right: Vector): void =
     left.valueTimestampNs &= right.valueTimestampNs
   of DuckType.Enum:
     left.valueEnum &= right.valueEnum
-  of DuckType.List:
+  of DuckType.List, DuckType.Array:
     left.valueList &= right.valueList
   of DuckType.Struct:
     left.valueStruct &= right.valueStruct
@@ -756,3 +773,7 @@ proc `&=`*(left: var Vector, right: Vector): void =
     left.valueBit &= right.valueBit
   of DuckType.TimeTz:
     left.valueTimeTz &= right.valueTimeTz
+  of DuckType.TimestampTz:
+    left.valueTimestampTz &= right.valueTimestampTz
+  of DuckType.UHugeInt:
+    left.valueUHugeInt &= right.valueUHugeInt
