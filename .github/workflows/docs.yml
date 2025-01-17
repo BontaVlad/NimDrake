@@ -34,7 +34,7 @@ jobs:
     - name: Generate documentation
       run: |
         # Or if using direct nimble command
-        nimble docs
+        run: nimble docs
         mv docs/nimdrake.html docs/index.html
         touch docs/.nojekyll
 
