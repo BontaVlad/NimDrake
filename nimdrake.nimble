@@ -23,3 +23,6 @@ requires "fusion >= 1.2"
 task test, "run testament":
   echo staticExec("testament p \"./tests/**/test_*.nim\"")
   discard staticExec("find tests/ -type f ! -name \"*.*\" -delete 2> /dev/null")
+
+task docs, "Generate documentation":
+  exec "nimble doc --useSystemNim --verbose --docCmd:\"--passL:\"-lduckdb\"\" --project --out:docs src/nimdrake.nim"

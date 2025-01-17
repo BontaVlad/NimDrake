@@ -48,9 +48,9 @@ type
     Union = enumDuckdbType.DUCKDB_TYPE_UNION
     Bit = enumDuckdbType.DUCKDB_TYPE_BIT
     TimeTz = enumDuckdbType.DUCKDB_TYPE_TIME_TZ
-    TimestampTz = enum_DUCKDB_TYPE.DUCKDB_TYPE_TIMESTAMP_TZ  # Added
-    UHugeInt = enum_DUCKDB_TYPE.DUCKDB_TYPE_UHUGEINT        # Added
-    Array = enum_DUCKDB_TYPE.DUCKDB_TYPE_ARRAY              # Added
+    TimestampTz = enum_DUCKDB_TYPE.DUCKDB_TYPE_TIMESTAMP_TZ # Added
+    UHugeInt = enum_DUCKDB_TYPE.DUCKDB_TYPE_UHUGEINT # Added
+    Array = enum_DUCKDB_TYPE.DUCKDB_TYPE_ARRAY # Added
     Any = enumDuckdbType.DUCKDB_TYPE_ANY
     VarInt = enumDuckdbType.DUCKDB_TYPE_VARINT
     SqlNull = enumDuckdbType.DUCKDB_TYPE_SQLNULL
@@ -256,7 +256,7 @@ proc newValidityMask*(vec: duckdb_vector, size: int): ValidityMask =
       result.add(raw[i])
 
 template toEnum*[T](x: int): T =
-  if x in T.low.int..T.high.int:
+  if x in T.low.int .. T.high.int:
     T(x)
   else:
     raise newException(ValueError, "Value not convertible to enum")
