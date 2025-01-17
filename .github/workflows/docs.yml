@@ -34,7 +34,7 @@ jobs:
     - name: Generate documentation
       run: |
         # Or if using direct nimble command
-        run: nimble docs
+        nimble doc --useSystemNim --verbose --docCmd:\"--passL:\"-lduckdb\"\" --project --out:docs src/nimdrake.nim
         mv docs/nimdrake.html docs/index.html
         touch docs/.nojekyll
 
