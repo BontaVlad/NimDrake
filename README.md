@@ -6,7 +6,8 @@
   </picture>
 </div>
 <br>
-![MainBranch](https://github.com/BontaVlad/NimDrake/actions/workflows/tests.yml/badge.svg)
+
+[![MainBranch](https://github.com/BontaVlad/NimDrake/actions/workflows/tests.yml/badge.svg)](https://github.com/BontaVlad/NimDrake/actions/workflows/tests.yml)
 
 ## NimDrake
 
@@ -32,6 +33,10 @@ it should contain also the manual way
    ```bash
    nimble install NimDrake
    ```
+
+
+## Full Documentation
+For a full documentation and API index go [here](http://bontavlad.com/NimDrake/)
 
 ## Code Examples
 
