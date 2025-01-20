@@ -6,6 +6,7 @@
   </picture>
 </div>
 <br>
+![MainBranch](https://github.com/BontaVlad/NimDrake/actions/workflows/tests.yml/badge.svg)
 
 ## NimDrake
 
