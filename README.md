@@ -6,7 +6,7 @@
   </picture>
   <br>
   <img src="https://github.com/BontaVlad/NimDrake/actions/workflows/tests.yml/badge.svg" alt="MainBranch">
-  <img src="https://img.shields.io/badge/status-pre-alpha" alt="Status">
+  <img src="https://img.shields.io/badge/unstable-pre_alpha" alt="Status">
 </div>
 <br>
 
