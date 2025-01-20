@@ -99,7 +99,6 @@ test:
             --passC:-gdwarf-4 \
             --lineDir:on \
             --debuginfo:on \
-            --threads:off \
             --excessiveStackTrace:on \
             -o:"${NIMCACHE_DIR}/tests/${filename_no_ext}" \
             "$file"

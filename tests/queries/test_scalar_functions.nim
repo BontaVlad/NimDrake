@@ -2,17 +2,18 @@ import std/[unittest]
 import ../../src/[api, database, query, query_result, scalar_functions, types]
 
 suite "Test scalar functions":
-  test "Test scalar function int64":
-    let con = connect()
+
+  test "int64 input and output":
+    let conn = newDatabase().connect()
 
     template doubleValue(val, bar: int64): int64 {.scalar.} =
       result = val * bar
 
-    con.register(doubleValue)
+    conn.register(doubleValue)
 
-    con.execute("CREATE TABLE test_table AS SELECT i FROM range(3) t(i);")
+    conn.execute("CREATE TABLE test_table AS SELECT i FROM range(3) t(i);")
     let outcome =
-      con.execute("SELECT i, doubleValue(i, i) as doubled FROM test_table").fetchAll()
+      conn.execute("SELECT i, doubleValue(i, i) as doubled FROM test_table").fetchAll()
     check outcome[0].valueBigInt == @[0'i64, 1'i64, 2'i64]
     check outcome[1].valueBigInt ==
       @[0'i64, 1'i64, 4'i64]

@@ -9,7 +9,9 @@
 
 ## NimDrake
 
-NimDrake is a [Nim](https://nim-lang.org/) language wrapper for [DuckDB](https://duckdb.org/), a high-performance analytical database system known for its speed, reliability, portability, and ease of use. DuckDB provides a rich SQL dialect that goes far beyond basic SQL, supporting features like arbitrary and nested correlated subqueries, window functions, collations, and complex types (arrays, structs, maps).  Several extensions further simplify SQL usage. 
+NimDrake is a [Nim](https://nim-lang.org/) language package designed to integrate with [DuckDB](https://duckdb.org/), an in-process SQL OLAP database management system. It simplifies database interactions while maintaining flexibility for advanced use cases. NimDrake is built with two ideas in mind, the high-level interface offers quick and easy database operations, ideal for rapid development and simplicity,
+and a lower-level interface that directly interacts with DuckDB's core functionalities, enabling complex or high-performance implementations when necessary.
+This dual-layer approach ensures that NimDrake caters to both beginners and advanced users.
 
 **Please note:** NimDrake is currently in a pre-alpha stage and is considered experimental. It contains bugs and lacks some intended features. Use with caution and report any issues you encounter.
 
@@ -38,7 +40,7 @@ Here are a few simple examples of how to use this repository:
 ```nim
 import nimdrake
 
-let duck = connect()
+let duck = newDatabase().connect()
 
 echo duck.execute("SELECT * FROM range(100) AS example;")
 
@@ -69,7 +71,7 @@ echo duck.execute("SELECT * FROM range(100) AS example;")
 
 ### Example 2: Access query results using the Vector Interface.
 ```nim
-let duck = connect()
+let duck = newDatabase().connect()
 
 let outcome = duck.execute(""" SELECT seq AS int_col, 'Value_' || seq::VARCHAR AS varchar_col FROM generate_series(1,3) AS t(seq) """).fetchAll()
 echo outcome[0].valueBigint # -> @[1, 2, 3]
@@ -85,7 +87,7 @@ echo outcome["varchar_col"].valueVarchar # -> @["Value_1", "Value_2", "Value_3"]
 
 ### Example 3: Using the row iterator interface
 ```nim
-let duck = connect()
+let duck = newDatabase().connect()
 
 let task = duck.execute(""" SELECT seq AS int_col, 'Value_' || seq::VARCHAR AS varchar_col FROM generate_series(1,3) AS t(seq) """)
 for i, row in enumerate(task.rows):
@@ -102,7 +104,7 @@ for i, row in enumerate(task.rows):
 let 
   # we can also start a session with custom config flags
   config = newConfig({"threads": "3"}.toTable)
-  duck = connect(config)
+  duck = newDatabase().connect(config)
 
 let df = newDataFrame(
   {
@@ -125,7 +127,7 @@ echo duck.execute("SELECT * FROM df ORDER BY foo;")
 ### Example 5: Insert with prepared statement
 
 ```nim
-let duck = connect()
+let duck = newDatabase().connect()
 duck.execute(
     """
     CREATE TABLE prepared_table (
@@ -153,7 +155,7 @@ echo duck.execute("SELECT * FROM prepared_table;")
 ### Example 6: Using UDF(user defined functions)
 
 ```nim
-let duck = connect()
+let duck = newDatabase().connect()
 
 template powerTo(val, bar: int64): int64 {.scalar.} =
   result = val * bar
@@ -180,7 +182,7 @@ echo duck.execute("SELECT i, powerTo(i, i) as powerTo FROM test_table")
 
 ```nim
 
-let duck = connect()
+let duck = newDatabase().connect()
 
 iterator countToN(count: int): int {.producer, closure.} =
     for i in 0 ..< count:

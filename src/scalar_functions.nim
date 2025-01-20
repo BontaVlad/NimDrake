@@ -228,6 +228,6 @@ macro scalar*(body: typed): untyped =
 
 proc register*(con: Connection, fun: ScalarFunction) =
   check(
-    duckdb_register_scalar_function(con, fun.handle),
+    duckdb_register_scalar_function(con.handle, fun.handle),
     fmt"Failed to register function '{fun.name}'",
   )

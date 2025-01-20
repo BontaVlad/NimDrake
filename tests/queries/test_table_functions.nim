@@ -3,7 +3,7 @@ import ../../src/[api, database, query, query_result, vector, table_functions, t
 
 suite "Lower level table functions":
   test "iterator with one parameter":
-    let con = connect()
+    let conn = newDatabase().connect()
 
     type
       BindData = ref object
@@ -57,38 +57,38 @@ suite "Lower level table functions":
       extraData = nil,
       projectionPushdown = true,
     )
-    con.register(tf)
-    let outcome = $con.execute("SELECT * FROM my_function(5);").fetchall()
+    conn.register(tf)
+    let outcome = $conn.execute("SELECT * FROM my_function(5);").fetchall()
     assert outcome == "@[@[42, 84, 42, 84, 42]]"
 
 suite "Higher level table functions":
   test "Iterator with one parameter":
-    let con = connect()
+    let conn = newDatabase().connect()
 
     iterator countToN(count: int): int {.producer, closure.} =
       for i in 0 ..< count:
         yield i
 
-    con.register(countToN)
+    conn.register(countToN)
 
-    let outcome = con.execute("SELECT * FROM countToN(3)").fetchall()
+    let outcome = conn.execute("SELECT * FROM countToN(3)").fetchall()
     check outcome[0].valueInteger == @[0'i32, 1'i32, 2'i32]
 
   test "Iterator with multiple parameters and default value":
-    let con = connect()
+    let conn = newDatabase().connect()
 
     # providing a default will have no affect for now
     iterator countToN(count, step: int, val: int = 3): int {.producer, closure.} =
       for i in countUp(0, count, step):
         yield val
 
-    con.register(countToN)
+    conn.register(countToN)
 
-    let outcome = con.execute("SELECT * FROM countToN(9, 3, -1)").fetchall()
+    let outcome = conn.execute("SELECT * FROM countToN(9, 3, -1)").fetchall()
     check outcome[0].valueInteger == @[-1'i32, -1'i32, -1'i32, -1'i32]
 
   test "Iterator with multiple parameters, string output":
-    let con = connect()
+    let conn = newDatabase().connect()
 
     iterator progress(count: int, sigil: string): string {.producer, closure.} =
       var output = ""
@@ -96,14 +96,14 @@ suite "Higher level table functions":
         output &= sigil
         yield output
 
-    con.register(progress)
+    conn.register(progress)
 
-    let outcome = con.execute("SELECT * FROM progress(5, '#')").fetchall()
+    let outcome = conn.execute("SELECT * FROM progress(5, '#')").fetchall()
 
     check outcome[0].valueVarChar == @["#", "##", "###", "####", "#####"]
 
   test "Lazy iterator":
-    let con = connect()
+    let conn = newDatabase().connect()
 
     iterator floatCounter(): float {.producer, closure.} =
       var counter = 0.0
@@ -111,7 +111,7 @@ suite "Higher level table functions":
         yield counter
         counter += 1.0
 
-    con.register(floatCounter)
+    conn.register(floatCounter)
 
-    let outcome = con.execute("SELECT * FROM floatCounter() LIMIT 5;").fetchall()
+    let outcome = conn.execute("SELECT * FROM floatCounter() LIMIT 5;").fetchall()
     check outcome[0].valueDouble == @[0.0, 1.0, 2.0, 3.0, 4.0]

@@ -1,41 +1,40 @@
 import unittest
 import ../../src/[api, database, query, query_result, exceptions]
 
-suite "tests":
-  test "DuckDB init":
-    let _ = connect()
+suite "Basic queries":
 
   test "Create table":
-    let con = connect()
-    con.execute("CREATE TABLE integers(i INTEGER);")
+    let conn = newDatabase().connect()
+    conn.execute("CREATE TABLE integers(i INTEGER);")
 
   test "Incorrect query throws an error":
-    let con = connect()
+    let conn = newDatabase().connect()
     expect(OperationError):
-      con.execute("something very wrong;")
+      conn.execute("something very wrong;")
 
+suite "Prepared/Appender statements":
   test "Insert with prepared statements":
-    let con = connect()
-    con.execute("CREATE TABLE combined(i INTEGER, j VARCHAR);")
-    con.execute(
+    let conn = newDatabase().connect()
+    conn.execute("CREATE TABLE combined(i INTEGER, j VARCHAR);")
+    conn.execute(
       "INSERT INTO combined VALUES (6, 'foo'), (5, 'bar'), (?, ?);", ("7", "baz")
     )
-    let outcome = con.execute("SELECT * FROM combined").fetchall()
+    let outcome = conn.execute("SELECT * FROM combined").fetchall()
     check outcome[0].valueInteger == @[6'i32, 5'i32, 7'i32]
     check outcome[1].valueVarChar == @["foo", "bar", "baz"]
 
   test "Insert with appender":
-    let con = connect()
-    con.execute("CREATE TABLE integers(i INTEGER, j INTEGER);")
+    let conn = newDatabase().connect()
+    conn.execute("CREATE TABLE integers(i INTEGER, j INTEGER);")
     let expected = @[@["6", "4"], @["5", "6"], @["7", "8"]]
-    con.appender("integers", expected)
-    let outcome = con.execute("SELECT * FROM integers").fetchall()
+    conn.appender("integers", expected)
+    let outcome = conn.execute("SELECT * FROM integers").fetchall()
     check outcome[0].valueInteger == @[6'i32, 5'i32, 7'i32]
     check outcome[1].valueInteger == @[4'i32, 6'i32, 8'i32]
 
   test "Insert with all appenders":
-    let con = connect()
-    con.execute(
+    let conn = newDatabase().connect()
+    conn.execute(
       """
         CREATE TABLE foo_table (
           bool_val BOOLEAN,
@@ -53,7 +52,7 @@ suite "tests":
         );
       """
     )
-    var appender = newAppender(con, "foo_table")
+    var appender = newAppender(conn, "foo_table")
     # let blob = @[uint8(1), uint8(2), uint8(3)]
 
     check(appender.append(true), "Failed to append bool")
@@ -74,7 +73,7 @@ suite "tests":
     check(duckdb_appender_close(appender), "Failed to close the appender")
 
     # Fetch the data and verify correctness
-    let outcome = con.execute("SELECT * FROM foo_table").fetchall()
+    let outcome = conn.execute("SELECT * FROM foo_table").fetchall()
     check outcome[0].valueBoolean == @[true]
     check outcome[1].valueTinyInt == @[-128'i8]
     check outcome[2].valueSmallInt == @[32767'i16]
@@ -89,8 +88,8 @@ suite "tests":
     check outcome[11].valueVarChar == @["hello"]
 
   test "Insert with already made prepared statement":
-    let con = connect()
-    con.execute(
+    let conn = newDatabase().connect()
+    conn.execute(
       """
         CREATE TABLE prepared_table (
           bool_val BOOLEAN,
@@ -110,9 +109,9 @@ suite "tests":
     )
 
     let prepared = newStatement(
-      con, "INSERT INTO prepared_table VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);"
+      conn, "INSERT INTO prepared_table VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);"
     )
-    con.execute(
+    conn.execute(
       prepared,
       (
         true,
@@ -129,7 +128,7 @@ suite "tests":
         "hello",
       ),
     )
-    let outcome = con.execute("SELECT * FROM prepared_table").fetchall()
+    let outcome = conn.execute("SELECT * FROM prepared_table").fetchall()
     check outcome[0].valueBoolean == @[true]
     check outcome[1].valueTinyInt == @[-128'i8]
     check outcome[2].valueSmallInt == @[32767'i16]

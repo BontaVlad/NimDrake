@@ -46,7 +46,7 @@ proc newStatement*(con: Connection, query: Query): Statement =
   ## - `query`: The query to prepare
   ## Returns: A new prepared statement
   result = Statement(nil)
-  check(duckdbPrepare(con, query, result.addr), "Failed to create prepared statement")
+  check(duckdbPrepare(con.handle, query, result.addr), "Failed to create prepared statement")
 
 proc bind_param_idx*(statement: Statement, name: string, param_idx_out: ptr idx_t) =
   check(
@@ -154,17 +154,12 @@ proc execute*(con: Connection, query: Query): QueryResult {.discardable.} =
   ## - `query`: The query to execute
   ## Returns: The query result
   result = QueryResult()
-  check(duckdbQuery(con, query, result.addr), result.error)
+  check(duckdbQuery(con.handle, query, result.addr), result.error)
 
 proc execute*[T: Values](
     con: Connection, query: Query, args: T
 ): QueryResult {.discardable.} =
   ## Executes a query with arguments by first preparing a statement
-  ## Parameters:
-  ## - `con`: The database connection
-  ## - `query`: The query to execute
-  ## - `args`: The arguments to bind to the statement
-  ## Returns: The query result
   let statement = newStatement(con, query)
   result = con.execute(statement, args)
 
@@ -222,31 +217,14 @@ template append*(appender: Appender, val: auto): Error =
 
 proc newAppender*(con: Connection, table: string): Appender =
   ## Creates a new appender for a specified table
-  ## Parameters:
-  ## - `con`: The database connection
-  ## - `table`: The table name to append to
-  ## Returns: A new appender instance
   result = Appender(nil)
   check(
-    duckdb_appender_create(con, nil, table.cstring, result.addr),
+    duckdb_appender_create(con.handle, nil, table.cstring, result.addr),
     "Failed to create appender",
   )
 
 proc appender*[T](con: Connection, table: string, ent: seq[seq[T]]) =
   ## Appends a sequence of sequences of type `T` to a specified table in a DuckDB database.
-  ##
-  ## Parameters:
-  ##   - `con`: The connection to the DuckDB database.
-  ##   - `table`: The name of the table to which the data will be appended.
-  ##   - `ent`: A sequence of sequences where each inner sequence represents a row of data to be appended.
-  ##
-  ## Each value in the inner sequences is appended to the table. If any append operation fails,
-  ## an error message is generated. After appending all values in a row, the row is finalized,
-  ## and the appender is closed after all rows are processed.
-  ##
-  ## Raises:
-  ##   - If any append operation fails, an error message is generated with the failed value.
-  ##   - If ending a row or closing the appender fails, an error message is generated.
   var appender = newAppender(con, table)
   for row in ent:
     for val in row:
