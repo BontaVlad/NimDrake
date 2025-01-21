@@ -19,6 +19,8 @@ requires "terminaltables >= 0.1.1"
 requires "uuid4 >= 0.9.3"
 requires "criterion >= 0.3.1"
 requires "fusion >= 1.2"
+requires "taskpools >= 0.0.4"
+requires "unittest2 >= 0.2.3"
 
 task test, "run testament":
   echo staticExec("testament p \"./tests/**/test_*.nim\"")
@@ -26,5 +28,3 @@ task test, "run testament":
 
 task docs, "Generate documentation":
   exec "nimble doc --useSystemNim --verbose --docCmd:\"--passL:\"-lduckdb\"\" --project --out:docs src/nimdrake.nim"
-
-requires "taskpools >= 0.0.4"
