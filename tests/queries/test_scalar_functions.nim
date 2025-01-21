@@ -7,7 +7,7 @@ suite "Test scalar functions":
     let conn = newDatabase().connect()
 
     template doubleValue(val, bar: int64): int64 {.scalar.} =
-      val * bar
+      return val * bar
 
     conn.register(doubleValue)
 

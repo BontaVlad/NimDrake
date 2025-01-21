@@ -31,8 +31,8 @@ jobs:
         unzip libduckdb-linux-amd64.zip
         sudo mv libduckdb.so /usr/lib/
         sudo ldconfig
-    - name: Test
-      continue-on-error: ${{ matrix.version == 'devel' }}
+    - name: Test and Benchmark
       run: |
         nimble install -y
         just test
+        just benchmark

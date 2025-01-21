@@ -2,16 +2,8 @@
 default:
     @just --choose --justfile {{justfile()}}
 
-# Format all Nim files in the source tree
-format:
-    #!/usr/bin/env bash
-    find . -type f -name "*.nim" -print0 | while IFS= read -r -d '' file; do
-        echo "Formatting $file..."
-        nph "$file"
-    done
-
 # Recursively format all Nim files in a specific directory
-format-dir directory:
+format directory="src":
     #!/usr/bin/env bash
     find "{{directory}}" -type f -name "*.nim" -print0 | while IFS= read -r -d '' file; do
         echo "Formatting $file..."
@@ -70,7 +62,6 @@ test:
     set -euo pipefail
 
     NIMCACHE_DIR="nimcache"
-    CURRENT_DIR=$(pwd)
 
     # Create nimcache/tests directory if it doesn't exist
     mkdir -p "${NIMCACHE_DIR}/tests"
@@ -240,3 +231,40 @@ valgrind nim_file="tests/results/test_result_type.nim" name="":
         --track-origins=yes \
         --verbose \
         "${OUTPUT_PATH}"
+
+# Run with maximum performance compiler flags for benchmarking
+benchmark nim_file="src/duckdb" name="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    NIMCACHE_DIR="nimcache"
+    CURRENT_DIR=$(pwd)
+
+    # Create nimcache/tests directory if it doesn't exist
+    mkdir -p "${NIMCACHE_DIR}/benchmarks"
+
+    # Find and process test files
+    find ./benchmarks -name 'benchmark_*.nim' | head | while read -r file; do
+        echo "Processing file: $file"
+        filename=$(basename "$file")
+        filename_no_ext="${filename%.nim}"
+
+        nim c \
+            -r \
+            -d:release \
+            -d:danger \
+            --verbosity:0 \
+            --hints:off \
+            --opt:speed \
+            --mm:arc \
+            --threads:off \
+            --panics:on \
+            -o:"${NIMCACHE_DIR}/benchmarks/${filename_no_ext}" \
+            "$file"
+
+            # --passC:"-flto -march=native -ffast-math -funroll-loops" \
+            # --passL:"-flto" \
+
+        # Run the compiled test
+        "${NIMCACHE_DIR}/benchmarks/${filename_no_ext}"
+    done

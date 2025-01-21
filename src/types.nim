@@ -166,6 +166,7 @@ proc `=destroy`(d: var DataChunkBase) =
   d.columns = newSeq[Column]()
   if d.handle != nil and d.shouldDestroy:
     duckdb_destroy_datachunk(d.handle.addr)
+
 {.pop.}
 
 proc `=destroy`(qresult: QueryResult) =

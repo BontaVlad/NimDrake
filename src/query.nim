@@ -38,7 +38,9 @@ proc `=destroy`*(statement: Statement) =
 proc newStatement*(con: Connection, query: Query): Statement =
   ## Creates a new prepared statement from a connection and query
   result = Statement(nil)
-  check(duckdbPrepare(con.handle, query, result.addr), "Failed to create prepared statement")
+  check(
+    duckdbPrepare(con.handle, query, result.addr), "Failed to create prepared statement"
+  )
 
 proc bind_param_idx*(statement: Statement, name: string, param_idx_out: ptr idx_t) =
   check(
@@ -131,7 +133,10 @@ proc execute*[T: Values](
   ## Executes a prepared statement with provided arguments
   result = QueryResult()
   for i, value in enumerate(args.fields):
-    check(bind_val(statement, (i + 1).idx_t, value), "Failed to bind" & " " & $value & "[" & $typedesc(value) & "]")
+    check(
+      bind_val(statement, (i + 1).idx_t, value),
+      "Failed to bind" & " " & $value & "[" & $typedesc(value) & "]",
+    )
   check(duckdbExecutePrepared(statement, result.addr), result.error)
 
 proc execute*(con: Connection, query: Query): QueryResult {.discardable.} =

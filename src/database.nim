@@ -20,8 +20,13 @@ proc `=destroy`(con: Connection) =
   if not isNil(con.addr):
     duckdbDisconnect(cast[ptr duckdbConnection](con.addr))
 
-proc `=copy`*(dest: var Database, source: Database) {.error: "Database cannot be copied".}
-proc `=copy`*(dest: var Connection, source: Connection) {.error: "Connection cannot be copied".}
+proc `=copy`*(
+  dest: var Database, source: Database
+) {.error: "Database cannot be copied".}
+
+proc `=copy`*(
+  dest: var Connection, source: Connection
+) {.error: "Connection cannot be copied".}
 
 proc newDatabase*(path: string, config: Config): Database =
   ## Creates a new preconfigured database or opens an existing database file stored at the given path.
@@ -41,7 +46,8 @@ proc newDatabase*(path: string, config: Config): Database =
 
   result = Database(handle: nil)
   var error: cstring = ""
-  let state: duckdbState = duckdbOpenExt(path.cstring, result.handle.addr, config, error.addr)
+  let state: duckdbState =
+    duckdbOpenExt(path.cstring, result.handle.addr, config, error.addr)
   check(state, $error, `=destroy`(result))
 
 proc newDatabase*(path: string): Database =

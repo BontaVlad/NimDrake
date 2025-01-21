@@ -350,7 +350,9 @@ macro producer*(body: typed): untyped =
     `tableFunction`
 
 proc register*(con: Connection, fun: TableFunction) =
-  check(duckdb_register_table_function(con.handle, fun.handle), "Failed to regiter function")
+  check(
+    duckdb_register_table_function(con.handle, fun.handle), "Failed to regiter function"
+  )
 
 proc unregister*(con: Connection, name: string) {.discardable.} =
   discard
