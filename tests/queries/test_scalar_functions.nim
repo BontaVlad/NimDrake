@@ -1,4 +1,4 @@
-import std/[unittest]
+import unittest2
 import ../../src/[api, database, query, query_result, scalar_functions, types]
 
 suite "Test scalar functions":
@@ -7,7 +7,7 @@ suite "Test scalar functions":
     let conn = newDatabase().connect()
 
     template doubleValue(val, bar: int64): int64 {.scalar.} =
-      result = val * bar
+      val * bar
 
     conn.register(doubleValue)
 

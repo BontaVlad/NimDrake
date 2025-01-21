@@ -1,4 +1,4 @@
-import std/[unittest]
+import unittest2
 import ../../src/[api, datachunk, types, query_result]
 
 suite "Test datachunk":

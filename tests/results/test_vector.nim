@@ -1,23 +1,25 @@
-import std/[unittest, times]
+import std/[times]
+import unittest2
 import ../../src/[api, types, vector, datachunk, query_result]
 
 suite "Vector from datachunk column":
-  let
-    intColumn = newColumn(idx = 0, name = "index", kind = DuckType.Integer)
-    varCharColumn = newColumn(idx = 1, name = "name", kind = DuckType.Varchar)
-    boolColumn = newColumn(idx = 2, name = "truth", kind = DuckType.Boolean)
+  setup:
+    let
+      intColumn = newColumn(idx = 0, name = "index", kind = DuckType.Integer)
+      varCharColumn = newColumn(idx = 1, name = "name", kind = DuckType.Varchar)
+      boolColumn = newColumn(idx = 2, name = "truth", kind = DuckType.Boolean)
 
-  let
-    intValues = @[10'i32, 20'i32]
-    varCharValues = @["same", "different"]
-    boolValues = @[true, false]
+    let
+      intValues = @[10'i32, 20'i32]
+      varCharValues = @["same", "different"]
+      boolValues = @[true, false]
 
-  let columns = @[intColumn, varCharColumn, boolColumn]
-  var chunk = newDataChunk(columns = columns)
+    let columns = @[intColumn, varCharColumn, boolColumn]
+    var chunk = newDataChunk(columns = columns)
 
-  chunk[intColumn.idx] = intValues
-  chunk[varCharColumn.idx] = varCharValues
-  chunk[boolColumn.idx] = boolValues
+    chunk[intColumn.idx] = intValues
+    chunk[varCharColumn.idx] = varCharValues
+    chunk[boolColumn.idx] = boolValues
 
   test "new integer vector":
     let

@@ -1,9 +1,11 @@
-import std/[unittest, tables, sequtils]
+import unittest2
+import std/[tables, sequtils]
 import ../../src/[dataframe, vector]
 
 suite "Test Dataframe":
-  let df =
-    newDataFrame({"foo": newVector(@[10, 20]), "bar": newVector(@["a", "b"])}.toTable)
+  setup:
+    let df =
+      newDataFrame({"foo": newVector(@[10, 20]), "bar": newVector(@["a", "b"])}.toTable)
 
   test "Test dataframe columns":
     check df.columnNames == @["foo", "bar"]

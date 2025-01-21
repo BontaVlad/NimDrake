@@ -1,4 +1,7 @@
-import std/[unittest, threadpool, tables]
+import unittest2
+# import std/[threadpool, tables]
+import std/[cpuinfo, tables]
+import taskpools
 import ../src/[api, database, config, query, query_result, exceptions]
 
 
@@ -41,10 +44,8 @@ suite "Database settings":
   #     let config = newConfig({"threads": "invalid"}.toTable)
 
 suite "Connections":
-
   test "Thread-safe connection":
-
-    let
+    var
       db = newDatabase()
       mainConn = db.connect()
 
@@ -56,29 +57,35 @@ suite "Connections":
             calculation_result INTEGER
          )""")
 
+    type
+      ThreadData = object
+        id: int
+        db: ptr Database
 
+    proc workerThread(data: ThreadData) {.gcsafe.} =
+      let conn = data.db[].connect()
 
-    proc workerThread(id: int) {.thread.} =
       let
-        conn = db.connect()
-        a = id * 10
-        b = id * 20
+        a = data.id * 10
+        b = data.id * 20
         res = a + b
 
       conn.execute(
          "INSERT INTO results VALUES (?, ?, ?, ?)",
-         (id, a, b, res)
+         (data.id, a, b, res)
       )
 
+    let n = 5
+    let nthreads = countProcessors()
 
-    const numThreads = 5
-    var threads: array[numThreads, Thread[int]]
+    var tp = Taskpool.new(num_threads = nthreads)
 
-    for i in 0..numThreads - 1:
-      createThread(threads[i], workerThread, i)
+    for i in 0..<n:
+      let data = ThreadData(id: i, db: db.addr)  # Pass address of db
+      tp.spawn workerThread(data)
 
-    for i in 0..numThreads - 1:
-      threads[i].joinThread()
+    tp.syncAll()
+    tp.shutdown()
 
     let results = mainConn.execute("SELECT calculation_result, value_a, value_b, thread_id FROM results ORDER BY thread_id").fetchAll()
     check results[0].valueInteger[0] == 0'i64

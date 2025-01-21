@@ -85,6 +85,8 @@ test:
         nim c \
             -d:debug \
             -d:nimDebugDlOpen \
+            --verbosity:0 \
+            --hints:off \
             --cc:clang \
             --opt:none \
             --debugger:native \
@@ -108,7 +110,7 @@ test:
     done
 
 # Debug with rr and connect lldb to the specific target
-debug-run nim_file="src/duckdb":
+debug-run nim_file="src/duckdb" name="":
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -138,7 +140,8 @@ debug-run nim_file="src/duckdb":
         --debuginfo:on \
         --threads:off \
         --excessiveStackTrace:on \
-        "{{nim_file}}"
+        "{{nim_file}}" \
+        "{{name}}"
 
 # Debug with rr and connect lldb to the specific target
 debug nim_file="tests/results/test_result_type.nim":
@@ -202,7 +205,7 @@ debug nim_file="tests/results/test_result_type.nim":
     # kill $RR_PID 2>/dev/null || true
 
 # Run Valgrind on a Nim file to analyze memory usage
-valgrind nim_file="tests/results/test_result_type.nim":
+valgrind nim_file="tests/results/test_result_type.nim" name="":
     #!/usr/bin/env bash
     set -euo pipefail
 

@@ -1,4 +1,5 @@
-import std/[unittest, times, tables, strformat, sequtils, sugar]
+import std/[times, tables, strformat, sequtils, sugar]
+import unittest2
 import nint128
 import ../../src/[database, query, query_result]
 

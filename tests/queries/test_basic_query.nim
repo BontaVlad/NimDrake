@@ -1,4 +1,4 @@
-import unittest
+import unittest2
 import ../../src/[api, database, query, query_result, exceptions]
 
 suite "Basic queries":

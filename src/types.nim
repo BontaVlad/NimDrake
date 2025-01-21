@@ -159,12 +159,14 @@ proc `=destroy`*(ltp: LogicalTypeBase) =
   if not isNil(ltp.addr) and not isNil(ltp.handle.addr):
     duckdb_destroy_logical_type(ltp.handle.addr)
 
+{.push warning[Deprecated]: off.}
 proc `=destroy`(d: var DataChunkBase) =
   # I have no ideea why without this
   # there is a memory leak
   d.columns = newSeq[Column]()
   if d.handle != nil and d.shouldDestroy:
     duckdb_destroy_datachunk(d.handle.addr)
+{.pop.}
 
 proc `=destroy`(qresult: QueryResult) =
   if not isNil(qresult.addr):

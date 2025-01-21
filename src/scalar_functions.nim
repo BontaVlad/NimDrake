@@ -20,7 +20,7 @@ proc newScalarFunction*(name: string): ScalarFunction =
 
 macro scalar*(body: typed): untyped =
   if body.kind != nnkTemplateDef:
-    error("The {.scalar.} pragma can only be applied to proc definitions.")
+    error("The {.scalar.} pragma can only be applied to template definitions.")
 
   let typeToField = {
     DuckType.Invalid: ident"valueInvalid",

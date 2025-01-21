@@ -26,3 +26,5 @@ task test, "run testament":
 
 task docs, "Generate documentation":
   exec "nimble doc --useSystemNim --verbose --docCmd:\"--passL:\"-lduckdb\"\" --project --out:docs src/nimdrake.nim"
+
+requires "taskpools >= 0.0.4"

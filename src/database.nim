@@ -6,7 +6,7 @@ import /[api, config, exceptions]
 ## With the Database obj, you can create one or many Connection using db.connect(). While individual connections are thread-safe, they will be locked during querying. It is therefore recommended that each thread uses its own connection to allow for the best parallel performance.
 
 type
-  Database* = object
+  Database* = object of RootObj
     handle*: duckdbDatabase
 
   Connection* = object
@@ -19,6 +19,9 @@ proc `=destroy`(db: Database) =
 proc `=destroy`(con: Connection) =
   if not isNil(con.addr):
     duckdbDisconnect(cast[ptr duckdbConnection](con.addr))
+
+proc `=copy`*(dest: var Database, source: Database) {.error: "Database cannot be copied".}
+proc `=copy`*(dest: var Connection, source: Connection) {.error: "Connection cannot be copied".}
 
 proc newDatabase*(path: string, config: Config): Database =
   ## Creates a new preconfigured database or opens an existing database file stored at the given path.

@@ -1,6 +1,7 @@
-import std/[unittest, times, tables]
-import ../../src/[api, types, value]
+import std/[times, tables]
+import unittest2
 import uuid4
+import ../../src/[api, types, value]
 
 suite "Tests value creations":
   test "Create Boolean Value":
@@ -141,6 +142,7 @@ suite "Tests value creations":
     let
       rawString = duckdb_create_varchar("hello from duckdb".cstring)
       myString = newDuckString(duckdb_get_varchar(rawString))
+    duckdb_destroy_value(rawString.addr)
     check $myString == "hello from duckdb"
 
 suite "Test conversions":

@@ -27,24 +27,16 @@ converter toBase*(s: string): Query =
 
 proc `=destroy`*(appender: Appender) =
   ## Destroys an appender instance if it exists
-  ## Parameters:
-  ## - `appender`: The appender to destroy
   if not isNil(appender.addr):
     discard duckdbAppenderDestroy(appender.addr)
 
 proc `=destroy`*(statement: Statement) =
   ## Destroys a prepared statement instance if it exists
-  ## Parameters:
-  ## - `statement`: The prepared statement to destroy
   if not isNil(statement.addr):
     duckdbDestroyPrepare(statement.addr)
 
 proc newStatement*(con: Connection, query: Query): Statement =
   ## Creates a new prepared statement from a connection and query
-  ## Parameters:
-  ## - `con`: The database connection
-  ## - `query`: The query to prepare
-  ## Returns: A new prepared statement
   result = Statement(nil)
   check(duckdbPrepare(con.handle, query, result.addr), "Failed to create prepared statement")
 
@@ -137,22 +129,13 @@ proc execute*[T: Values](
     con: Connection, statement: Statement, args: T
 ): QueryResult {.discardable.} =
   ## Executes a prepared statement with provided arguments
-  ## Parameters:
-  ## - `con`: The database connection
-  ## - `statement`: The prepared statement to execute
-  ## - `args`: The arguments to bind to the statement
-  ## Returns: The query result
   result = QueryResult()
   for i, value in enumerate(args.fields):
-    check(bind_val(statement, (i + 1).idx_t, value), "Failed to bind char")
+    check(bind_val(statement, (i + 1).idx_t, value), "Failed to bind" & " " & $value & "[" & $typedesc(value) & "]")
   check(duckdbExecutePrepared(statement, result.addr), result.error)
 
 proc execute*(con: Connection, query: Query): QueryResult {.discardable.} =
   ## Executes a raw query without any prepared arguments
-  ## Parameters:
-  ## - `con`: The database connection
-  ## - `query`: The query to execute
-  ## Returns: The query result
   result = QueryResult()
   check(duckdbQuery(con.handle, query, result.addr), result.error)
 
