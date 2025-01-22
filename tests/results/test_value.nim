@@ -1,6 +1,7 @@
 import std/[times, tables]
 import unittest2
 import uuid4
+import nint128
 import ../../src/[api, types, value]
 
 suite "Tests value creations":
@@ -30,10 +31,11 @@ suite "Tests value creations":
     check val.kind == DuckType.BigInt
     check val.valueBigint == 10000000000
 
-  # test "Create Int128 value":
-  #   let val = newValue(100.Int128)
-  #   check val.kind == DuckType.HugeInt
-  #   check val.valueHugeInt == 100
+  test "Create Int128 value":
+    let hugeIntVal = i128("-18446744073709551616")
+    let val = newValue(hugeIntVal)
+    check val.kind == DuckType.HugeInt
+    check val.valueHugeInt == hugeIntVal
 
   test "Create uint8 value":
     let val = newValue(255'u8)
@@ -66,13 +68,14 @@ suite "Tests value creations":
     check val.valueDouble == 2.718281828459045
 
   test "Create DateTime value as Timestamp":
-    let val = newValue(now(), DuckType.Timestamp)
+    let inThisMoment = Timestamp(now())
+    let val = newValue(inThisMoment, DuckType.Timestamp)
     check val.kind == DuckType.Timestamp
 
-  # test "Create Time value":
-  #   let val = newValue(initTime(1734548229, 0))
-  #   check val.kind == DuckType.Time
-  #   check $val.valueTime == "2024-12-18T20:57:09+02:00"
+  test "Create Time value":
+    let val = newValue(initTime(1734548229, 0))
+    check val.kind == DuckType.Time
+    check $val.valueTime == "2024-12-18T20:57:09+02:00"
 
   # test "Create ZonedTime value":
   #   let zt = initZonedTime(DateTime.now(), "UTC")

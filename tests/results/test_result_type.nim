@@ -1,7 +1,7 @@
 import std/[times, tables, strformat, sequtils, sugar]
 import unittest2
 import nint128
-import ../../src/[database, query, query_result]
+import ../../src/[types, database, query, query_result]
 
 # TODO: expand tests with more scenarios, especially the unhappy types
 
@@ -122,7 +122,7 @@ suite "results":
       # -- Returns 12 months; equivalent to `to_years(CAST(trunc(1.5) AS INTEGER))`
       outcome =
         conn.execute("SELECT INTERVAL '1.5' YEARS AS months_interval;").fetchAllNamed()
-    check outcome["months_interval"].valueInterval[0].months == 12
+    check outcome["months_interval"].valueInterval[0].years == 1
 
   test "Test HugeInt result type":
     let conn = newDatabase().connect()

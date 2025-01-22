@@ -1,11 +1,17 @@
-import std/[strformat, logging, enumerate]
-import /[api, types, database, query_result, exceptions]
+import std/[strformat, logging, enumerate, times]
+import nint128
+import decimal
+import /[api, types, database, query_result, value, exceptions]
 
 type
   Query* = distinct string
-  Statement = distinct ptr duckdbPreparedStatement
+  Statement* = distinct ptr duckdbPreparedStatement
   Values = (tuple or object)
-  Appender = distinct ptr duckdbAppender
+  Appender* = distinct ptr duckdbAppender
+  Parameter* = object
+    name*: string
+    idx*: int
+    tpy*: DuckType
 
 converter toBase*(s: ptr Statement): ptr duckdbPreparedStatement =
   cast[ptr duckdbPreparedStatement](s)
@@ -38,118 +44,156 @@ proc `=destroy`*(statement: Statement) =
 proc newStatement*(con: Connection, query: Query): Statement =
   ## Creates a new prepared statement from a connection and query
   result = Statement(nil)
-  check(
-    duckdbPrepare(con.handle, query, result.addr), "Failed to create prepared statement"
-  )
+  let error = duckdbPrepare(con.handle, query, result.addr)
+  if error:
+    let errorMessage = duckdb_prepare_error(result)
+    raise newException(OperationError, $errorMessage)
 
-proc bind_param_idx*(statement: Statement, name: string, param_idx_out: ptr idx_t) =
-  check(
-    duckdb_bind_parameter_index(statement, param_idx_out, name.cstring),
-    "Failed to bind parameter index",
-  )
+iterator parameters*(statement: Statement): Parameter =
+  ## There are three syntaxes for denoting parameters in prepared statements:
+  ## auto-incremented (?), positional ($1), and named ($param).
+  ## Note that not all clients support all of these syntaxes, e.g.,
+  ## the JDBC client only supports auto-incremented parameters in prepared statements.
+  runnableExamples:
+    import std/sequtils
+    import nimdrake
 
-# template bind_val*(statement: Statement, i: idx_t, val: DuckDBHugeint): Error =
-#   duckdb_bind_hugeint(statement, i, val)
+    let conn = newDatabase().connect()
 
-# template bind_val*(statement: Statement, i: idx_t, val: DuckDBUHugeint): Error =
-#   duckdb_bind_uhugeint(statement, i, val)
+    conn.execute("CREATE TABLE a (i INTEGER, j VARCHAR);")
+    var statement = conn.newStatement("INSERT INTO a VALUES (?, ?);")
+    let parameters = statement.parameters.toSeq()
+    assert len(parameters) == 2
+    assert parameters[0].name == "1"
+    assert parameters[0].idx == 1
+    assert parameters[0].tpy == DuckType.Integer
+    assert parameters[1].name == "2"
+    assert parameters[1].idx == 2
+    assert parameters[1].tpy == DuckType.VARCHAR
 
-# template bind_val*(statement: Statement, i: idx_t, val: DuckDBDecimal): Error =
-#   duckdb_bind_decimal(statement, i, val)
-
-# template bind_val*(statement: Statement, i: idx_t, val: DuckDBDate): Error =
-#   duckdb_bind_date(statement, i, val)
-
-# template bind_val*(statement: Statement, i: idx_t, val: DuckDBTime): Error =
-#   duckdb_bind_time(statement, i, val)
-
-# template bind_val*(statement: Statement, i: idx_t, val: DuckDBTimestamp): Error =
-#   duckdb_bind_timestamp(statement, i, val)
-
-# template bind_val*(statement: Statement, i: idx_t, val: DuckDBTimestampTz): Error =
-#   duckdb_bind_timestamp_tz(statement, i, val)
-
-# template bind_val*(statement: Statement, i: idx_t, val: DuckDBInterval): Error =
-#   duckdb_bind_interval(statement, i, val)
-
-# template bind_val*(statement: Statement, i: idx_t, val: FilePath): Error =
-#   duckdb_bind_varchar_length(statement, i, val.cstring, len(val))
-
-# template bind_val*(statement: Statement, i: idx_t, val: FilePath, length: idx_t): Error =
-#   duckdb_bind_varchar_length(statement, i, val.cstring, length)
-
-template bind_val*(statement: Statement, i: idx_t, val: seq[byte]): Error =
-  duckdb_bind_blob(statement, i, ptr val, len(val))
-
-template bind_val*(statement: Statement, i: idx_t, val: void): Error =
-  duckdb_bind_null(statement, i)
-
-template bind_val(statement: Statement, i: idx_t, val: bool): Error =
-  duckdb_bind_boolean(statement, i, val)
-
-template bind_val(statement: Statement, i: idx_t, val: int8): Error =
-  duckdb_bind_int8(statement, i, val)
-
-template bind_val(statement: Statement, i: idx_t, val: int16): Error =
-  duckdb_bind_int16(statement, i, val)
-
-template bind_val(statement: Statement, i: idx_t, val: int32): Error =
-  duckdb_bind_int32(statement, i, val)
-
-template bind_val(statement: Statement, i: idx_t, val: int64): Error =
-  duckdb_bind_int64(statement, i, val)
-
-template bind_val(statement: Statement, i: idx_t, val: int): Error =
-  duckdb_bind_int64(statement, i, int64(val))
-
-template bind_val(statement: Statement, i: idx_t, val: uint8): Error =
-  duckdb_bind_uint8(statement, i, val)
-
-template bind_val(statement: Statement, i: idx_t, val: uint16): Error =
-  duckdb_bind_uint16(statement, i, val)
-
-template bind_val(statement: Statement, i: idx_t, val: uint32): Error =
-  duckdb_bind_uint32(statement, i, val)
-
-template bind_val(statement: Statement, i: idx_t, val: uint64): Error =
-  duckdb_bind_uint64(statement, i, val)
-
-template bind_val(statement: Statement, i: idx_t, val: float32): Error =
-  duckdb_bind_float(statement, i, val)
-
-template bind_val(statement: Statement, i: idx_t, val: float64): Error =
-  duckdb_bind_double(statement, i, val)
-
-template bind_val(statement: Statement, i: idx_t, val: string): Error =
-  duckdb_bind_varchar(statement, i, val.cstring)
-
-template bind_val(statement: Statement, i: idx_t, val: Value): Error =
-  duckdb_bind_value(statement, i, val.toNativeValue.handle)
-
-# duckdb_state duckdb_bind_value(duckdb_prepared_statement prepared_statement, idx_t param_idx, duckdb_value val);
-proc execute*[T: Values](
-    con: Connection, statement: Statement, args: T
-): QueryResult {.discardable.} =
-  ## Executes a prepared statement with provided arguments
-  result = QueryResult()
-  for i, value in enumerate(args.fields):
-    check(
-      bind_val(statement, (i + 1).idx_t, value),
-      "Failed to bind" & " " & $value & "[" & $typedesc(value) & "]",
+  let nParams = duckdb_nparams(statement)
+  for idx in 1 .. nParams:
+    yield Parameter(
+      name: $newDuckString(duckdb_parameter_name(statement, idx)),
+      idx: idx.int,
+      tpy: newDuckType(duckdb_param_type(statement, idx))
     )
-  check(duckdbExecutePrepared(statement, result.addr), result.error)
 
-proc execute*(con: Connection, query: Query): QueryResult {.discardable.} =
-  ## Executes a raw query without any prepared arguments
-  result = QueryResult()
-  check(duckdbQuery(con.handle, query, result.addr), result.error)
+proc bindParameter*(statement: Statement, name: string): int =
+  ## Retrieve the index of the parameter for the prepared statement, identified by name
 
-proc execute*[T: Values](
-    con: Connection, query: Query, args: T
-): QueryResult {.discardable.} =
-  ## Executes a query with arguments by first preparing a statement
-  let statement = newStatement(con, query)
-  result = con.execute(statement, args)
+  runnableExamples:
+    import nimdrake
+
+    let conn = newDatabase().connect()
+
+    var statement = conn.newStatement("SELECT CAST($my_val AS BIGINT), CAST($my_second_val AS VARCHAR);")
+    let indexes = @[
+      statement.bindParameter("my_second_val"),
+      statement.bindParameter("my_val")
+    ]
+    assert indexes == @[2, 1]
+
+  var parameterIndex = 0.idx_t
+  check(
+    duckdbBindParameterIndex(statement, parameterIndex.addr, name.cstring),
+    fmt"Failed to bind parameter {name}",
+  )
+  return parameterIndex.int
+
+template bindVal*(statement: Statement, i: int, val: bool): Error =
+  ## Binds a bool value to the prepared statement at the specified index.
+  duckdbBindBoolean(statement, i.idx_t, val)
+
+template bindVal*(statement: Statement, i: int, val: seq[byte]): Error =
+  ## Binds a blob value to the prepared statement at the specified index.
+  duckdbBindBlob(statement, i.idx_t, ptr val, len(val))
+
+template bindVal*(statement: Statement, i: int, val: void): Error =
+  ## Binds a NULL value to the prepared statement at the specified index
+  duckdb_bind_null(statement, i.idx_t)
+
+template bindVal*(statement: Statement, i: int, val: int8): Error =
+  ## Binds an int8_t value to the prepared statement at the specified index.
+  duckdb_bind_int8(statement, i.idx_t, val)
+
+template bindVal*(statement: Statement, i: int, val: int16): Error =
+  ## Binds an int16_t value to the prepared statement at the specified index.
+  duckdb_bind_int16(statement, i.idx_t, val)
+
+template bindVal*(statement: Statement, i: int, val: int32): Error =
+  ## Binds an int32_t value to the prepared statement at the specified index.
+  duckdb_bind_int32(statement, i.idx_t, val)
+
+template bindVal*(statement: Statement, i: int, val: int64): Error =
+  ## Binds an int64_t value to the prepared statement at the specified index.
+  duckdb_bind_int64(statement, i.idx_t, val)
+
+# TODO: this might be false
+template bindVal*(statement: Statement, i: int, val: int): Error =
+  ## Binds an int64_t value to the prepared statement at the specified index.
+  duckdb_bind_int64(statement, i.idx_t, int64(val))
+
+template bindVal*(statement: Statement, i: int, val: uint8): Error =
+  ## Binds an uint8_t value to the prepared statement at the specified index.
+  duckdb_bind_uint8(statement, i.idx_t, val)
+
+template bindVal*(statement: Statement, i: int, val: uint16): Error =
+  ## Binds an uint16_t value to the prepared statement at the specified index.
+  duckdb_bind_uint16(statement, i.idx_t, val)
+
+template bindVal*(statement: Statement, i: int, val: uint32): Error =
+  ## Binds an uint32_t value to the prepared statement at the specified index.
+  duckdb_bind_uint32(statement, i.idx_t, val)
+
+template bindVal*(statement: Statement, i: int, val: uint64): Error =
+  ## Binds an uint64_t value to the prepared statement at the specified index.
+  duckdb_bind_uint64(statement, i.idx_t, val)
+
+template bindVal*(statement: Statement, i: int, val: float32): Error =
+  ## Binds a float value to the prepared statement at the specified index.
+  duckdb_bind_float(statement, i.idx_t, val)
+
+template bindVal*(statement: Statement, i: int, val: float64): Error =
+  ## Binds a double value to the prepared statement at the specified index.
+  duckdb_bind_double(statement, i.idx_t, val)
+
+template bindVal*(statement: Statement, i: int, val: string): Error =
+  ## Binds a varchar value to the prepared statement at the specified index.
+  duckdb_bind_varchar(statement, i.idx_t, val.cstring)
+
+template bindVal*(statement: Statement, i: int, val: Value): Error =
+  ## Binds a value to the prepared statement at the specified index.
+  duckdb_bind_value(statement, i.idx_t, val.toNativeValue.handle)
+
+template bindVal*(statement: Statement, i: int, val: Int128): Error =
+  ## Binds a HugeInt value to the prepared statement at the specified index.
+  duckdb_bind_hugeint(statement, i.idx_t, val.toHugeInt)
+
+template bindVal*(statement: Statement, i: int, val: UInt128): Error =
+  ## Binds a unsigned HugeInt value to the prepared statement at the specified index.
+  duckdb_bind_uhugeint(statement, i.idx_t, val.toUhugeInt)
+
+template bindVal*(statement: Statement, i: int, val: Timestamp): Error =
+  duckdb_bind_timestamp(statement, i.idx_t, val.toTimestamp)
+
+template bindVal*(statement: Statement, i: int, val: DateTime): Error =
+  duckdb_bind_date(statement, i.idx_t, val.toDateTime)
+
+template bindVal*(statement: Statement, i: int, val: Time): Error =
+  duckdb_bind_time(statement, i.idx_t, val.toTime)
+
+template bindVal*(statement: Statement, i: int, val: TimeInterval): Error =
+  duckdb_bind_interval(statement, i.idx_t, val.toInterval)
+
+# template bindVal*(statement: Statement, i: idx_t, val: Decimal): Error =
+#   raise newException(ValueError, "BindVal for Decimal not implemented")
+  # duckdb_bind_decimal(statement, i, val)
+
+template bind_val*(statement: Statement, i: idx_t, val: ZonedTime): Error =
+  raise newException(ValueError, "BindVal for ZonedTime not implemented")
+  # duckdb_bind_timestamp_tz(statement, i, val)
+
 
 template append*(appender: Appender, val: bool): Error =
   duckdb_append_bool(appender, val)
@@ -203,12 +247,35 @@ template append*[T](appender: Appender, val: seq[T]) =
 template append*(appender: Appender, val: auto): Error =
   raise newException(ValueError, "I have no ideea how to convert val, got: ", $val)
 
+proc execute*[T: Values](
+    con: Connection, statement: Statement, args: T
+): QueryResult {.discardable.} =
+  ## Executes a prepared statement with provided arguments
+  result = QueryResult()
+  for i, value in enumerate(args.fields):
+    check(bindVal(statement, (i + 1), value),
+      "Failed to bind" & " " & $value & "[" & $typedesc(value) & "]",
+    )
+  check(duckdbExecutePrepared(statement, result.addr), result.error)
+
+proc execute*(con: Connection, query: Query): QueryResult {.discardable.} =
+  ## Executes a raw query without any prepared arguments
+  result = QueryResult()
+  check(duckdbQuery(con.handle, query, result.addr), result.error)
+
+proc execute*[T: Values](
+    con: Connection, query: Query, args: T
+): QueryResult {.discardable.} =
+  ## Executes a query with arguments by first preparing a statement
+  let statement = newStatement(con, query)
+  result = con.execute(statement, args)
+
 proc newAppender*(con: Connection, table: string): Appender =
   ## Creates a new appender for a specified table
   result = Appender(nil)
   check(
     duckdb_appender_create(con.handle, nil, table.cstring, result.addr),
-    "Failed to create appender",
+    fmt"Failed to create appender for table: {table}",
   )
 
 proc appender*[T](con: Connection, table: string, ent: seq[seq[T]]) =
@@ -216,6 +283,6 @@ proc appender*[T](con: Connection, table: string, ent: seq[seq[T]]) =
   var appender = newAppender(con, table)
   for row in ent:
     for val in row:
-      check(appender.append(val), fmt"Failed to append: {val}")
-    check(duckdb_appender_end_row(appender), "Failed to end row on appender")
-  check(duckdb_appender_close(appender), "Failed to close the appender")
+      check(appender.append(val), fmt"Failed to append: {val} for table {table}")
+    check(duckdb_appender_end_row(appender), fmt"Failed to end row on appender for table {table}")
+  check(duckdb_appender_close(appender), fmt"Failed to close the appender for table {table}")

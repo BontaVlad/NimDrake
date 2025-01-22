@@ -224,7 +224,7 @@ template parseDecimalHugeInt(
     val: duckdb_hugeint
   ) -> DecimalType:
     let
-      value = Int128(hi: val.upper.int64, lo: val.lower.uint64)
+      value = fromHugeInt(val)
       fractional = cast[float](value) / pow(10.float, scale.float)
     newDecimal($fractional)
 
@@ -330,7 +330,7 @@ proc newVector*(kind: DuckType): Vector =
   of DuckType.Double:
     result.valueDouble = newSeq[float64]()
   of DuckType.Timestamp:
-    result.valueTimestamp = newSeq[DateTime]()
+    result.valueTimestamp = newSeq[Timestamp]()
   of DuckType.Date:
     result.valueDate = newSeq[DateTime]()
   of DuckType.Time:
@@ -368,7 +368,7 @@ proc newVector*(kind: DuckType): Vector =
   of DuckType.TimestampTz:
     result.valueTimestampTz = newSeq[ZonedTime]()
   of DuckType.UHugeInt:
-    result.valueUHugeint = newSeq[Int128]()
+    result.valueUHugeint = newSeq[UInt128]()
 
 proc newVector*(data: seq[bool]): Vector =
   result = Vector(kind: DuckType.Boolean, valueBoolean: data, mask: newValidityMask())
@@ -404,7 +404,7 @@ proc newVector*(data: seq[float32]): Vector =
 proc newVector*(data: seq[float64]): Vector =
   result = Vector(kind: DuckType.Double, valueDouble: data, mask: newValidityMask())
 
-proc newVector*(data: seq[DateTime]): Vector =
+proc newVector*(data: seq[Timestamp]): Vector =
   result =
     Vector(kind: DuckType.Timestamp, valueTimestamp: data, mask: newValidityMask())
 
@@ -482,37 +482,30 @@ proc newVector*(
   of DuckType.Double:
     parseHandle(handle, result, float64, result.valueDouble)
   of DuckType.Timestamp:
-    result.valueTimestamp = collectValid[int64, DateTime](handle, result, offset, size) do(
+    result.valueTimestamp = collectValid[int64, Timestamp](handle, result, offset, size) do(
       val: int64
-    ) -> DateTime:
-      let
-        seconds = val div 1000000
-        microseconds = val mod 1000000
-      fromUnix(seconds).inZone(utc()) + initDuration(microseconds = microseconds)
+    ) -> Timestamp:
+      fromTimestamp(val)
   of DuckType.Date:
     result.valueDate = collectValid[int32, DateTime](handle, result, offset, size) do(
       val: int32
     ) -> DateTime:
-      inZone(fromUnix(val.int32 * SECONDS_PER_DAY), utc())
+      fromDatetime(val)
   of DuckType.Time:
     result.valueTime = collectValid[int64, Time](handle, result, offset, size) do(
       val: int64
     ) -> Time:
-      let
-        nanos = val * 1000 # Convert microseconds to nanoseconds
-        seconds = nanos div 1_000_000_000
-        remainingNanos = nanos mod 1_000_000_000
-      initTime(seconds.int, remainingNanos.int)
+      fromTime(val)
   of DuckType.Interval:
     result.valueInterval = collectValid[duckdbInterval, TimeInterval](
       handle, result, offset, size
     ) do(val: duckdbInterval) -> TimeInterval:
-      initTimeInterval(months = val.months, days = val.days, microseconds = val.micros)
+      fromInterval(val)
   of DuckType.HugeInt:
     result.valueHugeInt = collectValid[duckdb_hugeint, Int128](
       handle, result, offset, size
     ) do(val: duckdb_hugeint) -> Int128:
-      Int128(hi: val.upper.int64, lo: val.lower.uint64)
+      fromHugeInt(val)
   of DuckType.VarChar:
     collectValidString[string](handle, result, offset, size, result.valueVarChar) do(
       rawStr: cstring
@@ -696,7 +689,10 @@ proc newVector*(
   of DuckType.TimestampTz:
     raise newException(ValueError, "TimestampTz type not implemented")
   of DuckType.UHugeInt:
-    raise newException(ValueError, "UHugeInt type not implemented")
+    result.valueUHugeInt = collectValid[duckdb_uhugeint, UInt128](
+      handle, result, offset, size
+    ) do(val: duckdb_uhugeint) -> UInt128:
+      fromUHugeInt(val)
 
 proc `[]`*(v: Vector, idx: int): Value =
   result = vecToValue(v, idx)

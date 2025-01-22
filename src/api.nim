@@ -10,3 +10,8 @@ when defined(useFuthark):
   {.passL: "-lduckdb".}
 else:
   include "generated.nim"
+
+# 2048 is duckdb_vector_size(), but we can't do this at compile time
+const
+  VECTOR_SIZE* = 2048
+  ROW_GROUP_SIZE* = VECTOR_SIZE * 100

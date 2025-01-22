@@ -12,6 +12,7 @@ const
   SECONDS_PER_DAY* = 86400
 
 type
+  Timestamp* {.borrow: `.`.} = distinct DateTime
   ValidityMask = distinct seq[uint64]
   QueryResult* = object of duckdbResult
   PendingQueryResult* = object of duckdbPendingResult
@@ -71,7 +72,7 @@ type
     of DuckType.UBigInt: valueUBigint*: uint64
     of DuckType.Float: valueFloat*: float32
     of DuckType.Double: valueDouble*: float64
-    of DuckType.Timestamp: valueTimestamp*: DateTime
+    of DuckType.Timestamp: valueTimestamp*: Timestamp
     of DuckType.Date: valueDate*: DateTime
     of DuckType.Time: valueTime*: Time
     of DuckType.Interval: valueInterval*: TimeInterval
@@ -91,7 +92,7 @@ type
     of DuckType.Bit: valueBit*: string
     of DuckType.TimeTz: valueTimeTz*: ZonedTime
     of DuckType.TimestampTz: valueTimestampTz*: ZonedTime
-    of DuckType.UHugeInt: valueUHugeint*: Int128
+    of DuckType.UHugeInt: valueUHugeint*: UInt128
 
   Value* = ref object of ValueBase
 
@@ -111,7 +112,7 @@ type
     of DuckType.UBigInt: valueUBigint*: seq[uint64]
     of DuckType.Float: valueFloat*: seq[float32]
     of DuckType.Double: valueDouble*: seq[float64]
-    of DuckType.Timestamp: valueTimestamp*: seq[DateTime]
+    of DuckType.Timestamp: valueTimestamp*: seq[Timestamp]
     of DuckType.Date: valueDate*: seq[DateTime]
     of DuckType.Time: valueTime*: seq[Time]
     of DuckType.Interval: valueInterval*: seq[TimeInterval]
@@ -131,7 +132,7 @@ type
     of DuckType.Bit: valueBit*: seq[string]
     of DuckType.TimeTz: valueTimeTz*: seq[ZonedTime]
     of DuckType.TimestampTz: valueTimestampTz*: seq[ZonedTime]
-    of DuckType.UHugeInt: valueUHugeint*: seq[Int128]
+    of DuckType.UHugeInt: valueUHugeint*: seq[UInt128]
 
   LogicalTypeBase = object of RootObj
     handle*: duckdb_logical_type
@@ -172,6 +173,18 @@ proc `=destroy`(d: var DataChunkBase) =
 proc `=destroy`(qresult: QueryResult) =
   if not isNil(qresult.addr):
     duckdbDestroyResult(qresult.addr)
+
+
+proc `$`*(x: Timestamp): string =
+  $DateTime(x)
+
+proc toTime*(x: Timestamp): Time {.borrow.}
+
+proc `==`*(x, y: Timestamp): bool {.borrow.}
+
+proc format*(dt: Timestamp, f: string): string =
+  return DateTime(dt).format(f)
+
 
 proc newDataChunk*(handle: duckdb_data_chunk, shouldDestroy: bool = true): DataChunk =
   var columns = newSeq[Column]()

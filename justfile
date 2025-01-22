@@ -233,18 +233,17 @@ valgrind nim_file="tests/results/test_result_type.nim" name="":
         "${OUTPUT_PATH}"
 
 # Run with maximum performance compiler flags for benchmarking
-benchmark nim_file="src/duckdb" name="":
+benchmark name="":
     #!/usr/bin/env bash
     set -euo pipefail
 
     NIMCACHE_DIR="nimcache"
-    CURRENT_DIR=$(pwd)
 
     # Create nimcache/tests directory if it doesn't exist
     mkdir -p "${NIMCACHE_DIR}/benchmarks"
 
     # Find and process test files
-    find ./benchmarks -name 'benchmark_*.nim' | head | while read -r file; do
+    find ./benchmarks -name "benchmark_*{{name}}*.nim" | while read -r file; do
         echo "Processing file: $file"
         filename=$(basename "$file")
         filename_no_ext="${filename%.nim}"
@@ -259,12 +258,15 @@ benchmark nim_file="src/duckdb" name="":
             --mm:arc \
             --threads:off \
             --panics:on \
+            --passC:"-flto -march=native -ffast-math -funroll-loops -fopt-info-vec" \
+            --passL:"-flto" \
             -o:"${NIMCACHE_DIR}/benchmarks/${filename_no_ext}" \
             "$file"
 
-            # --passC:"-flto -march=native -ffast-math -funroll-loops" \
-            # --passL:"-flto" \
+        # --profiler:on --stacktrace:on --linetrace:on
+            # --debugger:native \
 
         # Run the compiled test
         "${NIMCACHE_DIR}/benchmarks/${filename_no_ext}"
+        echo "Running file: $file"
     done

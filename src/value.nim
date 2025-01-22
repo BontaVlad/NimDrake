@@ -35,6 +35,86 @@ proc `$`*(dstr: DuckString): string =
 proc newDuckString*(str: cstring): DuckString =
   result = DuckString(internal: str)
 
+proc toHugeInt*(val: Int128): duckdbHugeInt {.inline.} =
+  return duckdbHugeInt(lower: val.lo.uint64, upper: val.hi.int64)
+
+proc fromHugeInt*(val: duckdbHugeInt): Int128 {.inline.} =
+  return Int128(hi: val.upper.int64, lo: val.lower.uint64)
+
+proc toUHugeInt*(val: UInt128): duckdbUHugeInt {.inline.} =
+  return duckdbUHugeInt(lower: val.lo.uint64, upper: val.hi.uint64)
+
+proc fromUHugeInt*(val: duckdbUHugeInt): UInt128 {.inline.} =
+  return UInt128(hi: val.upper.uint64, lo: val.lower.uint64)
+
+proc fromTimestamp*(val: int64): Timestamp {.inline.} =
+  let
+    seconds = val div 1000000
+    microseconds = val mod 1000000
+    res = fromUnix(seconds).inZone(utc()) + initDuration(microseconds = microseconds)
+  return Timestamp(res)
+
+proc fromTimestamp*(val: duckdbTimestamp): Timestamp {.inline.} =
+  return fromTimestamp(val.micros)
+
+proc toTimestamp*(val: Timestamp): duckdbTimestamp {.inline.} =
+  let ms = convert(Seconds, Microseconds, val.toTime.toUnix)
+  return duckdb_timestamp(micros: ms)
+
+proc toDatetime*(val: Datetime): duckdbDate {.inline.} =
+  let
+    timeInfo = val.toTime.inZone(utc())
+    unixSeconds = timeInfo.toTime.toUnix
+    days = convert(Seconds, Days, unixSeconds)
+  return duckdb_date(days: days.int32)
+
+proc fromDatetime*(val: int32): Datetime {.inline.} =
+  let seconds = convert(Days, Seconds, val)
+  let time = fromUnix(seconds)
+  return time.inZone(utc())
+
+proc fromDatetime*(val: duckdbDate): Datetime {.inline.} =
+  return fromDatetime(val.days)
+
+proc toTime*(val: Time): duckdbTime {.inline.} =
+  let micros = convert(Seconds, Microseconds, val.toUnix)
+  return duckdb_time(micros: micros)
+
+proc fromTime*(val: int64): Time {.inline.} =
+  return initTime(convert(Microseconds, Seconds, val), 0)
+
+proc fromTime*(val: duckdbTime): Time {.inline.} =
+  return fromTime(val.micros)
+
+proc toInterval*(val: TimeInterval): duckdbInterval {.inline.} =
+  let micros = convert(Hours, Microseconds, val.hours) +
+                convert(Minutes, Microseconds, val.minutes) +
+                convert(Seconds, Microseconds, val.seconds) +
+                val.microseconds
+
+  return duckdbInterval(
+      months: val.months.int32 + int32(val.years * 12),
+      days: val.days.int32,
+      micros: micros
+    )
+
+proc fromInterval*(val: duckdbInterval): TimeInterval {.inline.} =
+  let
+    years = val.months div 12
+    months = val.months mod 12
+    hours = convert(Microseconds, Hours, val.micros)
+    minutes = convert(Microseconds, Minutes, val.micros mod convert(Hours, Microseconds, 1))
+    seconds = convert(Microseconds, Seconds, val.micros mod convert(Minutes, Microseconds, 1))
+
+  return initTimeInterval(
+    years = years,
+    months = months,
+    days = val.days,
+    hours = hours,
+    minutes = minutes,
+    seconds = seconds
+  )
+
 proc `$`*(v: Value): string =
   if not v.isValid:
     return ""
@@ -124,6 +204,9 @@ proc newValue*(val: int64, isValid = true): Value =
 proc newValue*(val: Int128, isValid = true): Value =
   result = Value(kind: DuckType.HugeInt, isValid: isValid, valueHugeInt: val)
 
+proc newValue*(val: UInt128, isValid = true): Value =
+  result = Value(kind: DuckType.UHugeInt, isValid: isValid, valueUHugeInt: val)
+
 proc newValue*(val: uint8, isValid = true): Value =
   result = Value(kind: DuckType.UTinyInt, isValid: isValid, valueUTinyint: val)
 
@@ -142,11 +225,13 @@ proc newValue*(val: float32, isValid = true): Value =
 proc newValue*(val: float64, isValid = true): Value =
   result = Value(kind: DuckType.Double, isValid: isValid, valueDouble: val)
 
+proc newValue*(val: Timestamp, kind: DuckType, isValid = true): Value =
+  result = Value(kind: DuckType.Timestamp, isValid: isValid, valueTimestamp: val)
+
+# TODO: this should be refactored
 proc newValue*(val: DateTime, kind: DuckType, isValid = true): Value =
   result = Value(kind: kind, isValid: isValid)
   case kind
-  of DuckType.Timestamp:
-    result.valueTimestamp = val
   of DuckType.TimestampS:
     result.valueTimestampS = val
   of DuckType.TimestampMs:
@@ -254,27 +339,20 @@ proc newValue*(val: DuckValue): Value =
   of DuckType.Double:
     result.valueDouble = duckdb_get_double(val.handle).float64
   of DuckType.Timestamp:
-    let
-      dkTimestamp = cast[duckdb_timestamp](duckdb_get_timestamp(val.handle))
-      seconds = dkTimestamp.micros div 1000000
-      microseconds = dkTimestamp.micros mod 1000000
-    result.valueTimestamp =
-      fromUnix(seconds).inZone(utc()) + initDuration(microseconds = microseconds)
+    let dkTimestamp = cast[duckdb_timestamp](duckdb_get_timestamp(val.handle))
+    result.valueTimestamp = fromTimestamp(dkTimestamp)
   of DuckType.TimestampS:
-    discard
-    # result.valueTimestampS = fromUnix(v.parseInt)
+    raise newException(ValueError, "TimestampS not implemented")
   of DuckType.TimestampMs:
-    discard
-    # result.valueTimestampMs = fromUnixMilli(v.parseInt)
+    raise newException(ValueError, "TimestampMS not implemented")
   of DuckType.TimestampNs:
-    discard
-    # result.valueTimestampNs = fromUnixNano(v.parseInt)
+    raise newException(ValueError, "TimestampNS not implemented")
   of DuckType.Date:
     let dkDate = cast[duckdb_date](duckdb_get_date(val.handle))
-    result.valueDate = fromUnix(convert(Days, Seconds, dkDate.days)).inZone(utc())
+    result.valueDate = fromDatetime(dkDate)
   of DuckType.Time:
     let dkTime = cast[duckdb_time](duckdb_get_time(val.handle))
-    result.valueTime = initTime(convert(Microseconds, Seconds, dkTime.micros), 0)
+    result.valueTime = fromTime(dkTime)
   of DuckType.Interval:
     let dkInterval = cast[duckdb_interval](duckdb_get_interval(val.handle))
     result.valueInterval = initTimeInterval(
@@ -284,7 +362,7 @@ proc newValue*(val: DuckValue): Value =
     )
   of DuckType.HugeInt:
     let dkHugeInt = cast[duckdb_hugeint](duckdb_get_hugeint(val.handle))
-    result.valueHugeint = Int128(hi: dkHugeInt.upper.int64, lo: dkHugeInt.lower.uint64)
+    result.valueHugeint = fromHugeInt(dkHugeInt)
   of DuckType.Varchar:
     result.valueVarchar = $newDuckString(duckdbGetVarchar(val.handle))
   of DuckType.Blob:
@@ -344,30 +422,29 @@ proc toNativeValue*(val: Value): DuckValue =
   of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
     raise newException(ValueError, "got invalid type")
   of DuckType.Boolean:
-    result = newDuckValue(duckdb_create_bool(val.valueBoolean))
+    return newDuckValue(duckdb_create_bool(val.valueBoolean))
   of DuckType.TinyInt:
-    result = newDuckValue(duckdb_create_int8(val.valueTinyint))
+    return newDuckValue(duckdb_create_int8(val.valueTinyint))
   of DuckType.SmallInt:
-    result = newDuckValue(duckdb_create_int16(val.valueSmallInt))
+    return newDuckValue(duckdb_create_int16(val.valueSmallInt))
   of DuckType.Integer:
-    result = newDuckValue(duckdb_create_int32(val.valueInteger))
+    return newDuckValue(duckdb_create_int32(val.valueInteger))
   of DuckType.BigInt:
-    result = newDuckValue(duckdb_create_int64(val.valueBigint))
+    return newDuckValue(duckdb_create_int64(val.valueBigint))
   of DuckType.UTinyInt:
-    result = newDuckValue(duckdb_create_uint8(val.valueUTinyint))
+    return newDuckValue(duckdb_create_uint8(val.valueUTinyint))
   of DuckType.USmallInt:
-    result = newDuckValue(duckdb_create_uint16(val.valueUSmallint))
+    return newDuckValue(duckdb_create_uint16(val.valueUSmallint))
   of DuckType.UInteger:
-    result = newDuckValue(duckdb_create_uint32(val.valueUInteger.cuint))
+    return newDuckValue(duckdb_create_uint32(val.valueUInteger.cuint))
   of DuckType.UBigInt:
-    result = newDuckValue(duckdb_create_uint64(val.valueUBigint))
+    return newDuckValue(duckdb_create_uint64(val.valueUBigint))
   of DuckType.Float:
-    result = newDuckValue(duckdb_create_float(val.valueFloat))
+    return newDuckValue(duckdb_create_float(val.valueFloat))
   of DuckType.Double:
-    result = newDuckValue(duckdb_create_double(val.valueDouble))
+    return newDuckValue(duckdb_create_double(val.valueDouble))
   of DuckType.Timestamp:
-    let ms = convert(Seconds, Microseconds, val.valueTimestamp.toTime.toUnix)
-    result = newDuckValue(duckdb_create_timestamp(duckdb_timestamp(micros: ms)))
+    return newDuckValue(duckdb_create_timestamp(toTimestamp(val.valueTimestamp)))
   of DuckType.TimestampS:
     discard
   #   # result.valueTimestampS = fromUnix(v.parseInt)
@@ -378,16 +455,13 @@ proc toNativeValue*(val: Value): DuckValue =
     discard
   #   # result.valueTimestampNs = fromUnixNano(v.parseInt)
   of DuckType.Date:
-    let days = convert(Seconds, Days, val.valueDate.toTime.toUnix)
-    result = newDuckValue(duckdb_create_date(duckdb_date(days: days.int32)))
+    return newDuckValue(duckdb_create_date(val.valueDate.toDatetime))
   of DuckType.Time:
-    let micros = convert(Seconds, Microseconds, val.valueTime.toUnix)
-    result = newDuckValue(duckdb_create_time(duckdb_time(micros: micros)))
+    return newDuckValue(duckdb_create_time(val.valueTime.toTime))
+  of DuckType.Interval:
+    return newDuckValue(duckdb_create_interval(val.valueInterval.toInterval))
   else:
     discard
-  # of DuckType.Interval:
-  #   discard
-  #   # result.valueInterval = parseDuration(v)
   # of DuckType.HugeInt:
   #   discard
   #   # result.valueHugeint = parseHugeInt(v)

@@ -1,11 +1,6 @@
 import std/[locks, sequtils, tables, strformat, math, times]
 import /[api, database, dataframe, query, table_functions, types]
 
-# 2048 is duckdb_vector_size(), but we can't do this at compile time
-const
-  VECTOR_SIZE = 2048
-  ROW_GROUP_SIZE = VECTOR_SIZE * 100
-
 type
   NotImplementedException = object of CatchableError
   ExtraData* = ref object of RootObj
