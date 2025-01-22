@@ -8,7 +8,10 @@ type
   Statement* = distinct ptr duckdbPreparedStatement
   Values = (tuple or object)
   Appender* = distinct ptr duckdbAppender
-  Parameter* = object
+  AppenderColumn* = object
+    idx*: int
+    tpy*: LogicalType
+  Parameter* = object ## Prepared Statement parameters
     name*: string
     idx*: int
     tpy*: DuckType
@@ -175,77 +178,156 @@ template bindVal*(statement: Statement, i: int, val: UInt128): Error =
   duckdb_bind_uhugeint(statement, i.idx_t, val.toUhugeInt)
 
 template bindVal*(statement: Statement, i: int, val: Timestamp): Error =
+  ## Binds a Timestamp value to the prepared statement at the specified index.
   duckdb_bind_timestamp(statement, i.idx_t, val.toTimestamp)
 
 template bindVal*(statement: Statement, i: int, val: DateTime): Error =
+  ## Binds a Datetime value to the prepared statement at the specified index.
   duckdb_bind_date(statement, i.idx_t, val.toDateTime)
 
 template bindVal*(statement: Statement, i: int, val: Time): Error =
+  ## Binds a Time value to the prepared statement at the specified index.
   duckdb_bind_time(statement, i.idx_t, val.toTime)
 
 template bindVal*(statement: Statement, i: int, val: TimeInterval): Error =
+  ## Binds a TimeInterval value to the prepared statement at the specified index.
   duckdb_bind_interval(statement, i.idx_t, val.toInterval)
+
+# template bind_val*(statement: Statement, i: idx_t, val: ZonedTime): Error =
+#   raise newException(ValueError, "BindVal for ZonedTime not implemented")
+#   # duckdb_bind_timestamp_tz(statement, i, val)
 
 # template bindVal*(statement: Statement, i: idx_t, val: Decimal): Error =
 #   raise newException(ValueError, "BindVal for Decimal not implemented")
   # duckdb_bind_decimal(statement, i, val)
+template append*(appender: Appender, val: bool): untyped =
+  ## Appends a bool value to the appender.
+  check(duckdb_append_bool(appender, val), "Failed to append bool value: " & $val)
 
-template bind_val*(statement: Statement, i: idx_t, val: ZonedTime): Error =
-  raise newException(ValueError, "BindVal for ZonedTime not implemented")
-  # duckdb_bind_timestamp_tz(statement, i, val)
+template append*(appender: Appender, val: seq[byte]): untyped =
+  ## Appends a blob value to the appender.
+  check(duckdb_append_blob(appender, ptr val, len(val)), "Failed to append blob value of length: " & $len(val))
 
+template append*(appender: Appender, val: untyped): void =
+  ## Appends a NULL value to the appender.
+  check(duckdb_append_null(appender), "Failed to append NULL value")
 
-template append*(appender: Appender, val: bool): Error =
-  duckdb_append_bool(appender, val)
+template append*(appender: Appender, val: int8): untyped =
+  ## Appends an int8_t value to the appender.
+  check(duckdb_append_int8(appender, val), "Failed to append int8 value: " & $val)
 
-template append*(appender: Appender, val: int8): Error =
-  duckdb_append_int8(appender, val)
+template append*(appender: Appender, val: int16): untyped =
+  ## Appends an int16_t value to the appender.
+  check(duckdb_append_int16(appender, val), "Failed to append int16 value: " & $val)
 
-template append*(appender: Appender, val: int16): Error =
-  duckdb_append_int16(appender, val)
+template append*(appender: Appender, val: int32): untyped =
+  ## Appends an int32_t value to the appender.
+  check(duckdb_append_int32(appender, val), "Failed to append int32 value: " & $val)
 
-template append*(appender: Appender, val: int32): Error =
-  duckdb_append_int32(appender, val)
+template append*(appender: Appender, val: int64): untyped =
+  ## Appends an int64_t value to the appender.
+  check(duckdb_append_int64(appender, val), "Failed to append int64 value: " & $val)
 
-template append*(appender: Appender, val: int64): Error =
-  duckdb_append_int64(appender, val)
+template append*(appender: Appender, val: int): untyped =
+  ## Appends an int value to the appender (converted to int64).
+  check(duckdb_append_int64(appender, int64(val)), "Failed to append int value: " & $val)
 
-template append*(appender: Appender, val: int): Error =
-  duckdb_append_int64(appender, int64(val))
+template append*(appender: Appender, val: uint8): untyped =
+  ## Appends an uint8_t value to the appender.
+  check(duckdb_append_uint8(appender, val), "Failed to append uint8 value: " & $val)
 
-template append*(appender: Appender, val: uint8): Error =
-  duckdb_append_uint8(appender, val)
+template append*(appender: Appender, val: uint16): untyped =
+  ## Appends an uint16_t value to the appender.
+  check(duckdb_append_uint16(appender, val), "Failed to append uint16 value: " & $val)
 
-template append*(appender: Appender, val: uint16): Error =
-  duckdb_append_uint16(appender, val)
+template append*(appender: Appender, val: uint32): untyped =
+  ## Appends an uint32_t value to the appender.
+  check(duckdb_append_uint32(appender, val), "Failed to append uint32 value: " & $val)
 
-template append*(appender: Appender, val: uint32): Error =
-  duckdb_append_uint32(appender, val)
+template append*(appender: Appender, val: uint64): untyped =
+  ## Appends an uint64_t value to the appender.
+  check(duckdb_append_uint64(appender, val), "Failed to append uint64 value: " & $val)
 
-template append*(appender: Appender, val: uint64): Error =
-  duckdb_append_uint64(appender, val)
+template append*(appender: Appender, val: float32): untyped =
+  ## Appends a float value to the appender.
+  check(duckdb_append_float(appender, val), "Failed to append float32 value: " & $val)
 
-template append*(appender: Appender, val: float32): Error =
-  duckdb_append_float(appender, val)
+template append*(appender: Appender, val: float64): untyped =
+  ## Appends a double value to the appender.
+  check(duckdb_append_double(appender, val), "Failed to append float64 value: " & $val)
 
-template append*(appender: Appender, val: float64): Error =
-  duckdb_append_double(appender, val)
-
-template append*(appender: Appender, val: string): Error =
-  # TODO: not sure about this
+template append*(appender: Appender, val: string): untyped =
+  ## Appends a varchar value to the appender.
+  ## Empty strings are treated as NULL values.
   if val == "":
-    duckdb_append_null(appender)
+    check(duckdb_append_null(appender), "Failed to append NULL for empty string")
   else:
-    duckdb_append_varchar(appender, val.cstring)
+    check(duckdb_append_varchar(appender, val.cstring), "Failed to append string value: " & val)
 
-template append*(appender: Appender, val: void): Error =
-  duckdb_append_null(appender)
+template append*(appender: Appender, val: Value): untyped =
+  ## Appends a Value to the appender.
+  check(duckdb_append_value(appender, val.toNativeValue.handle), "Failed to append Value")
 
-template append*[T](appender: Appender, val: seq[T]) =
-  duckdb_append_blob(appender, ptr val, len(val))
+template append*(appender: Appender, val: Int128): untyped =
+  ## Appends a HugeInt value to the appender.
+  check(duckdb_append_hugeint(appender, val.toHugeInt), "Failed to append Int128 value: " & $val)
 
-template append*(appender: Appender, val: auto): Error =
-  raise newException(ValueError, "I have no ideea how to convert val, got: ", $val)
+template append*(appender: Appender, val: UInt128): untyped =
+  ## Appends an unsigned HugeInt value to the appender.
+  check(duckdb_append_uhugeint(appender, val.toUhugeInt), "Failed to append UInt128 value: " & $val)
+
+template append*(appender: Appender, val: Timestamp): untyped =
+  ## Appends a Timestamp value to the appender.
+  check(duckdb_append_timestamp(appender, val.toTimestamp), "Failed to append Timestamp value: " & $val)
+
+template append*(appender: Appender, val: DateTime): untyped =
+  ## Appends a DateTime value to the appender.
+  check(duckdb_append_date(appender, val.toDateTime), "Failed to append DateTime value: " & $val)
+
+template append*(appender: Appender, val: Time): untyped =
+  ## Appends a Time value to the appender.
+  check(duckdb_append_time(appender, val.toTime), "Failed to append Time value: " & $val)
+
+template append*(appender: Appender, val: TimeInterval): untyped =
+  ## Appends a TimeInterval value to the appender.
+  check(duckdb_append_interval(appender, val.toInterval), "Failed to append TimeInterval value: " & $val)
+
+template append*(appender: Appender, val: DataChunk): untyped =
+  ## Appends a DataChunk value to the appender.
+  runnableExamples:
+    import nimdrake
+
+    let db = newDatabase()
+    let conn = db.connect()
+
+    conn.execute("CREATE TABLE appender_table (int_val INTEGER, varchar_val VARCHAR, bool_val BOOLEAN);")
+    var appender = newAppender(conn, "appender_table")
+
+    let columns =
+      @[
+        newColumn(idx = 0, name = "index", kind = DuckType.Integer),
+        newColumn(idx = 1, name = "name", kind = DuckType.Varchar),
+        newColumn(idx = 2, name = "truth", kind = DuckType.Boolean),
+      ]
+    var chunk = newDataChunk(columns = columns)
+    let
+      intValues = @[1'i32, 2'i32, 3'i32]
+      strValues = @["foo", "bar", "baz"]
+      boolValues = @[true, false, true]
+
+    chunk[0] = intValues
+    chunk[1] = strValues
+    chunk[2] = boolValues
+
+    appender.append(chunk)
+    appender.flush()
+
+    let outcome = conn.execute("SELECT * FROM appender_table;").fetchall()
+    assert outcome[0].valueInteger == intValues
+    assert outcome[1].valueVarchar == strValues
+    assert outcome[2].valueBoolean == boolValues
+
+  check(duckdb_append_datachunk(appender, val.handle), "Failed to append DataChunk value: " & $val)
 
 proc execute*[T: Values](
     con: Connection, statement: Statement, args: T
@@ -270,6 +352,33 @@ proc execute*[T: Values](
   let statement = newStatement(con, query)
   result = con.execute(statement, args)
 
+proc flush*(appender: Appender) {.discardable.} =
+  let error = duckdb_appender_flush(appender)
+  if error:
+    let errorMessage = $duckdb_appender_error(appender)
+    raise newException(OperationError, fmt"Failed to flush the appender {errorMessage}")
+
+proc close*(appender: Appender) {.discardable.} =
+  let error = duckdb_appender_close(appender)
+  if error:
+    let errorMessage = $duckdb_appender_error(appender)
+    raise newException(OperationError, fmt"Failed to close the appender {errorMessage}")
+
+proc endRow*(appender: Appender) {.discardable.} =
+  let error = duckdb_appender_end_row(appender)
+  if error:
+    let errorMessage = $duckdb_appender_error(appender)
+    raise newException(OperationError, fmt"Failed to end row for appender {errorMessage}")
+
+iterator columns*(appender: Appender): AppenderColumn =
+  ## Returns the columns in the table that belongs to the appender.
+  let nColumns = duckdb_appender_column_count(appender)
+  for idx in 0 ..< nColumns:
+    yield AppenderColumn(
+      idx: idx.int,
+      tpy: newLogicalType(duckdb_appender_column_type(appender, idx))
+    )
+
 proc newAppender*(con: Connection, table: string): Appender =
   ## Creates a new appender for a specified table
   result = Appender(nil)
@@ -278,11 +387,12 @@ proc newAppender*(con: Connection, table: string): Appender =
     fmt"Failed to create appender for table: {table}",
   )
 
-proc appender*[T](con: Connection, table: string, ent: seq[seq[T]]) =
+proc newAppender*[T](con: Connection, table: string, ent: seq[seq[T]]) =
   ## Appends a sequence of sequences of type `T` to a specified table in a DuckDB database.
   var appender = newAppender(con, table)
   for row in ent:
     for val in row:
-      check(appender.append(val), fmt"Failed to append: {val} for table {table}")
-    check(duckdb_appender_end_row(appender), fmt"Failed to end row on appender for table {table}")
-  check(duckdb_appender_close(appender), fmt"Failed to close the appender for table {table}")
+      appender.append(val)
+    appender.endRow()
+  appender.flush()
+

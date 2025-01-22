@@ -1,7 +1,7 @@
 import std/[sequtils, times]
 import unittest2
 import nint128
-import ../../src/[api, database, types, query, query_result, transaction, exceptions]
+import ../../src/[api, database, datachunk, types, query, query_result, transaction, exceptions]
 
 suite "Basic queries":
 
@@ -59,7 +59,7 @@ suite "Prepared/Appender statements":
     let conn = newDatabase().connect()
     conn.execute("CREATE TABLE integers(i INTEGER, j INTEGER);")
     let expected = @[@["6", "4"], @["5", "6"], @["7", "8"]]
-    conn.appender("integers", expected)
+    conn.newAppender("integers", expected)
     let outcome = conn.execute("SELECT * FROM integers").fetchall()
     check outcome[0].valueInteger == @[6'i32, 5'i32, 7'i32]
     check outcome[1].valueInteger == @[4'i32, 6'i32, 8'i32]
@@ -85,24 +85,24 @@ suite "Prepared/Appender statements":
       """
     )
     var appender = newAppender(conn, "foo_table")
-    # let blob = @[uint8(1), uint8(2), uint8(3)]
+    check len(appender.columns.toSeq()) == 12
 
-    check(appender.append(true), "Failed to append bool")
-    check(appender.append(int8(-128)), "Failed to append int8")
-    check(appender.append(int16(32767)), "Failed to append int16")
-    check(appender.append(int32(-2147483648)), "Failed to append int32")
-    check(appender.append(int64(9223372036854775807)), "Failed to append int64")
-    check(appender.append(uint8(255)), "Failed to append uint8")
-    check(appender.append(uint16(65535)), "Failed to append uint16")
-    check(appender.append(uint32(4294967295)), "Failed to append uint32")
-    check(appender.append(uint64(18446744073709551615'u64)), "Failed to append uint64")
-    check(appender.append(float32(3.14'f32)), "Failed to append float32")
-    check(appender.append(float64(3.14159265359'f64)), "Failed to append float64")
-    check(appender.append("hello"), "Failed to append string")
+    appender.append(true)
+    appender.append(int8(-128))
+    appender.append(int16(32767))
+    appender.append(int32(-2147483648))
+    appender.append(int64(9223372036854775807))
+    appender.append(uint8(255))
+    appender.append(uint16(65535))
+    appender.append(uint32(4294967295))
+    appender.append(uint64(18446744073709551615'u64))
+    appender.append(float32(3.14'f32))
+    appender.append(float64(3.14159265359'f64))
+    appender.append("hello")
     # check(appender.append(blob), "Failed to append blob")
     # check(appender.append(void), "Failed to append null")
-    check(duckdb_appender_end_row(appender), "Failed to end row on appender")
-    check(duckdb_appender_close(appender), "Failed to close the appender")
+    appender.endRow()
+    appender.close()
 
     # Fetch the data and verify correctness
     let outcome = conn.execute("SELECT * FROM foo_table").fetchall()
@@ -334,20 +334,237 @@ suite "Test bind val dispatch":
   #   conn.transient:
   #     conn.execute("CREATE TABLE prepared_table (blob_val BLOB);")
   #     let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
-  #     let blobData = @[byte(1), 2, 3, 4, 5]
+  #     let blobData = @[byte(1), byte(2), byte(3)]
   #     conn.execute(prepared, (blobData, ))
-  #     let outcome = conn.execute("SELECT blob_val FROM prepared_table;").fetchall()
-  #     check outcome[0].valueBlob == @[blobData]
+  #     # let outcome = conn.execute("SELECT blob_val FROM prepared_table;").fetchall()
+  #     # check outcome[0].valueBlob == @[blobData]
 
   # test "Bind null val":
   #   conn.transient:
   #     conn.execute("CREATE TABLE prepared_table (nullable_val INTEGER);")
   #     let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
   #     conn.execute(prepared, (nil, ))
-  #     let outcome = conn.execute("SELECT nullable_val FROM prepared_table;").fetchall()
-  #     check outcome[0].isNull == true
+  #     echo conn.execute("SELECT nullable_val FROM prepared_table;")
+  #     # let outcome = conn.execute("SELECT nullable_val FROM prepared_table;").fetchall()
+  #     # check outcome[0].isNull == true
 
+suite "Test appender dispatch":
 
-suite "Test append val dispatch":
-  test "Val":
-    discard
+  setup:
+    let db = newDatabase()
+    let conn = db.connect()
+
+  test "Append bool val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (bool_val BOOLEAN);")
+      var appender = newAppender(conn, "appender_table")
+      appender.append(true)
+      appender.endRow()
+      appender.flush()
+      let outcome = conn.execute("SELECT bool_val FROM appender_table;").fetchall()
+      check outcome[0].valueBoolean == @[true]
+
+  test "Append int8 val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (int8_val TINYINT);")
+      var appender = newAppender(conn, "appender_table")
+      appender.append(42'i8)
+      appender.endRow()
+      appender.flush()
+      let outcome = conn.execute("SELECT int8_val FROM appender_table;").fetchall()
+      check outcome[0].valueTinyInt == @[42'i8]
+
+  test "Append int16 val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (int16_val SMALLINT);")
+      var appender = newAppender(conn, "appender_table")
+      appender.append(1000'i16)
+      appender.endRow()
+      appender.flush()
+      let outcome = conn.execute("SELECT int16_val FROM appender_table;").fetchall()
+      check outcome[0].valueSmallInt == @[1000'i16]
+
+  test "Append int32 val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (int32_val INTEGER);")
+      var appender = newAppender(conn, "appender_table")
+      appender.append(1_000_000'i32)
+      appender.endRow()
+      appender.flush()
+      let outcome = conn.execute("SELECT int32_val FROM appender_table;").fetchall()
+      check outcome[0].valueInteger == @[1_000_000'i32]
+
+  test "Append int64 val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (int64_val BIGINT);")
+      var appender = newAppender(conn, "appender_table")
+      appender.append(1_000_000_000'i64)
+      appender.endRow()
+      appender.flush()
+      let outcome = conn.execute("SELECT int64_val FROM appender_table;").fetchall()
+      check outcome[0].valueBigInt == @[1_000_000_000'i64]
+
+  test "Append uint8 val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (uint8_val UTINYINT);")
+      var appender = newAppender(conn, "appender_table")
+      appender.append(200'u8)
+      appender.endRow()
+      appender.flush()
+      let outcome = conn.execute("SELECT uint8_val FROM appender_table;").fetchall()
+      check outcome[0].valueUTinyInt == @[200'u8]
+
+  test "Append uint16 val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (uint16_val USMALLINT);")
+      var appender = newAppender(conn, "appender_table")
+      appender.append(50000'u16)
+      appender.endRow()
+      appender.flush()
+      let outcome = conn.execute("SELECT uint16_val FROM appender_table;").fetchall()
+      check outcome[0].valueUSmallInt == @[50000'u16]
+
+  test "Append uint32 val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (uint32_val UINTEGER);")
+      var appender = newAppender(conn, "appender_table")
+      appender.append(3_000_000_000'u32)
+      appender.endRow()
+      appender.flush()
+      let outcome = conn.execute("SELECT uint32_val FROM appender_table;").fetchall()
+      check outcome[0].valueUInteger == @[3_000_000_000'u32]
+
+  test "Append uint64 val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (uint64_val UBIGINT);")
+      var appender = newAppender(conn, "appender_table")
+      appender.append(18_446_744_073_709_551_615'u64)
+      appender.endRow()
+      appender.flush()
+      let outcome = conn.execute("SELECT uint64_val FROM appender_table;").fetchall()
+      check outcome[0].valueUBigInt == @[18_446_744_073_709_551_615'u64]
+
+  test "Append float val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (float_val REAL);")
+      var appender = newAppender(conn, "appender_table")
+      appender.append(3.14'f32)
+      appender.endRow()
+      appender.flush()
+      let outcome = conn.execute("SELECT float_val FROM appender_table;").fetchall()
+      check outcome[0].valueFloat == @[3.14'f32]
+
+  test "Append double val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (double_val DOUBLE);")
+      var appender = newAppender(conn, "appender_table")
+      appender.append(3.14159265359)
+      appender.endRow()
+      appender.flush()
+      let outcome = conn.execute("SELECT double_val FROM appender_table;").fetchall()
+      check outcome[0].valueDouble == @[3.14159265359]
+
+  test "Append varchar val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (varchar_val VARCHAR);")
+      var appender = newAppender(conn, "appender_table")
+      appender.append("Hello, World!")
+      appender.endRow()
+      appender.flush()
+      let outcome = conn.execute("SELECT varchar_val FROM appender_table;").fetchall()
+      check outcome[0].valueVarchar == @["Hello, World!"]
+
+  test "Append HugeInt val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (hugeint_val HUGEINT);")
+      var appender = newAppender(conn, "appender_table")
+      let hugeIntVal = i128("-18446744073709551616")
+      appender.append(hugeIntVal)
+      appender.endRow()
+      appender.flush()
+      let outcome = conn.execute("SELECT hugeint_val FROM appender_table;").fetchall()
+      check outcome[0].valueHugeInt == @[hugeIntVal]
+
+  test "Append UHugeInt val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (uhugeint_val UHUGEINT);")
+      var appender = newAppender(conn, "appender_table")
+      let uHugeIntVal = u128("18446744073709551616")
+      appender.append(uHugeIntVal)
+      appender.endRow()
+      appender.flush()
+      let outcome = conn.execute("SELECT uhugeint_val FROM appender_table;").fetchall()
+      check outcome[0].valueUHugeInt == @[uHugeIntVal]
+
+  test "Append timestamp val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (timestamp_val TIMESTAMP);")
+      var appender = newAppender(conn, "appender_table")
+      let timestamp = Timestamp(parse("2023-12-25T13:45:30", "yyyy-MM-dd'T'HH:mm:ss"))
+      appender.append(timestamp)
+      appender.endRow()
+      appender.flush()
+      let outcome = conn.execute("SELECT timestamp_val FROM appender_table;").fetchall()
+      check outcome[0].valueTimestamp == @[timestamp]
+
+  test "Append date val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (date_val DATE);")
+      var appender = newAppender(conn, "appender_table")
+      let date = parse("2023-12-25", "yyyy-MM-dd", zone=utc())
+      appender.append(date)
+      appender.endRow()
+      appender.flush()
+      let outcome = conn.execute("SELECT date_val FROM appender_table;").fetchall()
+      check outcome[0].valueDate == @[date]
+
+  test "Append time val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (time_val TIME);")
+      var appender = newAppender(conn, "appender_table")
+      let time = parse("2023-12-25T15:30:00", "yyyy-MM-dd'T'HH:mm:ss", zone=utc()).toTime()
+      appender.append(time)
+      appender.endRow()
+      appender.flush()
+      let outcome = conn.execute("SELECT time_val FROM appender_table;").fetchall()
+      check outcome[0].valueTime == @[time]
+
+  test "Append interval val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (interval_val INTERVAL);")
+      var appender = newAppender(conn, "appender_table")
+      let valInterval = initTimeInterval(years=1, months=5, days=1, hours=2, minutes=27, seconds=16)
+      appender.append(valInterval)
+      appender.endRow()
+      appender.flush()
+      let outcome = conn.execute("SELECT interval_val FROM appender_table;").fetchall()
+      check outcome[0].valueInterval == @[valInterval]
+
+  test "Append DataChunk val":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (int_val INTEGER, varchar_val VARCHAR, bool_val BOOLEAN);")
+      var appender = newAppender(conn, "appender_table")
+
+      let columns =
+        @[
+          newColumn(idx = 0, name = "index", kind = DuckType.Integer),
+          newColumn(idx = 1, name = "name", kind = DuckType.Varchar),
+          newColumn(idx = 2, name = "truth", kind = DuckType.Boolean),
+        ]
+      var chunk = newDataChunk(columns = columns)
+      let
+        intValues = @[1'i32, 2'i32, 3'i32]
+        strValues = @["foo", "bar", "baz"]
+        boolValues = @[true, false, true]
+
+      chunk[0] = intValues
+      chunk[1] = strValues
+      chunk[2] = boolValues
+
+      appender.append(chunk)
+      appender.flush()
+
+      let outcome = conn.execute("SELECT * FROM appender_table;").fetchall()
+      check outcome[0].valueInteger == intValues
+      check outcome[1].valueVarchar == strValues
+      check outcome[2].valueBoolean == boolValues
