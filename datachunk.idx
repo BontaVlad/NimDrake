@@ -1,0 +1,11 @@
+nimTitle	datachunk	datachunk.html	module src/datachunk		0
+nim	len	datachunk.html#len,DataChunk	proc len(chunk: DataChunk): int		4
+nim	len=	datachunk.html#len=,DataChunk,int	proc len=(chunk: DataChunk; sz: int)		7
+nim	`[]=`	datachunk.html#[]=.t,duckdb_vector,int,T	template `[]=`[T: SomeNumber](vec: duckdb_vector; i: int; val: T)		10
+nim	`[]=`	datachunk.html#[]=.t,duckdb_vector,int,bool	template `[]=`(vec: duckdb_vector; i: int; val: bool)		17
+nim	`[]=`	datachunk.html#[]=,DataChunk,int,seq[T]	proc `[]=`[T](chunk: var DataChunk; colIdx: int; values: seq[T])		21
+nim	`[]=`	datachunk.html#[]=,duckdb_vector,int,string	proc `[]=`(vec: duckdb_vector; i: int; val: string)		38
+nim	`[]=`	datachunk.html#[]=,DataChunk,int,seq[string]	proc `[]=`(chunk: var DataChunk; colIdx: int; values: seq[string])		41
+nim	`[]`	datachunk.html#[],DataChunk,int	proc `[]`(chunk: DataChunk; colIdx: int): Vector		56
+nimgrp	[]=	datachunk.html#[]=-procs-all	proc		21
+nimgrp	[]=	datachunk.html#[]=-templates-all	template		10

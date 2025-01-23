@@ -1,0 +1,49 @@
+nimTitle	types	types.html	module src/types		0
+nim	BITS_PER_VALUE	types.html#BITS_PER_VALUE	const BITS_PER_VALUE		10
+nim	STRING_INLINE_LENGTH	types.html#STRING_INLINE_LENGTH	const STRING_INLINE_LENGTH		11
+nim	SECONDS_PER_DAY	types.html#SECONDS_PER_DAY	const SECONDS_PER_DAY		12
+nim	Timestamp	types.html#Timestamp	type Timestamp		15
+nim	QueryResult	types.html#QueryResult	object QueryResult		17
+nim	PendingQueryResult	types.html#PendingQueryResult	object PendingQueryResult		18
+nim	DuckType	types.html#DuckType	enum DuckType		20
+nim	Value	types.html#Value	type Value		97
+nim	Vector	types.html#Vector	type Vector		99
+nim	LogicalType	types.html#LogicalType	type LogicalType		140
+nim	Column	types.html#Column	object Column		142
+nim	DataChunk	types.html#DataChunk	type DataChunk		153
+nim	`=destroy`	types.html#=destroy,LogicalTypeBase	proc `=destroy`(ltp: LogicalTypeBase)		159
+nim	`$`	types.html#$,Timestamp	proc `$`(x: Timestamp): string		177
+nim	toTime	types.html#toTime,Timestamp	proc toTime(x: Timestamp): Time		180
+nim	`==`	types.html#==,Timestamp,Timestamp	proc `==`(x, y: Timestamp): bool		182
+nim	format	types.html#format,Timestamp,string	proc format(dt: Timestamp; f: string): string		184
+nim	newDataChunk	types.html#newDataChunk,duckdb_data_chunk,bool	proc newDataChunk(handle: duckdb_data_chunk; shouldDestroy: bool = true): DataChunk		187
+nim	newDataChunk	types.html#newDataChunk,duckdb_data_chunk,sinkseq[Column],bool	proc newDataChunk(handle: duckdb_data_chunk; columns: sink seq[Column];\n             shouldDestroy: bool = true): DataChunk		191
+nim	newDataChunk	types.html#newDataChunk,sinkseq[Column],bool	proc newDataChunk(columns: sink seq[Column]; shouldDestroy: bool = true): DataChunk		196
+nim	newDataChunk	types.html#newDataChunk,QueryResult,seq[Column],bool	proc newDataChunk(qresult: QueryResult; columns: seq[Column];\n             shouldDestroy: bool = true): DataChunk		204
+nim	newDataChunk	types.html#newDataChunk,QueryResult,idx_t,seq[Column],bool	proc newDataChunk(qresult: QueryResult; idx: idx_t; columns: seq[Column];\n             shouldDestroy: bool = true): DataChunk		209
+nim	toC	types.html#toC.c,DataChunk	converter toC(d: DataChunk): duckdb_data_chunk		214
+nim	toBool	types.html#toBool.c,DataChunk	converter toBool(d: DataChunk): bool		220
+nim	toBase	types.html#toBase.c,ptr.PendingQueryResult	converter toBase(p: ptr PendingQueryResult): ptr duckdb_pending_result		223
+nim	toBase	types.html#toBase.c,PendingQueryResult	converter toBase(p: PendingQueryResult): duckdb_pending_result		226
+nim	add	types.html#add,ValidityMask,uint64	proc add(x: var ValidityMask; y: uint64)		229
+nim	len	types.html#len,ValidityMask	proc len(s: ValidityMask): int		232
+nim	`[]`	types.html#[],ValidityMask,T	proc `[]`[T](s: ValidityMask; i: T): uint64		233
+nim	`[]=`	types.html#[]=,ValidityMask,int,uint64	proc `[]=`(s: var ValidityMask; i: int; x: uint64)		236
+nim	`&=`	types.html#&=,ValidityMask,ValidityMask	proc `&=`(a: var ValidityMask; b: ValidityMask)		239
+nim	newValidityMask	types.html#newValidityMask	proc newValidityMask(): ValidityMask		242
+nim	newValidityMask	types.html#newValidityMask,duckdb_vector,int	proc newValidityMask(vec: duckdb_vector; size: int): ValidityMask		260
+nim	toEnum	types.html#toEnum.t,int	template toEnum[T](x: int): T		272
+nim	newDuckType	types.html#newDuckType,LogicalType	proc newDuckType(i: LogicalType): DuckType		278
+nim	newDuckType	types.html#newDuckType,duckdb_logical_type	proc newDuckType(i: duckdb_logical_type): DuckType		282
+nim	newDuckType	types.html#newDuckType,enum_DUCKDB_TYPE	proc newDuckType(i: enum_DUCKDB_TYPE): DuckType		285
+nim	newDuckType	types.html#newDuckType,typedesc[T]	proc newDuckType[T](t: typedesc[T]): DuckType		288
+nim	newDuckType	types.html#newDuckType,NimNode	proc newDuckType(node: NimNode): DuckType		328
+nim	newLogicalType	types.html#newLogicalType,duckdb_logical_type	proc newLogicalType(i: duckdb_logical_type): LogicalType		370
+nim	newLogicalType	types.html#newLogicalType,DuckType	proc newLogicalType(pt: DuckType): LogicalType		373
+nim	`$`	types.html#$,LogicalType	proc `$`(ltp: LogicalType): string		380
+nimgrp	$	types.html#$-procs-all	proc		177
+nimgrp	newvaliditymask	types.html#newValidityMask-procs-all	proc		242
+nimgrp	newlogicaltype	types.html#newLogicalType-procs-all	proc		370
+nimgrp	newdatachunk	types.html#newDataChunk-procs-all	proc		187
+nimgrp	newducktype	types.html#newDuckType-procs-all	proc		278
+nimgrp	tobase	types.html#toBase-converters-all	converter		223
