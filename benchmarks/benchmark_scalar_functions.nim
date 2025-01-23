@@ -4,12 +4,12 @@ import ../src/nimdrake
 var cfg = newDefaultConfig()
 cfg.warmupBudget = 0.5
 cfg.budget = 0.1
-cfg.minSamples = 10
+cfg.minSamples = 3
 cfg.verbose = true
 
 benchmark cfg:
 
-  proc benchmarkExecute() {.measure.} =
+  proc benchmarkScalar() {.measure.} =
     let conn = newDatabase().connect()
 
     template doubleValue(val, bar: int64): int64 {.scalar.} =

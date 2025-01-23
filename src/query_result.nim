@@ -23,9 +23,11 @@ proc newColumn(qresult: QueryResult, idx: idxt): Column =
 
 # TODO: find out why if I make this an iterator it breaks with a double free, maybe a copy=?
 proc columns(qresult: QueryResult): seq[Column] =
-  result = newSeq[Column]()
-  for i in 0 ..< duckdb_column_count(qresult.addr):
-    result.add(newColumn(qresult, i))
+  let count = duckdb_column_count(qresult.addr)
+  var cols = newSeq[Column](count)
+  for i in 0 ..< count:
+    cols[i] = newColumn(qresult, i)
+  return cols
 
 proc fetchChunk(qresult: QueryResult, idx: idx_t): seq[Vector] {.inline.} =
   let
@@ -36,13 +38,13 @@ proc fetchChunk(qresult: QueryResult, idx: idx_t): seq[Vector] {.inline.} =
       else:
         newDataChunk(qresult, idx, columns) # TODO: should check for empty
 
-  result = newSeq[Vector](len(columns))
+  var vectors = newSeq[Vector](len(columns))
   for col in columns:
     let
       vec = duckdb_data_chunk_get_vector(chunk.handle, col.idx.idx_t)
       chunk_size = duckdb_data_chunk_get_size(chunk.handle).int
-    result[col.idx] = newVector(vec, 0, chunk_size, col.kind, col.logicalType)
-    # duckdb_data_chunk_reset(chunk.handle)
+    vectors[col.idx] = newVector(vec, 0, chunk_size, col.kind, col.logicalType)
+  return vectors
 
 # TODO: not great
 proc fetchOne*(qresult: QueryResult): seq[Value] {.inline.} =

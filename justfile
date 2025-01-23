@@ -255,8 +255,6 @@ benchmark name="":
             --verbosity:0 \
             --hints:off \
             --opt:speed \
-            --mm:arc \
-            --threads:off \
             --panics:on \
             --passC:"-flto -march=native -ffast-math -funroll-loops -fopt-info-vec" \
             --passL:"-flto" \
