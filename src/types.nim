@@ -174,7 +174,6 @@ proc `=destroy`(qresult: QueryResult) =
   if not isNil(qresult.addr):
     duckdbDestroyResult(qresult.addr)
 
-
 proc `$`*(x: Timestamp): string =
   $DateTime(x)
 
@@ -184,7 +183,6 @@ proc `==`*(x, y: Timestamp): bool {.borrow.}
 
 proc format*(dt: Timestamp, f: string): string =
   return DateTime(dt).format(f)
-
 
 proc newDataChunk*(handle: duckdb_data_chunk, shouldDestroy: bool = true): DataChunk =
   var columns = newSeq[Column]()

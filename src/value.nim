@@ -87,24 +87,26 @@ proc fromTime*(val: duckdbTime): Time {.inline.} =
   return fromTime(val.micros)
 
 proc toInterval*(val: TimeInterval): duckdbInterval {.inline.} =
-  let micros = convert(Hours, Microseconds, val.hours) +
-                convert(Minutes, Microseconds, val.minutes) +
-                convert(Seconds, Microseconds, val.seconds) +
-                val.microseconds
+  let micros =
+    convert(Hours, Microseconds, val.hours) + convert(
+      Minutes, Microseconds, val.minutes
+    ) + convert(Seconds, Microseconds, val.seconds) + val.microseconds
 
   return duckdbInterval(
-      months: val.months.int32 + int32(val.years * 12),
-      days: val.days.int32,
-      micros: micros
-    )
+    months: val.months.int32 + int32(val.years * 12),
+    days: val.days.int32,
+    micros: micros,
+  )
 
 proc fromInterval*(val: duckdbInterval): TimeInterval {.inline.} =
   let
     years = val.months div 12
     months = val.months mod 12
     hours = convert(Microseconds, Hours, val.micros)
-    minutes = convert(Microseconds, Minutes, val.micros mod convert(Hours, Microseconds, 1))
-    seconds = convert(Microseconds, Seconds, val.micros mod convert(Minutes, Microseconds, 1))
+    minutes =
+      convert(Microseconds, Minutes, val.micros mod convert(Hours, Microseconds, 1))
+    seconds =
+      convert(Microseconds, Seconds, val.micros mod convert(Minutes, Microseconds, 1))
 
   return initTimeInterval(
     years = years,
@@ -112,7 +114,7 @@ proc fromInterval*(val: duckdbInterval): TimeInterval {.inline.} =
     days = val.days,
     hours = hours,
     minutes = minutes,
-    seconds = seconds
+    seconds = seconds,
   )
 
 proc `$`*(v: Value): string =

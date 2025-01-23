@@ -1,7 +1,6 @@
 import
   /[
-    types, config, api, database, query, query_result, table_functions,
-    scalar_functions,
+    types, config, api, database, query, query_result, table_functions, scalar_functions
   ]
 
 ## NimDrake is a Nim language package designed to integrate with **DuckDB**,
@@ -22,5 +21,4 @@ runnableExamples:
   assert @["Value_1", "Value_2", "Value_3"] == outcome[1].valueVarchar
 
 export
-  types, config, api, database, query, query_result, table_functions,
-  scalar_functions
+  types, config, api, database, query, query_result, table_functions, scalar_functions

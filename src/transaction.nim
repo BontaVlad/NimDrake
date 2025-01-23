@@ -1,6 +1,5 @@
 import /[database]
 
-
 template transient*(con: Connection, statements: untyped) =
   con.execute("BEGIN TRANSACTION;")
   try:

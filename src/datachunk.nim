@@ -19,15 +19,20 @@ template `[]=`*(vec: duckdb_vector, i: int, val: bool) =
   cast[ptr UncheckedArray[uint8]](raw)[i] = val.uint8
 
 proc `[]=`*[T](chunk: var DataChunk, colIdx: int, values: seq[T]) =
-  let vec = duckdb_data_chunk_get_vector(chunk, colIdx.idx_t)
-  for i, e in values:
-    vec[i] = e
-
   if chunk.len != 0 and chunk.len != len(values):
     raise newException(
       ValueError,
       fmt"Chunk size is inconsistent, new size of {len(values)} is different from {chunk.len}",
     )
+  elif len(values) > VECTOR_SIZE:
+    raise newException(
+      ValueError, fmt"Chunk size is bigger than the allowed vector size: {VECTOR_SIZE}"
+    )
+
+  let vec = duckdb_data_chunk_get_vector(chunk, colIdx.idx_t)
+  for i, e in values:
+    vec[i] = e
+
   chunk.len = len(values)
 
 proc `[]=`*(vec: duckdb_vector, i: int, val: string) =
