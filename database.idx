@@ -1,0 +1,12 @@
+nimTitle	database	database.html	module src/database		0
+nim	Database	database.html#Database	object Database		9
+nim	Connection	database.html#Connection	object Connection		12
+nim	`=copy`	database.html#=copy,Database,Database	proc `=copy`(dest: var Database; source: Database)		23
+nim	`=copy`	database.html#=copy,Connection,Connection	proc `=copy`(dest: var Connection; source: Connection)		27
+nim	newDatabase	database.html#newDatabase,string,Config	proc newDatabase(path: string; config: Config): Database		31
+nim	newDatabase	database.html#newDatabase,string	proc newDatabase(path: string): Database		53
+nim	newDatabase	database.html#newDatabase,Config	proc newDatabase(config: Config): Database		64
+nim	newDatabase	database.html#newDatabase	proc newDatabase(): Database		76
+nim	connect	database.html#connect,Database	proc connect(db: Database): Connection		86
+nimgrp	newdatabase	database.html#newDatabase-procs-all	proc		31
+nimgrp	=copy	database.html#=copy-procs-all	proc		23
