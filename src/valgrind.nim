@@ -3,21 +3,27 @@
 const usesValgrind {.booldefine.} = false
 
 when usesValgrind:
-  const header = "<valgrind/helgrind.h>"
+  const
+    helgrind = "<valgrind/helgrind.h>"
+    callgrind = "<valgrind/callgrind.h>"
 
   proc valgrind_annotate_happens_before*(
     x: pointer
-  ) {.header: header, importc: "ANNOTATE_HAPPENS_BEFORE".}
+  ) {.header: helgrind, importc: "ANNOTATE_HAPPENS_BEFORE".}
 
   proc valgrind_annotate_happens_after*(
     x: pointer
-  ) {.header: header, importc: "ANNOTATE_HAPPENS_AFTER".}
+  ) {.header: helgrind, importc: "ANNOTATE_HAPPENS_AFTER".}
 
   proc valgrind_annotate_happens_before_forget_all*(
     x: pointer
-  ) {.header: header, importc: "ANNOTATE_HAPPENS_BEFORE_FORGET_ALL".}
+  ) {.header: helgrind, importc: "ANNOTATE_HAPPENS_BEFORE_FORGET_ALL".}
 
-  let enabled {.header: header, importc: "RUNNING_ON_VALGRIND".}: bool
+  proc callgrind_toggle_collect*(
+    x: pointer
+  ) {.header: callgrind, importc: "CALLGRIND_TOGGLE_COLLECT".}
+
+  let enabled {.header: helgrind, importc: "RUNNING_ON_VALGRIND".}: bool
 
   proc running_on_valgrind*(): bool =
     {.cast(noSideEffect), cast(gcSafe).}:
@@ -31,6 +37,9 @@ else:
     discard
 
   proc valgrind_annotate_happens_before_forget_all*(x: pointer) =
+    discard
+
+  proc callgrind_toggle_collect*(x: pointer) =
     discard
 
   template running_on_valgrind*(): bool =

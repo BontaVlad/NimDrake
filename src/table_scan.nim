@@ -1,8 +1,7 @@
-import std/[locks, sequtils, tables, strformat, math, times]
-import /[api, database, dataframe, query, table_functions, types]
+import std/[locks, sequtils, tables, strformat, math]
+import /[api, database, dataframe, query, table_functions, types, vector, value]
 
 type
-  NotImplementedException = object of CatchableError
   ExtraData* = ref object of RootObj
     data*: Table[string, DataFrame]
 
@@ -19,10 +18,6 @@ type
     endPos: int
     rowCount: int
 
-const
-  # RoundingEpochToUnixEpochDays = 719163 # Same constant as in Julia
-  RoundingEpochToUnixEpochMs = 62135596800000 # Milliseconds version
-
 proc destroyBind(p: pointer) {.cdecl.} =
   `=destroy`(cast[BindData](p))
 
@@ -31,32 +26,6 @@ proc destroyGlobalData(p: pointer) {.cdecl.} =
 
 proc destroyLocalData(p: pointer) {.cdecl.} =
   `=destroy`(cast[LocalData](p))
-
-# Helper functions for date/time conversions
-# proc dateToEpochDays(d: DateTime): int32 =
-#   (d - initDateTime(1, mJan, 1970, 0, 0, 0, utc())).inDays.int32
-
-proc timeToMicroseconds(t: Time): int64 =
-  t.toUnix * 1_000_000 + t.nanosecond.int64 div 1_000
-
-proc dateTimeToEpochMs(dt: DateTime): int64 =
-  (dt - initDateTime(1, mJan, 1970, 0, 0, 0, utc())).inMilliseconds
-
-# Value conversion functions
-proc valueToDuckDB*(val: DateTime): int64 =
-  (dateTimeToEpochMs(val) - RoundingEpochToUnixEpochMs) * 1000
-
-proc valueToDuckDB*(val: Time): int64 =
-  timeToMicroseconds(val) div 1000
-
-proc valueToDuckDB*(val: string): auto =
-  raise newException(
-    NotImplementedException,
-    "Cannot use valueToDuckDB to convert string values - use DuckDB.assign_string_element on a vector instead",
-  )
-
-proc valueToDuckDB*[T](val: T): T =
-  val
 
 # TODO  this needs work
 proc scanColumn(
@@ -79,67 +48,104 @@ proc scanColumn(
     var resultArray = cast[ptr UncheckedArray[uint8]](raw)
     for i, e in values.valueBoolean[rowOffset ..< scanCount]:
       resultArray[i] = e.uint8
+      if isValid(values, i):
+        duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.TinyInt:
     var resultArray = cast[ptr UncheckedArray[int8]](raw)
     for i, e in values.valueTinyint[rowOffset ..< scanCount]:
       resultArray[i] = e
+      if isValid(values, i):
+        duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.SmallInt:
     var resultArray = cast[ptr UncheckedArray[int16]](raw)
     for i, e in values.valueSmallint[rowOffset ..< scanCount]:
       resultArray[i] = e
+      if isValid(values, i):
+        duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Integer:
     var resultArray = cast[ptr UncheckedArray[int32]](raw)
     for i, e in values.valueInteger[rowOffset ..< scanCount]:
       resultArray[i] = e
+      if isValid(values, i):
+        duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.BigInt:
     var resultArray = cast[ptr UncheckedArray[int64]](raw)
     for i, e in values.valueBigint[rowOffset ..< scanCount]:
       duckdb_validity_set_row_valid(validity, i.idx_t)
       resultArray[i] = e
+      if isValid(values, i):
+        duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.UTinyInt:
     var resultArray = cast[ptr UncheckedArray[uint8]](raw)
     for i, e in values.valueUTinyint[rowOffset ..< scanCount]:
       resultArray[i] = e
+      if isValid(values, i):
+        duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.USmallInt:
     var resultArray = cast[ptr UncheckedArray[uint16]](raw)
     for i, e in values.valueUSmallint[rowOffset ..< scanCount]:
       resultArray[i] = e
+      if isValid(values, i):
+        duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.UInteger:
     var resultArray = cast[ptr UncheckedArray[uint32]](raw)
     for i, e in values.valueUInteger[rowOffset ..< scanCount]:
       resultArray[i] = e
+      if isValid(values, i):
+        duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.UBigInt:
     var resultArray = cast[ptr UncheckedArray[uint64]](raw)
     for i, e in values.valueUBigint[rowOffset ..< scanCount]:
       resultArray[i] = e
+      if isValid(values, i):
+        duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Float:
     var resultArray = cast[ptr UncheckedArray[float32]](raw)
     for i, e in values.valueFloat[rowOffset ..< scanCount]:
       resultArray[i] = e
+      if isValid(values, i):
+        duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Double:
     var resultArray = cast[ptr UncheckedArray[float64]](raw)
     for i, e in values.valueDouble[rowOffset ..< scanCount]:
       resultArray[i] = e
+      if isValid(values, i):
+        duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Timestamp:
-    discard
-    # result.valueTimestamp = newSeq[DateTime]()
+    var resultArray = cast[ptr UncheckedArray[int64]](raw)
+    for i, e in values.valueTimestamp[rowOffset ..< scanCount]:
+      resultArray[i] = e.toTimestamp.micros
+      if isValid(values, i):
+        duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Date:
-    discard
-    # result.valueDate = newSeq[DateTime]()
+    var resultArray = cast[ptr UncheckedArray[int32]](raw)
+    for i, e in values.valueDate[rowOffset ..< scanCount]:
+      resultArray[i] = e.toDatetime.days
+      if isValid(values, i):
+        duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Time:
-    discard
-    # result.valueTime = newSeq[Time]()
+    var resultArray = cast[ptr UncheckedArray[int64]](raw)
+    for i, e in values.valueTime[rowOffset ..< scanCount]:
+      resultArray[i] = e.toTime.micros
+      if isValid(values, i):
+        duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Interval:
-    discard
-    # result.valueInterval = newSeq[TimeInterval]()
+    var resultArray = cast[ptr UncheckedArray[duckdbInterval]](raw)
+    for i, e in values.valueInterval[rowOffset ..< scanCount]:
+      resultArray[i] = e.toInterval
+      if isValid(values, i):
+        duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.HugeInt:
-    discard
-    # result.valueHugeint = newSeq[Int128]()
+    var resultArray = cast[ptr UncheckedArray[duckdbHugeInt]](raw)
+    for i, e in values.valueHugeInt[rowOffset ..< scanCount]:
+      resultArray[i] = e.toHugeInt
+      if isValid(values, i):
+        duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Varchar:
     for i, e in values.valueVarChar[rowOffset ..< scanCount]:
       duckdb_vector_assign_string_element(vec, i.idx_t, e.cstring)
-      duckdb_validity_set_row_valid(validity, i.idx_t)
-    # result.valueVarchar = newSeq[string]()
+      if isValid(values, i):
+        duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Blob:
     discard
     # result.valueBlob = newSeq[seq[byte]]()

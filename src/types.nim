@@ -242,7 +242,7 @@ proc `&=`*(a: var ValidityMask, b: ValidityMask) =
 proc newValidityMask*(): ValidityMask =
   const BITS_PER_VALUE = 64
   let
-    size = duckdb_vector_size()
+    size = VECTOR_SIZE
     numEntries = (size + BITS_PER_VALUE - 1) div BITS_PER_VALUE
 
   # Initialize the validity mask with a sequence of uint64

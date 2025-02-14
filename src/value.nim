@@ -124,111 +124,111 @@ proc `$`*(v: Value): string =
   of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
     raise newException(ValueError, "got invalid type")
   of DuckType.Boolean:
-    result = $v.valueBoolean
+    return $v.valueBoolean
   of DuckType.TinyInt:
-    result = $v.valueTinyint
+    return $v.valueTinyint
   of DuckType.SmallInt:
-    result = $v.valueSmallint
+    return $v.valueSmallint
   of DuckType.Integer:
-    result = $v.valueInteger
+    return $v.valueInteger
   of DuckType.BigInt:
-    result = $v.valueBigint
+    return $v.valueBigint
   of DuckType.UTinyInt:
-    result = $v.valueUTinyint
+    return $v.valueUTinyint
   of DuckType.USmallInt:
-    result = $v.valueUSmallint
+    return $v.valueUSmallint
   of DuckType.UInteger:
-    result = $v.valueUInteger
+    return $v.valueUInteger
   of DuckType.UBigInt:
-    result = $v.valueUBigint
+    return $v.valueUBigint
   of DuckType.Float:
-    result = $v.valueFloat
+    return $v.valueFloat
   of DuckType.Double:
-    result = $v.valueDouble
+    return $v.valueDouble
   of DuckType.Timestamp:
-    result = $v.valueTimestamp
+    return $v.valueTimestamp
   of DuckType.TimestampS:
-    result = $v.valueTimestampS
+    return $v.valueTimestampS
   of DuckType.TimestampMs:
-    result = $v.valueTimestampMs
+    return $v.valueTimestampMs
   of DuckType.TimestampNs:
-    result = $v.valueTimestampNs
+    return $v.valueTimestampNs
   of DuckType.Date:
-    result = $v.valueDate
+    return $v.valueDate
   of DuckType.Time:
-    result = $v.valueTime
+    return $v.valueTime
   of DuckType.Interval:
-    result = $v.valueInterval
+    return $v.valueInterval
   of DuckType.HugeInt:
-    result = $v.valueHugeint
+    return $v.valueHugeint
   of DuckType.Varchar:
-    result = v.valueVarchar
+    return v.valueVarchar
   of DuckType.Blob:
-    result = $v.valueBlob
+    return $v.valueBlob
   of DuckType.Decimal:
-    result = $v.valueDecimal
+    return $v.valueDecimal
   of DuckType.Enum:
-    result = $v.valueEnum
+    return $v.valueEnum
   of DuckType.List, DuckType.Array:
-    result = $v.valueList
+    return $v.valueList
   of DuckType.Struct:
-    result = $v.valueStruct
+    return $v.valueStruct
   of DuckType.Map:
-    result = $v.valueMap
+    return $v.valueMap
   of DuckType.UUID:
-    result = $v.valueUuid
+    return $v.valueUuid
   of DuckType.Union:
-    result = $v.valueUnion
+    return $v.valueUnion
   of DuckType.Bit:
-    result = $v.valueBit
+    return $v.valueBit
   of DuckType.TimeTz:
-    result = $v.valueTimeTz
+    return $v.valueTimeTz
   of DuckType.TimestampTz:
-    result = $v.valueTimestampTz
+    return $v.valueTimestampTz
   of DuckType.UHugeInt:
-    result = $v.valueUHugeint
+    return $v.valueUHugeint
 
 proc newValue*(val: bool, isValid = true): Value =
-  result = Value(kind: DuckType.Boolean, isValid: isValid, valueBoolean: val)
+  return Value(kind: DuckType.Boolean, isValid: isValid, valueBoolean: val)
 
 proc newValue*(val: int8, isValid = true): Value =
-  result = Value(kind: DuckType.TinyInt, isValid: isValid, valueTinyint: val)
+  return Value(kind: DuckType.TinyInt, isValid: isValid, valueTinyint: val)
 
 proc newValue*(val: int16, isValid = true): Value =
-  result = Value(kind: DuckType.SmallInt, isValid: isValid, valueSmallint: val)
+  return Value(kind: DuckType.SmallInt, isValid: isValid, valueSmallint: val)
 
 proc newValue*(val: int32, isValid = true): Value =
-  result = Value(kind: DuckType.Integer, isValid: isValid, valueInteger: val)
+  return Value(kind: DuckType.Integer, isValid: isValid, valueInteger: val)
 
 proc newValue*(val: int64, isValid = true): Value =
-  result = Value(kind: DuckType.BigInt, isValid: isValid, valueBigint: val)
+  return Value(kind: DuckType.BigInt, isValid: isValid, valueBigint: val)
 
 proc newValue*(val: Int128, isValid = true): Value =
-  result = Value(kind: DuckType.HugeInt, isValid: isValid, valueHugeInt: val)
+  return Value(kind: DuckType.HugeInt, isValid: isValid, valueHugeInt: val)
 
 proc newValue*(val: UInt128, isValid = true): Value =
-  result = Value(kind: DuckType.UHugeInt, isValid: isValid, valueUHugeInt: val)
+  return Value(kind: DuckType.UHugeInt, isValid: isValid, valueUHugeInt: val)
 
 proc newValue*(val: uint8, isValid = true): Value =
-  result = Value(kind: DuckType.UTinyInt, isValid: isValid, valueUTinyint: val)
+  return Value(kind: DuckType.UTinyInt, isValid: isValid, valueUTinyint: val)
 
 proc newValue*(val: uint16, isValid = true): Value =
-  result = Value(kind: DuckType.USmallInt, isValid: isValid, valueUSmallint: val)
+  return Value(kind: DuckType.USmallInt, isValid: isValid, valueUSmallint: val)
 
 proc newValue*(val: uint32, isValid = true): Value =
-  result = Value(kind: DuckType.UInteger, isValid: isValid, valueUInteger: val)
+  return Value(kind: DuckType.UInteger, isValid: isValid, valueUInteger: val)
 
 proc newValue*(val: uint64, isValid = true): Value =
-  result = Value(kind: DuckType.UBigInt, isValid: isValid, valueUBigint: val)
+  return Value(kind: DuckType.UBigInt, isValid: isValid, valueUBigint: val)
 
 proc newValue*(val: float32, isValid = true): Value =
-  result = Value(kind: DuckType.Float, isValid: isValid, valueFloat: val)
+  return Value(kind: DuckType.Float, isValid: isValid, valueFloat: val)
 
 proc newValue*(val: float64, isValid = true): Value =
-  result = Value(kind: DuckType.Double, isValid: isValid, valueDouble: val)
+  return Value(kind: DuckType.Double, isValid: isValid, valueDouble: val)
 
 proc newValue*(val: Timestamp, kind: DuckType, isValid = true): Value =
-  result = Value(kind: DuckType.Timestamp, isValid: isValid, valueTimestamp: val)
+  return Value(kind: DuckType.Timestamp, isValid: isValid, valueTimestamp: val)
 
 # TODO: this should be refactored
 proc newValue*(val: DateTime, kind: DuckType, isValid = true): Value =
@@ -248,16 +248,16 @@ proc newValue*(val: DateTime, kind: DuckType, isValid = true): Value =
     )
 
 proc newValue*(val: Time, isValid = true): Value =
-  result = Value(kind: DuckType.Time, isValid: isValid, valueTime: val)
+  return Value(kind: DuckType.Time, isValid: isValid, valueTime: val)
 
 proc newValue*(val: ZonedTime, isValid = true): Value =
-  result = Value(kind: DuckType.TimeTz, isValid: isValid, valueTimeTz: val)
+  return Value(kind: DuckType.TimeTz, isValid: isValid, valueTimeTz: val)
 
 proc newValue*(val: TimeInterval, isValid = true): Value =
-  result = Value(kind: DuckType.Interval, isValid: isValid, valueInterval: val)
+  return Value(kind: DuckType.Interval, isValid: isValid, valueInterval: val)
 
 proc newValue*(val: string, isValid = true): Value =
-  result = Value(kind: DuckType.Varchar, isValid: isValid, valueVarchar: val)
+  return Value(kind: DuckType.Varchar, isValid: isValid, valueVarchar: val)
 
 proc newValue*(val: string, kind: DuckType, isValid = true): Value =
   result = Value(kind: kind, isValid: isValid)
@@ -269,16 +269,16 @@ proc newValue*(val: string, kind: DuckType, isValid = true): Value =
     )
 
 proc newValue*(val: seq[byte], isValid = true): Value =
-  result = Value(kind: DuckType.Blob, isValid: isValid, valueBlob: val)
+  return Value(kind: DuckType.Blob, isValid: isValid, valueBlob: val)
 
 proc newValue*(val: DecimalType, isValid = true): Value =
-  result = Value(kind: DuckType.Decimal, isValid: isValid, valueDecimal: val)
+  return Value(kind: DuckType.Decimal, isValid: isValid, valueDecimal: val)
 
 proc newValue*(val: uint, kind: DuckType, isValid = true): Value =
-  result = Value(kind: DuckType.Enum, isValid: isValid, valueEnum: val)
+  return Value(kind: DuckType.Enum, isValid: isValid, valueEnum: val)
 
 proc newValue*(val: seq[Value], isValid = true): Value =
-  result = Value(kind: DuckType.List, isValid: isValid, valueList: val)
+  return Value(kind: DuckType.List, isValid: isValid, valueList: val)
 
 proc newValue*(val: Table[string, Value], kind: DuckType, isValid = true): Value =
   result = Value(kind: kind, isValid: isValid)
@@ -357,11 +357,7 @@ proc newValue*(val: DuckValue): Value =
     result.valueTime = fromTime(dkTime)
   of DuckType.Interval:
     let dkInterval = cast[duckdb_interval](duckdb_get_interval(val.handle))
-    result.valueInterval = initTimeInterval(
-      months = dkInterval.months,
-      days = dkInterval.days,
-      microseconds = dkInterval.micros,
-    )
+    result.valueInterval = dkInterval.fromInterval
   of DuckType.HugeInt:
     let dkHugeInt = cast[duckdb_hugeint](duckdb_get_hugeint(val.handle))
     result.valueHugeint = fromHugeInt(dkHugeInt)

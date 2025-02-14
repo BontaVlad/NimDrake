@@ -257,7 +257,7 @@ macro producer*(body: typed): untyped =
     `@ initDataNode`
 
     proc `@ destroyBindData`(p: pointer) {.cdecl.} =
-      `=destroy`(cast[@bindDataName](p))
+      `=destroy`(cast[`@ bindDataName`](p))
 
     proc `@ destroyInitData`(p: pointer) {.cdecl.} =
       `=destroy`(cast[`@ initDataName`](p))

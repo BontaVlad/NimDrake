@@ -22,7 +22,7 @@ proc newColumn(qresult: QueryResult, idx: idxt): Column =
   )
 
 # TODO: find out why if I make this an iterator it breaks with a double free, maybe a copy=?
-proc columns(qresult: QueryResult): seq[Column] =
+proc columns(qresult: QueryResult): seq[Column] {.inline.} =
   let count = duckdb_column_count(qresult.addr)
   var cols = newSeq[Column](count)
   for i in 0 ..< count:
@@ -52,7 +52,7 @@ proc fetchOne*(qresult: QueryResult): seq[Value] {.inline.} =
   for column_vector in fetchChunk(qresult, 0):
     result.add(column_vector[0])
 
-iterator chunks*(qresult: QueryResult): seq[Vector] =
+iterator chunks*(qresult: QueryResult): seq[Vector] {.inline.} =
   for i in 0 ..< duckdb_result_chunk_count(qresult):
     yield fetchChunk(qresult, i)
 
@@ -98,10 +98,10 @@ proc fetchAllNamed*(qresult: QueryResult): Table[string, Vector] =
     result[column.name] = data[i]
 
 proc df*(qresult: QueryResult): DataFrame =
-  result = newDataFrame(qresult.fetchAllNamed())
+  return newDataFrame(qresult.fetchAllNamed())
 
 proc error*(qresult: QueryResult): string =
-  result = $duckdb_result_error(qresult.addr)
+  return $duckdb_result_error(qresult.addr)
 
 proc `$`*(qresult: QueryResult): string =
-  result = $qresult.df()
+  return $qresult.df()

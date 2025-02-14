@@ -1,4 +1,4 @@
-import std/[strformat, logging, enumerate, times]
+import std/[strformat, enumerate, times]
 import nint128
 import decimal
 import /[api, types, database, query_result, value, exceptions]
