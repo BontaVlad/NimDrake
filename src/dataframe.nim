@@ -21,8 +21,7 @@ proc newDataFrame*(data: Table[string, Vector]): DataFrame =
       Column(
         idx: idx,
         name: key,
-        kind: values[idx].kind,
-        logicalType: newLogicalType(values[idx].kind),
+        kind: values[idx].kind
       )
     )
   result = DataFrame(columns: columns, values: values)

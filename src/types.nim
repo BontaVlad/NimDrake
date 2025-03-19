@@ -1,4 +1,4 @@
-import std/[macros, tables, times, typetraits, strformat, sugar, sequtils]
+import std/[macros, tables, times, typetraits, strformat]
 
 import nint128
 import decimal
@@ -134,41 +134,21 @@ type
     of DuckType.TimestampTz: valueTimestampTz*: seq[ZonedTime]
     of DuckType.UHugeInt: valueUHugeint*: seq[UInt128]
 
-  LogicalTypeBase = object of RootObj
-    handle*: duckdb_logical_type
+  LogicalType* = object
+    handle*: duckdbLogicalType
 
-  LogicalType* = ref object of LogicalTypeBase
+  # LogicalTypeBase = object of RootObj
+  #   handle*: duckdb_logical_type
 
-  Column* = object
+  # LogicalType* = ref object of LogicalTypeBase
+  Column* = ref object
     idx*: int
     name*: string
     kind*: DuckType
-    logicalType*: LogicalType
 
-  DataChunkBase = object of RootObj
-    handle*: duckdbDataChunk
-    columns*: seq[Column]
-    shouldDestroy: bool
-
-  DataChunk* = ref object of DataChunkBase
-
-proc `=copy`(a: var DataChunkBase, b: DataChunkBase) {.error.}
-proc `=copy`(a: var LogicalTypeBase, b: LogicalTypeBase) {.error.}
-# proc `=copy`(a: var Column, b: Column) {.error.}
-
-proc `=destroy`*(ltp: LogicalTypeBase) =
+proc `=destroy`*(ltp: LogicalType) =
   if not isNil(ltp.addr) and not isNil(ltp.handle.addr):
     duckdb_destroy_logical_type(ltp.handle.addr)
-
-{.push warning[Deprecated]: off.}
-proc `=destroy`(d: var DataChunkBase) =
-  # I have no ideea why without this
-  # there is a memory leak
-  d.columns = newSeq[Column]()
-  if d.handle != nil and d.shouldDestroy:
-    duckdb_destroy_datachunk(d.handle.addr)
-
-{.pop.}
 
 proc `=destroy`(qresult: QueryResult) =
   if not isNil(qresult.addr):
@@ -184,41 +164,8 @@ proc `==`*(x, y: Timestamp): bool {.borrow.}
 proc format*(dt: Timestamp, f: string): string =
   return DateTime(dt).format(f)
 
-proc newDataChunk*(handle: duckdb_data_chunk, shouldDestroy: bool = true): DataChunk =
-  var columns = newSeq[Column]()
-  result = DataChunk(handle: handle, columns: columns, shouldDestroy: shouldDestroy)
-
-proc newDataChunk*(
-    handle: duckdb_data_chunk, columns: sink seq[Column], shouldDestroy: bool = true
-): DataChunk =
-  result = DataChunk(handle: handle, columns: columns, shouldDestroy: shouldDestroy)
-
-proc newDataChunk*(columns: sink seq[Column], shouldDestroy: bool = true): DataChunk =
-  let
-    types = columns.map(c => c.logicalType.handle)
-    chunk = duckdb_create_data_chunk(
-      cast[ptr duckdb_logical_type](types[0].addr), len(columns).idx_t
-    )
-  result = newDataChunk(chunk, columns, shouldDestroy)
-
-proc newDataChunk*(
-    qresult: QueryResult, columns: seq[Column], shouldDestroy: bool = true
-): DataChunk =
-  result = newDataChunk(duckdb_stream_fetch_chunk(qresult), columns, shouldDestroy)
-
-proc newDataChunk*(
-    qresult: QueryResult, idx: idxt, columns: seq[Column], shouldDestroy: bool = true
-): DataChunk =
-  result = newDataChunk(duckdb_result_get_chunk(qresult, idx), columns, shouldDestroy)
-
-converter toC*(d: DataChunk): duckdbdatachunk =
-  d.handle
-
 # converter toNim*(d: duckdbdatachunk): DataChunk =
 #   cast[DataChunk](d)
-
-converter toBool*(d: DataChunk): bool =
-  not isNil(d) or duckdbdatachunkgetsize(d).int > 0
 
 converter toBase*(p: ptr PendingQueryResult): ptr duckdb_pending_result =
   cast[ptr duckdb_pending_result](p)
@@ -275,12 +222,12 @@ template toEnum*[T](x: int): T =
   else:
     raise newException(ValueError, "Value not convertible to enum")
 
-proc newDuckType*(i: LogicalType): DuckType =
-  let id = duckdb_get_type_id(i.handle)
-  result = toEnum[DuckType](id.int)
-
 proc newDuckType*(i: duckdb_logical_type): DuckType =
-  result = newDuckType(LogicalType(handle: i))
+  let id = duckdbGetTypeId(i)
+  return toEnum[DuckType](id.int)
+
+proc newDuckType*(i: LogicalType): DuckType =
+  return newDuckType(i.handle)
 
 proc newDuckType*(i: enum_DUCKDB_TYPE): DuckType =
   result = toEnum[DuckType](i.int)

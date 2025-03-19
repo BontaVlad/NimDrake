@@ -144,9 +144,9 @@ debug-run nim_file="src/duckdb" name="":
         --stacktrace:on \
         -d:useMalloc \
         --mm:orc \
-        --passC:-O0 \
-        --passC:-g3 \
+        --passC:-O1 \
         --passC:-ggdb3 \
+        --passC:-fno-omit-frame-pointer \
         --passC:-gdwarf-4 \
         --lineDir:on \
         --debuginfo:on \

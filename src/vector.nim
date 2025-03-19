@@ -208,25 +208,32 @@ template parseHandle(
 ): untyped =
   parseHandle(handle, vec, rawType, resultField, rawType)
 
-template parseDecimalBigInt(
-    handle: pointer, vec: Vector, scale: int, resultField: seq[DecimalType]
-) =
-  resultField = collectValid[int64, DecimalType](handle, vec, offset, size) do(
-    val: int64
-  ) -> DecimalType:
-    let value = val.float / pow(10.float, scale.float)
-    newDecimal($value)
+template parseDecimalBigInt(handle, scale, size: untyped) =
 
-template parseDecimalHugeInt(
-    handle: pointer, vec: Vector, scale: int, resultField: seq[DecimalType]
-) =
-  resultField = collectValid[duckdb_hugeint, DecimalType](handle, vec, offset, size) do(
-    val: duckdb_hugeint
-  ) -> DecimalType:
+  var data = newSeq[DecimalType](size)
+  let
+    raw = cast[ptr UncheckedArray[int64]](handle)
+    validityMask = newValidityMask(duckVector, size)
+
+  for i in offset ..< size:
+    let value = raw[i].float / pow(10.0, scale.float)
+    data[i] = newDecimal($value)
+
+  return Vector(kind: kind, mask: validityMask, valueDecimal: data)
+
+template parseDecimalHugeInt(handle, scale, size: untyped) =
+  var data = newSeq[DecimalType](size)
+  let
+    raw = cast[ptr UncheckedArray[duckdbHugeInt]](handle)
+    validityMask = newValidityMask(duckVector, size)
+
+  for i in offset ..< size:
     let
-      value = fromHugeInt(val)
-      fractional = cast[float](value) / pow(10.float, scale.float)
-    newDecimal($fractional)
+      value = fromHugeInt(raw[i])
+      fractional = cast[float](value) / pow(10.0, scale.float)
+    data[i] = newDecimal($fractional)
+
+  return Vector(kind: kind, mask: validityMask, valueDecimal: data)
 
 proc vecToValue*(vec: Vector, idx: int): Value =
   let isValid = vec.isValid(idx)
@@ -448,250 +455,359 @@ proc newVector*(data: seq[int | int64]): Vector =
     kind: DuckType.BigInt, valueBigint: data.map(e => int64(e)), mask: newValidityMask()
   )
 
-proc newVector*(
-    vec: duckdb_vector, offset: int, size: int, kind: DuckType, logicalType: LogicalType
-): Vector =
-  result = Vector(kind: kind, mask: newValidityMask(vec, size))
-  let handle = duckdb_vector_get_data(vec)
+# proc newVector*(
+#     vec: duckdb_vector, size: int, offset: int = 0, size: int, kind: DuckType, logicalType: LogicalType
+# ): Vector =
 
-  # TODO: abstract a lot of duplication around here
+template handleVectorCase(handle, cType, nimType, fieldName: untyped) =
+  let
+    raw = cast[ptr UncheckedArray[cType]](handle)
+    validityMask = newValidityMask(duckVector, size)
+  var data = newSeq[nimType](size)
+  if size > 0:
+    copyMem(addr data[0], addr raw[offset], size * sizeof(nimType))
+  return Vector(kind: kind, mask: validityMask, fieldName: data)
+
+template handleVectorCase(handle, cType, nimType, fieldName, caster: untyped) =
+  let
+    raw = cast[ptr UncheckedArray[cType]](handle)
+    validityMask = newValidityMask(duckVector, size)
+  var data = newSeq[nimType](size)
+  for i in offset ..< size:
+    data[i] = caster(raw[i])
+  return Vector(kind: kind, mask: validityMask, fieldName: data)
+
+proc newVector*(duckVector: duckdb_vector, size: int, offset: int = 0): Vector =
+  let
+    logicalType = newLogicalType(duckdbVectorGetColumnType(duckVector))
+    kind = newDuckType(logicalType)
+    handle = duckdbVectorGetData(duckVector)
+
   case kind
   of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
     raise newException(ValueError, fmt"got invalid enum type: {kind}")
   of DuckType.Boolean:
-    parseHandle(handle, result, uint8, result.valueBoolean, bool)
+    handleVectorCase(handle, uint8, bool, valueBoolean)
   of DuckType.TinyInt:
-    parseHandle(handle, result, int8, result.valueTinyint)
+    handleVectorCase(handle, int8, int8, valueTinyint)
   of DuckType.SmallInt:
-    parseHandle(handle, result, int16, result.valueSmallint)
+    handleVectorCase(handle, int16, int16, valueSmallint)
   of DuckType.Integer:
-    parseHandle(handle, result, cint, result.valueInteger, int32)
+    handleVectorCase(handle, int32, int32, valueInteger)
   of DuckType.BigInt:
-    parseHandle(handle, result, int64, result.valueBigint)
+    handleVectorCase(handle, int64, int64, valueBigint)
   of DuckType.UTinyInt:
-    parseHandle(handle, result, uint8, result.valueUtinyint)
+    handleVectorCase(handle, uint8, uint8, valueUtinyint)
   of DuckType.USmallInt:
-    parseHandle(handle, result, uint16, result.valueUSmallint)
+    handleVectorCase(handle, uint16, uint16, valueUSmallint)
   of DuckType.UInteger:
-    parseHandle(handle, result, uint32, result.valueUInteger)
+    handleVectorCase(handle, uint32, uint32, valueUInteger)
   of DuckType.UBigInt:
-    parseHandle(handle, result, uint64, result.valueUBigint)
+    handleVectorCase(handle, uint64, uint64, valueUBigint)
   of DuckType.Float:
-    parseHandle(handle, result, float32, result.valueFloat)
+    handleVectorCase(handle, float32, float32, valueFloat)
   of DuckType.Double:
-    parseHandle(handle, result, float64, result.valueDouble)
+    handleVectorCase(handle, float64, float64, valueDouble)
   of DuckType.Timestamp:
-    result.valueTimestamp = collectValid[int64, Timestamp](handle, result, offset, size) do(
-      val: int64
-    ) -> Timestamp:
-      fromTimestamp(val)
+    handleVectorCase(handle, int64, TimeStamp, valueTimeStamp, fromTimestamp)
   of DuckType.Date:
-    result.valueDate = collectValid[int32, DateTime](handle, result, offset, size) do(
-      val: int32
-    ) -> DateTime:
-      fromDatetime(val)
+    handleVectorCase(handle, int32, DateTime, valueDate, fromDatetime)
   of DuckType.Time:
-    result.valueTime = collectValid[int64, Time](handle, result, offset, size) do(
-      val: int64
-    ) -> Time:
-      fromTime(val)
+    handleVectorCase(handle, int64, Time, valueTime, fromTime)
   of DuckType.Interval:
-    result.valueInterval = collectValid[duckdbInterval, TimeInterval](
-      handle, result, offset, size
-    ) do(val: duckdbInterval) -> TimeInterval:
-      fromInterval(val)
+    handleVectorCase(handle, duckdbInterval, TimeInterval, valueInterval, fromInterval)
   of DuckType.HugeInt:
-    result.valueHugeInt = collectValid[duckdb_hugeint, Int128](
-      handle, result, offset, size
-    ) do(val: duckdb_hugeint) -> Int128:
-      fromHugeInt(val)
+    handleVectorCase(handle, duckdbHugeInt, Int128, valueHugeInt, fromHugeInt)
   of DuckType.VarChar:
-    collectValidString[string](handle, result, offset, size, result.valueVarChar) do(
-      rawStr: cstring
-    ) -> string:
-      $rawStr
+    let validityMask = newValidityMask(duckVector, size)
+    var data = newSeq[string](size)
+    for i in offset ..< size:
+      let
+        basePtr = cast[pointer](cast[uint](handle) + (i * sizeof(duckdbstringt)).uint)
+        strLength = cast[ptr int32](basePtr)[]
+      var rawStr: cstring
+
+      if strLength <= STRING_INLINE_LENGTH:
+        rawStr = cast[cstring](cast[uint](basePtr) + sizeof(int32).uint)
+      else:
+        rawStr = cast[ptr cstring](cast[uint](basePtr) + sizeof(int32).uint * 2)[]
+      data[i] = $rawStr
+    return Vector(kind: kind, mask: validityMask, valueVarchar: data)
   of DuckType.Blob:
-    collectValidString[seq[byte]](handle, result, offset, size, result.valueBlob) do(
-      rawStr: cstring
-    ) -> seq[byte]:
+    let validityMask = newValidityMask(duckVector, size)
+    var data = newSeq[seq[byte]](size)
+    for i in offset ..< size:
+      let
+        basePtr = cast[pointer](cast[uint](handle) + (i * sizeof(duckdbstringt)).uint)
+        strLength = cast[ptr int32](basePtr)[]
+      var rawStr: cstring
+
+      if strLength <= STRING_INLINE_LENGTH:
+        rawStr = cast[cstring](cast[uint](basePtr) + sizeof(int32).uint)
+      else:
+        rawStr = cast[ptr cstring](cast[uint](basePtr) + sizeof(int32).uint * 2)[]
       var byteArray = newSeq[byte](rawStr.len)
       copyMem(addr byteArray[0], unsafeAddr rawStr[0], rawStr.len)
-      byteArray
+      data[i] = byteArray
+    return Vector(kind: kind, mask: validityMask, valueBlob: data)
   of DuckType.Decimal:
     let
       scale = duckdb_decimal_scale(logicalType.handle).int
       width = duckdb_decimal_width(logicalType.handle).int
     if width <= 18:
-      parseDecimalBigInt(handle, result, scale, result.valueDecimal)
+      parseDecimalBigInt(handle, scale, size)
     else:
-      parseDecimalHugeInt(handle, result, scale, result.valueDecimal)
-  of DuckType.TimestampS:
-    result.valueTimestampS = collectValid[int64, DateTime](handle, result, offset, size) do(
-      val: int64
-    ) -> DateTime:
-      fromUnix(val).inZone(utc())
-  of DuckType.TimestampMs:
-    result.valueTimestampMs = collectValid[int64, DateTime](
-      handle, result, offset, size
-    ) do(val: int64) -> DateTime:
-      fromUnix(val div 1000).inZone(utc()) + initDuration(milliseconds = val mod 1000)
-  of DuckType.TimestampNs:
-    result.valueTimestampNs = collectValid[int64, Datetime](
-      handle, result, offset, size
-    ) do(val: int64) -> DateTime:
-      let
-        seconds = val div 1_000_000_000
-        microseconds = val mod 1_000_000_000 div 1000
-      fromUnix(seconds).inZone(utc()) + initDuration(microseconds = microseconds)
-  # TODO: not sure if this needs to be the ord or the label
-  of DuckType.Enum:
-    let enum_tp = cast[DuckType](duckdb_enum_internal_type(logicalType.handle))
-    case enum_tp
-    of UTinyInt:
-      parseHandle(handle, result, uint8, result.valueEnum, uint)
-    of USmallInt:
-      parseHandle(handle, result, uint16, result.valueEnum, uint)
-    of UInteger:
-      parseHandle(handle, result, uint32, result.valueEnum, uint)
-    else:
-      raise newException(ValueError, fmt"got invalid enum type: {enum_tp}")
-  of DuckType.List, DuckType.Array:
-    let
-      raw = cast[ptr UncheckedArray[duckdb_list_entry]](handle)
-      children = duckdb_list_vector_get_child(vec)
+      parseDecimalHugeInt(handle, scale, size)
+  else:
+    discard
 
-    for i in offset ..< size:
-      if isValid(result, i):
-        let
-          list_data = raw[i]
-          child_type = newLogicalType(duckdb_list_type_child_type(logicalType.handle))
-          child = newVector(
-            vec = children,
-            offset = list_data.offset.int,
-            size = (list_data.offset + list_data.length).int,
-            kind = newDuckType(child_type),
-            logicalType = child_type,
-          )
-        var child_array = newSeq[Value]()
-        for c in child:
-          child_array.add(cast[Value](c))
-        result.valueList.add(child_array)
-  of DuckType.Struct:
-    let child_count = duckdb_struct_type_child_count(logicalType.handle).int
-    var vectorStruct = initTable[string, Vector]()
-    for child_idx in 0 ..< child_count:
-      let
-        children = duckdb_struct_vector_get_child(vec, child_idx.idx_t)
-        child_type = newLogicalType(
-          duckdb_struct_type_child_type(logicalType.handle, child_idx.idx_t)
-        )
-        child_name = newDuckString(
-          duckdb_struct_type_child_name(logicalType.handle, child_idx.idx_t)
-        )
-        child = newVector(
-          vec = children,
-          offset = offset,
-          size = size,
-          kind = newDuckType(child_type),
-          logicalType = child_type,
-        )
 
-      vectorStruct[$child_name] = child
-    result.valueStruct = collect:
-      for i in offset ..< size:
-        var row = initTable[string, Value]()
-        for key, child_vector in vectorStruct.pairs:
-          row[key] = vecToValue(child_vector, i)
-        row
-  of DuckType.Map:
-    let
-      # don't know how to make use of key_type and value_type
-      # key_type = newLogicalType(duckdb_map_type_key_type(logicalType.handle))
-      # value_type = newLogicalType(duckdb_map_type_value_type(logicalType.handle))
-      children = duckdb_list_vector_get_child(vec)
-      lsize = duckdb_list_vector_get_size(vec)
-      child_type = newLogicalType(duckdb_list_type_child_type(logicalType.handle))
+  # of DuckType.Boolean:
+  #   let
+  #     raw = cast[ptr UncheckedArray[uint8]](handle)
+  #     validityMask = newValidityMask(duckVector, size)
+  #   var data = newSeq[bool](size)
+  #   if size > 0:
+  #     copyMem(addr data[0], addr raw[offset], size * sizeof(bool))
+  #   return Vector(kind: kind, mask: validityMask, valueBoolean: data)
+  # else:
+  #   discard
 
-    result.valueMap = collect:
-      for i in 0 ..< size:
-        var vectorMap = initTable[string, Value]()
-        let elements = newVector(
-          vec = children,
-          offset = 0,
-          size = lsize.int,
-          kind = newDuckType(child_type),
-          logicalType = child_type,
-        )
-        for e in elements.valueStruct:
-          vectorMap[$e["key"]] = e["value"]
-        vectorMap
-  # TODO: uuid is wrong
-  of DuckType.UUID:
-    result.valueUuid = collectValid[duckdb_hugeint, Uuid](handle, result, offset, size) do(
-      val: duckdb_hugeint
-    ) -> Uuid:
-      let huge_int = UInt128(lo: val.lower.uint64, hi: val.upper.uint64)
-      initUuid(huge_int.toHex)
-  # TODO: this is shit and fragile
-  # TODO: some bugs, sometimes tags are missing
-  of DuckType.Union:
-    let
-      children =
-        newVector(vec, offset, size, kind = DuckType.Struct, logicalType = logicalType)
-      child_count = len(children)
+  # of DuckType.Boolean:
+  #   parseHandle(handle, result, uint8, result.valueBoolean, bool)
+  # of DuckType.TinyInt:
+  #   parseHandle(handle, result, int8, result.valueTinyint)
+  # of DuckType.SmallInt:
+  #   parseHandle(handle, result, int16, result.valueSmallint)
+  # of DuckType.Integer:
+  #   parseHandle(handle, result, cint, result.valueInteger, int32)
+  # of DuckType.BigInt:
+  #   parseHandle(handle, result, int64, result.valueBigint)
+  # of DuckType.UTinyInt:
+  #   parseHandle(handle, result, uint8, result.valueUtinyint)
+  # of DuckType.USmallInt:
+  #   parseHandle(handle, result, uint16, result.valueUSmallint)
+  # of DuckType.UInteger:
+  #   parseHandle(handle, result, uint32, result.valueUInteger)
+  # of DuckType.UBigInt:
+  #   parseHandle(handle, result, uint64, result.valueUBigint)
+  # of DuckType.Float:
+  #   parseHandle(handle, result, float32, result.valueFloat)
+  # of DuckType.Double:
+  #   parseHandle(handle, result, float64, result.valueDouble)
 
-    var tags = newSeq[string]()
-    for child_idx in 0 ..< child_count:
-      let child_name = newDuckString(
-        duckdb_struct_type_child_name(logicalType.handle, child_idx.idx_t)
-      )
-      if $child_name != "":
-        tags.add($child_name)
+  # of DuckType.Timestamp:
+  #   result.valueTimestamp = collectValid[int64, Timestamp](handle, result, offset, size) do(
+  #     val: int64
+  #   ) -> Timestamp:
+  #     fromTimestamp(val)
+  # of DuckType.Date:
+  #   result.valueDate = collectValid[int32, DateTime](handle, result, offset, size) do(
+  #     val: int32
+  #   ) -> DateTime:
+  #     fromDatetime(val)
+  # of DuckType.Time:
+  #   result.valueTime = collectValid[int64, Time](handle, result, offset, size) do(
+  #     val: int64
+  #   ) -> Time:
+  #     fromTime(val)
+  # of DuckType.Interval:
+  #   result.valueInterval = collectValid[duckdbInterval, TimeInterval](
+  #     handle, result, offset, size
+  #   ) do(val: duckdbInterval) -> TimeInterval:
+  #     fromInterval(val)
+  # of DuckType.HugeInt:
+  #   result.valueHugeInt = collectValid[duckdb_hugeint, Int128](
+  #     handle, result, offset, size
+  #   ) do(val: duckdb_hugeint) -> Int128:
+  #     fromHugeInt(val)
+  # of DuckType.VarChar:
+  #   collectValidString[string](handle, result, offset, size, result.valueVarChar) do(
+  #     rawStr: cstring
+  #   ) -> string:
+  #     $rawStr
+  # of DuckType.Blob:
+  #   collectValidString[seq[byte]](handle, result, offset, size, result.valueBlob) do(
+  #     rawStr: cstring
+  #   ) -> seq[byte]:
+  #     var byteArray = newSeq[byte](rawStr.len)
+  #     copyMem(addr byteArray[0], unsafeAddr rawStr[0], rawStr.len)
+  #     byteArray
+  # of DuckType.Decimal:
+  #   let
+  #     scale = duckdb_decimal_scale(logicalType.handle).int
+  #     width = duckdb_decimal_width(logicalType.handle).int
+  #   if width <= 18:
+  #     parseDecimalBigInt(handle, result, scale, result.valueDecimal)
+  #   else:
+  #     parseDecimalHugeInt(handle, result, scale, result.valueDecimal)
+  # of DuckType.TimestampS:
+  #   result.valueTimestampS = collectValid[int64, DateTime](handle, result, offset, size) do(
+  #     val: int64
+  #   ) -> DateTime:
+  #     fromUnix(val).inZone(utc())
+  # of DuckType.TimestampMs:
+  #   result.valueTimestampMs = collectValid[int64, DateTime](
+  #     handle, result, offset, size
+  #   ) do(val: int64) -> DateTime:
+  #     fromUnix(val div 1000).inZone(utc()) + initDuration(milliseconds = val mod 1000)
+  # of DuckType.TimestampNs:
+  #   result.valueTimestampNs = collectValid[int64, Datetime](
+  #     handle, result, offset, size
+  #   ) do(val: int64) -> DateTime:
+  #     let
+  #       seconds = val div 1_000_000_000
+  #       microseconds = val mod 1_000_000_000 div 1000
+  #     fromUnix(seconds).inZone(utc()) + initDuration(microseconds = microseconds)
+  # # TODO: not sure if this needs to be the ord or the label
+  # of DuckType.Enum:
+  #   let enum_tp = cast[DuckType](duckdb_enum_internal_type(logicalType.handle))
+  #   case enum_tp
+  #   of UTinyInt:
+  #     parseHandle(handle, result, uint8, result.valueEnum, uint)
+  #   of USmallInt:
+  #     parseHandle(handle, result, uint16, result.valueEnum, uint)
+  #   of UInteger:
+  #     parseHandle(handle, result, uint32, result.valueEnum, uint)
+  #   else:
+  #     raise newException(ValueError, fmt"got invalid enum type: {enum_tp}")
+  # of DuckType.List, DuckType.Array:
+  #   let
+  #     raw = cast[ptr UncheckedArray[duckdb_list_entry]](handle)
+  #     children = duckdb_list_vector_get_child(vec)
 
-    result.valueUnion = collect:
-      for e in children.valueStruct:
-        var row = initTable[string, Value]()
-        for tag in tags:
-          if $e[tag] != "":
-            row[tag] = e[tag]
-            row
-  of DuckType.Bit:
-    result.valueBit = newVector(
-      vec, offset, size, kind = DuckType.Varchar, logicalType = logicalType
-    ).valueVarChar
-  of DuckType.TimeTz:
-    result = newVector(kind = kind)
-    result.valueTimeTz = collectValid[int64, ZonedTime](handle, result, offset, size) do(
-      val: int64
-    ) -> ZonedTime:
-      let
-        tmz = duckdb_from_time_tz(cast[duckdb_time_tz](val))
-        seconds = tmz.time.hour * 3600 + tmz.time.min.int * 60 + tmz.time.sec
-        nanoseconds = tmz.time.micros * 1000
-        tm = initTime(seconds, nanoseconds)
+  #   for i in offset ..< size:
+  #     if isValid(result, i):
+  #       let
+  #         list_data = raw[i]
+  #         child_type = newLogicalType(duckdb_list_type_child_type(logicalType.handle))
+  #         child = newVector(
+  #           vec = children,
+  #           offset = list_data.offset.int,
+  #           size = (list_data.offset + list_data.length).int,
+  #           kind = newDuckType(child_type),
+  #           logicalType = child_type,
+  #         )
+  #       var child_array = newSeq[Value]()
+  #       for c in child:
+  #         child_array.add(cast[Value](c))
+  #       result.valueList.add(child_array)
+  # of DuckType.Struct:
+  #   let child_count = duckdb_struct_type_child_count(logicalType.handle).int
+  #   var vectorStruct = initTable[string, Vector]()
+  #   for child_idx in 0 ..< child_count:
+  #     let
+  #       children = duckdb_struct_vector_get_child(vec, child_idx.idx_t)
+  #       child_type = newLogicalType(
+  #         duckdb_struct_type_child_type(logicalType.handle, child_idx.idx_t)
+  #       )
+  #       child_name = newDuckString(
+  #         duckdb_struct_type_child_name(logicalType.handle, child_idx.idx_t)
+  #       )
+  #       child = newVector(
+  #         vec = children,
+  #         offset = offset,
+  #         size = size,
+  #         kind = newDuckType(child_type),
+  #         logicalType = child_type,
+  #       )
 
-      proc zonedTimeFromAdjTime(adjTime: Time): ZonedTime =
-        result = ZonedTime()
-        result.isDst = false
-        result.utcOffset = tmz.offset
-        result.time = adjTime + initDuration(seconds = offset)
+  #     vectorStruct[$child_name] = child
+  #   result.valueStruct = collect:
+  #     for i in offset ..< size:
+  #       var row = initTable[string, Value]()
+  #       for key, child_vector in vectorStruct.pairs:
+  #         row[key] = vecToValue(child_vector, i)
+  #       row
+  # of DuckType.Map:
+  #   let
+  #     # don't know how to make use of key_type and value_type
+  #     # key_type = newLogicalType(duckdb_map_type_key_type(logicalType.handle))
+  #     # value_type = newLogicalType(duckdb_map_type_value_type(logicalType.handle))
+  #     children = duckdb_list_vector_get_child(vec)
+  #     lsize = duckdb_list_vector_get_size(vec)
+  #     child_type = newLogicalType(duckdb_list_type_child_type(logicalType.handle))
 
-      proc zonedTimeFromTime(time: Time): ZonedTime =
-        result = ZonedTime()
-        result.isDst = false
-        result.utcOffset = tmz.offset
-        result.time = time
+  #   result.valueMap = collect:
+  #     for i in 0 ..< size:
+  #       var vectorMap = initTable[string, Value]()
+  #       let elements = newVector(
+  #         vec = children,
+  #         offset = 0,
+  #         size = lsize.int,
+  #         kind = newDuckType(child_type),
+  #         logicalType = child_type,
+  #       )
+  #       for e in elements.valueStruct:
+  #         vectorMap[$e["key"]] = e["value"]
+  #       vectorMap
+  # # TODO: uuid is wrong
+  # of DuckType.UUID:
+  #   result.valueUuid = collectValid[duckdb_hugeint, Uuid](handle, result, offset, size) do(
+  #     val: duckdb_hugeint
+  #   ) -> Uuid:
+  #     let huge_int = UInt128(lo: val.lower.uint64, hi: val.upper.uint64)
+  #     initUuid(huge_int.toHex)
+  # # TODO: this is shit and fragile
+  # # TODO: some bugs, sometimes tags are missing
+  # of DuckType.Union:
+  #   let
+  #     children =
+  #       newVector(vec, offset, size, kind = DuckType.Struct, logicalType = logicalType)
+  #     child_count = len(children)
 
-      let tz = newTimezone("Something", zonedTimeFromTime, zonedTimeFromAdjTime)
-      let timeValue = zonedTimeFromTime(tz, tm)
-      timeValue
-  of DuckType.TimestampTz:
-    raise newException(ValueError, "TimestampTz type not implemented")
-  of DuckType.UHugeInt:
-    result.valueUHugeInt = collectValid[duckdb_uhugeint, UInt128](
-      handle, result, offset, size
-    ) do(val: duckdb_uhugeint) -> UInt128:
-      fromUHugeInt(val)
+  #   var tags = newSeq[string]()
+  #   for child_idx in 0 ..< child_count:
+  #     let child_name = newDuckString(
+  #       duckdb_struct_type_child_name(logicalType.handle, child_idx.idx_t)
+  #     )
+  #     if $child_name != "":
+  #       tags.add($child_name)
+
+  #   result.valueUnion = collect:
+  #     for e in children.valueStruct:
+  #       var row = initTable[string, Value]()
+  #       for tag in tags:
+  #         if $e[tag] != "":
+  #           row[tag] = e[tag]
+  #           row
+  # of DuckType.Bit:
+  #   result.valueBit = newVector(
+  #     vec, offset, size, kind = DuckType.Varchar, logicalType = logicalType
+  #   ).valueVarChar
+  # of DuckType.TimeTz:
+  #   result = newVector(kind = kind)
+  #   result.valueTimeTz = collectValid[int64, ZonedTime](handle, result, offset, size) do(
+  #     val: int64
+  #   ) -> ZonedTime:
+  #     let
+  #       tmz = duckdb_from_time_tz(cast[duckdb_time_tz](val))
+  #       seconds = tmz.time.hour * 3600 + tmz.time.min.int * 60 + tmz.time.sec
+  #       nanoseconds = tmz.time.micros * 1000
+  #       tm = initTime(seconds, nanoseconds)
+
+  #     proc zonedTimeFromAdjTime(adjTime: Time): ZonedTime =
+  #       result = ZonedTime()
+  #       result.isDst = false
+  #       result.utcOffset = tmz.offset
+  #       result.time = adjTime + initDuration(seconds = offset)
+
+  #     proc zonedTimeFromTime(time: Time): ZonedTime =
+  #       result = ZonedTime()
+  #       result.isDst = false
+  #       result.utcOffset = tmz.offset
+  #       result.time = time
+
+  #     let tz = newTimezone("Something", zonedTimeFromTime, zonedTimeFromAdjTime)
+  #     let timeValue = zonedTimeFromTime(tz, tm)
+  #     timeValue
+  # of DuckType.TimestampTz:
+  #   raise newException(ValueError, "TimestampTz type not implemented")
+  # of DuckType.UHugeInt:
+  #   result.valueUHugeInt = collectValid[duckdb_uhugeint, UInt128](
+  #     handle, result, offset, size
+  #   ) do(val: duckdb_uhugeint) -> UInt128:
+  #     fromUHugeInt(val)
 
 proc `[]`*(v: Vector, idx: int): Value =
   return vecToValue(v, idx)

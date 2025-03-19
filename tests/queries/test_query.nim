@@ -545,13 +545,13 @@ suite "Test appender dispatch":
       conn.execute("CREATE TABLE appender_table (int_val INTEGER, varchar_val VARCHAR, bool_val BOOLEAN);")
       var appender = newAppender(conn, "appender_table")
 
-      let columns =
+      let types =
         @[
-          newColumn(idx = 0, name = "index", kind = DuckType.Integer),
-          newColumn(idx = 1, name = "name", kind = DuckType.Varchar),
-          newColumn(idx = 2, name = "truth", kind = DuckType.Boolean),
+          DuckType.Integer,
+          DuckType.Varchar,
+          DuckType.Boolean
         ]
-      var chunk = newDataChunk(columns = columns)
+      var chunk = newDataChunk(types)
       let
         intValues = @[1'i32, 2'i32, 3'i32]
         strValues = @["foo", "bar", "baz"]

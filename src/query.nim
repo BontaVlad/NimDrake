@@ -1,7 +1,7 @@
 import std/[strformat, enumerate, times]
 import nint128
 import decimal
-import /[api, types, database, query_result, value, exceptions]
+import /[api, types, database, query_result, datachunk, value, exceptions]
 
 type
   Query* = distinct string
@@ -41,7 +41,9 @@ proc `=copy`*(
   dest: var Appender, source: Appender
 ) {.error: "Appender cannot be copied".}
 
-proc `=dup`*(statement: Statement): Statement {.error: "Statement cannot be duplicated".}
+proc `=dup`*(
+  statement: Statement
+): Statement {.error: "Statement cannot be duplicated".}
 
 proc `=copy`*(
   dest: var Statement, source: Statement

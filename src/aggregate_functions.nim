@@ -54,7 +54,9 @@ macro newAggregateFunction*(
     error("Init proc takes only one parameter")
 
   if not isAggregateStateType(stateType.getImpl()[2]):
-    error(fmt"{initParameters[1][0]} parameter must be of [{stateType} = ref object of AggregateState]")
+    error(
+      fmt"{initParameters[1][0]} parameter must be of [{stateType} = ref object of AggregateState]"
+    )
 
   let
     stateInitImpl = getTypeInst(stateInit)
@@ -66,7 +68,6 @@ macro newAggregateFunction*(
     updateWrapperName = newIdentNode("updateWrapper")
     combineWrapperName = newIdentNode("combineWrapper")
     finalizeWrapperName = newIdentNode("finalizeWrapper")
-
 
   let callBackObjDefinition = quote("@"):
     type `@ callbackObjName` = ref object
@@ -85,14 +86,13 @@ macro newAggregateFunction*(
         offset: int,
       )
 
-  # let callBackObjDefinition = quote("@"):
-  #   type `@ callbackObjName` = object
-  #     sizeFun: proc(info: FunctionInfo): int {.nimcall.}
-  #     initFun: `@ stateInitImpl`
-  #     updateFun: `@ updateImpl`
-  #     combineFun: `@ combineImpl`
-  #     finalizeFun: `@ finalizeImpl`
-
+    # let callBackObjDefinition = quote("@"):
+    #   type `@ callbackObjName` = object
+    #     sizeFun: proc(info: FunctionInfo): int {.nimcall.}
+    #     initFun: `@ stateInitImpl`
+    #     updateFun: `@ updateImpl`
+    #     combineFun: `@ combineImpl`
+    #     finalizeFun: `@ finalizeImpl`
     proc destroyCallbackFunction(p: pointer) {.cdecl.} =
       var callback = cast[`@ callbackObjName`](p)
       `=destroy`(callback)

@@ -49,9 +49,8 @@ proc fromUHugeInt*(val: duckdbUHugeInt): UInt128 {.inline.} =
 
 proc fromTimestamp*(val: int64): Timestamp {.inline.} =
   let
-    seconds = val div 1000000
-    microseconds = val mod 1000000
-    res = fromUnix(seconds).inZone(utc()) + initDuration(microseconds = microseconds)
+    (seconds, microseconds) = divMod(val, 1_000_000)
+    res = utc(fromUnix(seconds)) + initDuration(microseconds = microseconds)
   return Timestamp(res)
 
 proc fromTimestamp*(val: duckdbTimestamp): Timestamp {.inline.} =
