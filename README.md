@@ -32,7 +32,7 @@ it should contain also the manual way
 
 2. Navigate to the repository folder:
    ```bash
-   nimble install NimDrake
+   nimble install
    ```
 
 
