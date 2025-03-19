@@ -2,8 +2,8 @@ import unittest2
 # import std/[threadpool, tables]
 import std/[cpuinfo, tables]
 import taskpools
+import utils
 import ../src/[api, database, config, query, query_result, exceptions]
-
 
 suite "Database settings":
 
@@ -33,15 +33,17 @@ suite "Database settings":
       @[3'i64]
 
   #   # triggers the memory sanitizer
-  # test "Incorrect setting key should throw an error":
-  #   doAssertRaises(OperationError):
-  #     let
-  #      config = newConfig({"invalid": "3"}.toTable)
-  #      con = newDatabase(config).connect()
+  test "Incorrect setting key should throw an error":
+    ignoreLeak:
+      doAssertRaises(OperationError):
+        let
+          config = newConfig({"invalid": "3"}.toTable)
+          con = newDatabase(config).connect()
 
-  # test "Incorrect setting value should throw an error":
-  #   doAssertRaises(OperationError):
-  #     let config = newConfig({"threads": "invalid"}.toTable)
+  test "Incorrect setting value should throw an error":
+    ignoreLeak:
+      doAssertRaises(OperationError):
+        let config = newConfig({"threads": "invalid"}.toTable)
 
 suite "Connections":
   test "Thread-safe connection":

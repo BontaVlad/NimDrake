@@ -35,6 +35,18 @@ converter toBase*(q: Query): cstring =
 converter toBase*(s: string): Query =
   Query(s)
 
+proc `=dup`*(appender: Appender): Appender {.error: "Appender cannot be duplicated".}
+
+proc `=copy`*(
+  dest: var Appender, source: Appender
+) {.error: "Appender cannot be copied".}
+
+proc `=dup`*(statement: Statement): Statement {.error: "Statement cannot be duplicated".}
+
+proc `=copy`*(
+  dest: var Statement, source: Statement
+) {.error: "Statement cannot be copied".}
+
 proc `=destroy`*(appender: Appender) =
   ## Destroys an appender instance if it exists
   if not isNil(appender.addr):

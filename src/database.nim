@@ -12,26 +12,27 @@ type
   Connection* = object
     handle*: duckdbConnection
 
-
-proc `=dup`*(db: Database): Database {.error: "Database cannot be duplicated".}
-
-proc `=dup`*(conn: Connection): Connection {.error: "Connection cannot be duplicated".}
-
-proc `=destroy`(db: Database) =
+proc `=destroy`*(db: Database) =
   if not isNil(db.addr):
     duckdbClose(db.handle.addr)
 
-proc `=destroy`(con: Connection) =
+proc `=sink`*(dest: var Database, source : Database) =
+  `=destroy`(dest)
+  wasMoved(dest)
+  dest.handle = source.handle
+
+proc `=copy`*(dest: var Database, source: Database) {.error: "Database copy is not supported".}
+
+proc `=destroy`*(con: Connection) =
   if not isNil(con.addr):
     duckdbDisconnect(cast[ptr duckdbConnection](con.addr))
 
-proc `=copy`*(
-  dest: var Database, source: Database
-) {.error: "Database cannot be copied".}
+proc `=sink`*(dest: var Connection, source : Connection) =
+  `=destroy`(dest)
+  wasMoved(dest)
+  dest.handle = source.handle
 
-proc `=copy`*(
-  dest: var Connection, source: Connection
-) {.error: "Connection cannot be copied".}
+proc `=copy`*(dest: var Connection, source: Connection) {.error: "Connection copy is not supported"}
 
 proc newDatabase*(path: string, config: Config): Database =
   ## Creates a new preconfigured database or opens an existing database file stored at the given path.
