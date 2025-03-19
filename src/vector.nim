@@ -390,8 +390,7 @@ proc newVector*(data: seq[uint8]): Vector =
   return Vector(kind: DuckType.UTinyInt, valueUTinyint: data, mask: newValidityMask())
 
 proc newVector*(data: seq[uint16]): Vector =
-  return
-    Vector(kind: DuckType.USmallInt, valueUSmallint: data, mask: newValidityMask())
+  return Vector(kind: DuckType.USmallInt, valueUSmallint: data, mask: newValidityMask())
 
 proc newVector*(data: seq[uint32]): Vector =
   return Vector(kind: DuckType.UInteger, valueUInteger: data, mask: newValidityMask())
@@ -406,8 +405,7 @@ proc newVector*(data: seq[float64]): Vector =
   return Vector(kind: DuckType.Double, valueDouble: data, mask: newValidityMask())
 
 proc newVector*(data: seq[Timestamp]): Vector =
-  return
-    Vector(kind: DuckType.Timestamp, valueTimestamp: data, mask: newValidityMask())
+  return Vector(kind: DuckType.Timestamp, valueTimestamp: data, mask: newValidityMask())
 
 proc newVector*(data: seq[Time]): Vector =
   return Vector(kind: DuckType.Time, valueTime: data, mask: newValidityMask())

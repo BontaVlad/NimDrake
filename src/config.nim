@@ -10,6 +10,8 @@ type
   Config* = distinct ptr duckdbConfig
   ConfigValues* = Table[string, string]
 
+proc `=copy`(a: var Config, b: Config) {.error.}
+
 converter toBase*(c: ptr Config): ptr duckdbConfig =
   cast[ptr duckdbConfig](c)
 

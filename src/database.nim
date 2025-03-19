@@ -12,6 +12,11 @@ type
   Connection* = object
     handle*: duckdbConnection
 
+
+proc `=dup`*(db: Database): Database {.error: "Database cannot be duplicated".}
+
+proc `=dup`*(conn: Connection): Connection {.error: "Connection cannot be duplicated".}
+
 proc `=destroy`(db: Database) =
   if not isNil(db.addr):
     duckdbClose(db.handle.addr)

@@ -80,6 +80,7 @@ proc newTableFunction*(
     extraData: RootRef,
     projectionPushdown: bool,
 ): TableFunction =
+
   result = TableFunction(
     name: name,
     handle: duckdb_create_table_function(),

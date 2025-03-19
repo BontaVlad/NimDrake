@@ -1,3 +1,5 @@
+truthy_regex := '(?i)^(?:yes|1|true)$'
+
 # List all available commands by default
 default:
     @just --choose --justfile {{justfile()}}
@@ -57,7 +59,7 @@ coverage:
     genhtml --branch-coverage --ignore-errors missing,range,corrupt,inconsistent --legend --output-directory coverage/ "${FILEINFO}"
 
 # Generate test coverage
-test:
+test isParallel="false":
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -66,8 +68,9 @@ test:
     # Create nimcache/tests directory if it doesn't exist
     mkdir -p "${NIMCACHE_DIR}/tests"
 
-    # Find and process test files
-    find ./tests -name 'test_*.nim' | head | while read -r file; do
+    # Function to compile and run a single test file
+    run_test() {
+        local file="$1"
         echo "Processing file: $file"
         filename=$(basename "$file")
         filename_no_ext="${filename%.nim}"
@@ -98,7 +101,25 @@ test:
 
         # Run the compiled test
         "${NIMCACHE_DIR}/tests/${filename_no_ext}"
-    done
+    }
+
+    export -f run_test
+    export NIMCACHE_DIR
+
+    # Find test files
+    TEST_FILES=$(find ./tests -name 'test_*.nim' | head)
+
+    if {{isParallel}} =~ truthy_regex; then
+        echo "Running tests in parallel..."
+        # Run tests in parallel using xargs
+        echo "$TEST_FILES" | xargs -n 1 -P 16 -I {} bash -c 'run_test "$@"' _ {}
+    else
+        echo "Running tests sequentially..."
+        # Run tests sequentially
+        while read -r file; do
+            run_test "$file"
+        done <<< "$TEST_FILES"
+    fi
 
 # Debug with rr and connect lldb to the specific target
 debug-run nim_file="src/duckdb" name="":
