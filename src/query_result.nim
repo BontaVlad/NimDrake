@@ -30,43 +30,33 @@ iterator chunks(qresult: QueryResult): DataChunk {.inline.} =
       break
     yield newDataChunk(chunk)
 
-  # var vectors = newSeq[Vector](len(columns))
-  # for col in columns:
-  #   let
-  #     vec = duckdbDataChunkGetVector(chunk.handle, col.idx.idx_t)
-  #     chunkSize = duckdbDataChunkGetSize(chunk.handle).int
-  #     logicalType = newLogicalType(duckdbColumnLogicalType(chunk.handle, col.idx.idx_t))
-  #   vectors[col.idx] = newVector(vec, 0, chunkSize, col.kind, logicalType)
-  # return vectors
+proc fetchOne*(qresult: QueryResult): seq[Value] {.inline.} =
+  var theOne = newSeq[Value]()
+  for chunk in qresult.chunks:
+    if chunk:
+      for i in 0 .. len(chunk):
+        theOne.add(chunk[i][0])
+    break
+  return theOne
 
-# TODO: not great
-# proc fetchOne*(qresult: QueryResult): seq[Value] {.inline.} =
-#   result = newSeq[Value]()
-#   for columnVector in fetchChunk(qresult, 0):
-#     result.add(columnVector[0])
+iterator rows*(qresult: QueryResult): seq[Value] =
+  for chunk in qresult.chunks:
+    let
+      numColumns = len(chunk)
+      numRows = len(chunk[0])
 
-# iterator chunks*(qresult: QueryResult): seq[Vector] {.inline.} =
-#   for i in 0 ..< duckdbResultChunkCount(qresult):
-#     yield fetchChunk(qresult, i)
+    for rowIdx in 0 ..< numRows:
+      var row = newSeq[Value](numColumns)
+      for colIdx in 0 ..< numColumns:
+        row[colIdx] = chunk[colIdx][rowIdx]
+      yield row
 
-# iterator rows*(qresult: QueryResult): seq[Value] =
-#   for chunk in qresult.chunks:
-#     let
-#       numColumns = len(chunk)
-#       numRows = len(chunk[0])
-
-#     for rowIdx in 0 ..< numRows:
-#       var row = newSeq[Value](numColumns)
-#       for colIdx in 0 ..< numColumns:
-#         row[colIdx] = chunk[colIdx][rowIdx]
-#       yield row
-
-# # TODO: api not definitive
-# proc fetchOneNamed*(qresult: QueryResult): Table[string, Value] =
-#   result = Table[string, Value]()
-#   let values = fetchOne((qresult))
-#   for col in qresult.columns:
-#     result[col.name] = values[col.idx]
+# TODO: api not definitive
+proc fetchOneNamed*(qresult: QueryResult): Table[string, Value] =
+  result = Table[string, Value]()
+  let values = fetchOne((qresult))
+  for col in qresult.columns:
+    result[col.name] = values[col.idx]
 
 # # TODO: api not definitive
 proc fetchAll*(qresult: QueryResult): seq[Vector] =
@@ -81,7 +71,7 @@ proc fetchAll*(qresult: QueryResult): seq[Vector] =
       all[column.idx] &= chunk[column.idx]
   return all
 
-# # TODO: api not definitive
+# TODO: api not definitive
 proc fetchAllNamed*(qresult: QueryResult): Table[string, Vector] =
   let
     columns = qresult.columns.toSeq()

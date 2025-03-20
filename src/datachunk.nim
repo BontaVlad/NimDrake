@@ -105,6 +105,5 @@ proc `[]=`*(chunk: var DataChunk, colIdx: int, values: seq[string]) =
   chunk.len = len(values)
 
 proc `[]`*(chunk: DataChunk, colIdx: int): Vector =
-  let
-    vec = duckdbDataChunkGetVector(chunk.handle, colIdx.idx_t)
-  result = newVector(vec, chunk.len)
+  let vec = duckdbDataChunkGetVector(chunk.handle, colIdx.idx_t)
+  return newVector(vec, chunk.len)
