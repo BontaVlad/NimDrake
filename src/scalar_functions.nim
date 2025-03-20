@@ -1,6 +1,6 @@
 import std/[macros, sequtils, tables, strformat, enumerate]
 import fusion/[matching, astdsl]
-import /[api, query_result, database, types, exceptions]
+import /[api, database, types, exceptions]
 
 include datachunk
 
@@ -93,7 +93,7 @@ macro scalar*(body: typed): untyped =
       size = ident("size") # size of the select size
       chunk = ident("chunk") # size of the select size
       rawChunk = ident("rawChunk")
-      columnsNode = ident("columns") # size of the select size
+      typesNode = ident("types") # size of the select size
       output = ident("output") # obj where we dump the results
 
     # define the parameters required by the wrapper function
@@ -110,20 +110,20 @@ macro scalar*(body: typed): untyped =
       StmtList:
         VarSection:
           IdentDefs:
-            ident "columns"
+            typesNode
             empty()
             Call:
               BracketExpr:
                 ident "newSeq"
-                ident "Column"
+                ident "DuckType"
 
       for param in params[1 ..^ 1]:
         let duckTp = newDuckType(param[^2])
         for idx, p in param[0 ..< ^2]:
           newCall(
             bindSym "add",
-            columnsNode,
-            newCall(bindSym "newColumn", newLit idx, newLit p.strVal, newLit duckTp),
+            typesNode,
+            newLit duckTp
           )
           arguments[genSym(nskLet, p.strVal).strVal] = duckTp
 
@@ -135,7 +135,7 @@ macro scalar*(body: typed): untyped =
       )
       newLetStmt(
         chunk,
-        newCall(bindSym"newDataChunk", ident("rawChunk"), columnsNode, newLit false),
+        newCall(bindSym"newDataChunk", ident("rawChunk"), typesNode, newLit false),
       )
 
       for idx, p, tp in enumerate(arguments.pairs):

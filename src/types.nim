@@ -13,7 +13,7 @@ const
 
 type
   Timestamp* {.borrow: `.`.} = distinct DateTime
-  ValidityMask = distinct seq[uint64]
+  ValidityMask* {.borrow: `.`.}= distinct seq[uint64]
   QueryResult* = object of duckdbResult
   PendingQueryResult* = object of duckdbPendingResult
 

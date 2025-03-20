@@ -16,11 +16,26 @@ converter toBool*(d: DataChunk): bool =
 
 proc `=destroy`(d: DataChunkBase) =
   if d.handle != nil and d.shouldDestroy:
+    # cleanup LogicalTypes and the duckdb pointer
     `=destroy`(d.types)
     duckdb_destroy_datachunk(d.handle.addr)
+  elif d.handle != nil:
+    # cleanup will be done by duckdb but the
+    # logical types we need to cleanup ourselfs
+    `=destroy`(d.types)
+
 
 proc columnCount*(chunk: DataChunk): int =
   return duckdbDataChunkGetColumnCount(chunk.handle).int
+
+proc newDataChunk*(handle: duckdbDataChunk, types: seq[DuckType], shouldDestroy: bool = true): DataChunk =
+  let columnCount = len(types)
+  var logicalTypes = newSeq[LogicalType](columnCount)
+
+  for i, tp in types:
+    logicalTypes[i] = newLogicalType(tp)
+
+  return DataChunk(handle: handle, types: logicalTypes, shouldDestroy: shouldDestroy)
 
 proc newDataChunk*(types: seq[DuckType], shouldDestroy: bool = true): DataChunk =
   let columnCount = len(types)

@@ -1,4 +1,4 @@
-import std/[times, tables, strformat, sequtils, sugar]
+import std/[times, tables, strformat]
 import unittest2
 import nint128
 import decimal
