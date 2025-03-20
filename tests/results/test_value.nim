@@ -75,7 +75,7 @@ suite "Tests value creations":
   test "Create Time value":
     let val = newValue(initTime(1734548229, 0))
     check val.kind == DuckType.Time
-    check $val.valueTime == "2024-12-18T20:57:09+02:00"
+    check $val.valueTime.utc == "2024-12-18T18:57:09Z"
 
   # test "Create ZonedTime value":
   #   let zt = initZonedTime(DateTime.now(), "UTC")
