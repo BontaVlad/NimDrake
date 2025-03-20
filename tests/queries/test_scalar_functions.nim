@@ -1,5 +1,5 @@
 import unittest2
-import ../../src/[api, database, query, query_result, scalar_functions, types]
+import ../../src/[api, database, datachunk, query, query_result, scalar_functions, types]
 
 suite "Test scalar functions":
 

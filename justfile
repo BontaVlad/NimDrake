@@ -189,11 +189,12 @@ debug nim_file="tests/results/test_result_type.nim":
     # Step 3: Start rr replay and connect lldb
     # Start rr in the background
     # rr replay -s 9999 &
-    rr replay -s 9999 --debugger=nim-gdb
+    # rr replay -s 9999 --debugger=nim-gdb
     # RR_PID=$!
+    ./gf2 --rr-replay
 
     # Wait a moment for rr to start
-    sleep 2
+    # sleep 2
 
     # ddd --debugger "nim-gdb -ex 'target remote localhost:9999'" "${OUTPUT_PATH}" &
 

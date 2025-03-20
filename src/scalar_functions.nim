@@ -1,8 +1,6 @@
 import std/[macros, sequtils, tables, strformat, enumerate]
 import fusion/[matching, astdsl]
-import /[api, database, types, exceptions]
-
-include datachunk
+import /[api, database, types, datachunk, exceptions]
 
 type
   ScalarFunctionBase* = object of RootObj
