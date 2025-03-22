@@ -34,5 +34,5 @@ jobs:
     - name: Test and Benchmark
       run: |
         nimble install -y
-        just test
+        just test "true"
         # just benchmark

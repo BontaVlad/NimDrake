@@ -1,5 +1,6 @@
 # {.experimental: "codeReordering".}
-import std/[tables, times, math, strformat, sequtils, sugar, typetraits, enumerate, macros]
+import
+  std/[tables, times, math, strformat, sequtils, sugar, typetraits, enumerate, macros]
 
 import nint128
 import decimal
@@ -145,15 +146,18 @@ proc len*(vec: Vector): int =
   of DuckType.UHugeInt:
     result = vec.valueUHugeint.len
 
-proc isValid*(vec: Vector, idx: int): bool {.inline.} =
+proc isValid*(mask: ValidityMask, idx: int): bool {.inline.} =
   let
     entryIdx = idx div BITS_PER_VALUE
     indexInEntry = idx mod BITS_PER_VALUE
 
-  if entryIdx >= vec.mask.len:
+  if entryIdx >= mask.len:
     return true
 
-  return (vec.mask[entryIdx] and (1'u64 shl indexInEntry)) != 0
+  return (mask[entryIdx] and (1'u64 shl indexInEntry)) != 0
+
+proc isValid*(vec: Vector, idx: int): bool {.inline.} =
+  return vec.mask.isValid(idx)
 
 template collectValid[T, U](
     handle: pointer, vec: Vector, offset, size: int, transform: untyped
@@ -208,7 +212,6 @@ template parseHandle(
   parseHandle(handle, vec, rawType, resultField, rawType)
 
 template parseDecimalBigInt(kind, handle, scale, size: untyped) =
-
   var data = newSeq[DecimalType](size)
   let
     raw = cast[ptr UncheckedArray[int64]](handle)
@@ -454,7 +457,9 @@ proc newVector*(data: seq[int | int64]): Vector =
     kind: DuckType.BigInt, valueBigint: data.map(e => int64(e)), mask: newValidityMask()
   )
 
-template handleVectorCase(kind, handle, duckdbVector, cType, nimType, fieldName: untyped) =
+template handleVectorCase(
+    kind, handle, duckdbVector, cType, nimType, fieldName: untyped
+) =
   let
     raw = cast[ptr UncheckedArray[cType]](handle)
     validityMask = newValidityMask(duckVector, size)
@@ -463,7 +468,9 @@ template handleVectorCase(kind, handle, duckdbVector, cType, nimType, fieldName:
     copyMem(addr data[0], addr raw[offset], size * sizeof(nimType))
   return Vector(kind: kind, mask: validityMask, fieldName: data)
 
-template handleVectorCase(kind, handle, duckdbVector, cType, nimType, fieldName, caster: untyped) =
+template handleVectorCase(
+    kind, handle, duckdbVector, cType, nimType, fieldName, caster: untyped
+) =
   let
     raw = cast[ptr UncheckedArray[cType]](handle)
     validityMask = newValidityMask(duckVector, size)
@@ -506,7 +513,13 @@ template handleVectorCaseBlob(kind, handle, duckdbVector, size) =
     data[i] = byteArray
   return Vector(kind: kind, mask: validityMask, valueBlob: data)
 
-proc newVector*(duckVector: duckdbVector, size: int, offset: int, kind: DuckType, logicalType: LogicalType): Vector =
+proc newVector*(
+    duckVector: duckdbVector,
+    size: int,
+    offset: int,
+    kind: DuckType,
+    logicalType: LogicalType,
+): Vector =
   let handle = duckdbVectorGetData(duckVector)
   case kind
   of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
@@ -534,15 +547,24 @@ proc newVector*(duckVector: duckdbVector, size: int, offset: int, kind: DuckType
   of DuckType.Double:
     handleVectorCase(kind, handle, duckdbVector, float64, float64, valueDouble)
   of DuckType.Timestamp:
-    handleVectorCase(kind, handle, duckdbVector, int64, TimeStamp, valueTimeStamp, fromTimestamp)
+    handleVectorCase(
+      kind, handle, duckdbVector, int64, TimeStamp, valueTimeStamp, fromTimestamp
+    )
   of DuckType.Date:
-    handleVectorCase(kind, handle, duckdbVector, int32, DateTime, valueDate, fromDatetime)
+    handleVectorCase(
+      kind, handle, duckdbVector, int32, DateTime, valueDate, fromDatetime
+    )
   of DuckType.Time:
     handleVectorCase(kind, handle, duckdbVector, int64, Time, valueTime, fromTime)
   of DuckType.Interval:
-    handleVectorCase(kind, handle, duckdbVector, duckdbInterval, TimeInterval, valueInterval, fromInterval)
+    handleVectorCase(
+      kind, handle, duckdbVector, duckdbInterval, TimeInterval, valueInterval,
+      fromInterval,
+    )
   of DuckType.HugeInt:
-    handleVectorCase(kind, handle, duckdbVector, duckdbHugeInt, Int128, valueHugeInt, fromHugeInt)
+    handleVectorCase(
+      kind, handle, duckdbVector, duckdbHugeInt, Int128, valueHugeInt, fromHugeInt
+    )
   of DuckType.VarChar:
     handleVectorCaseString(kind, handle, duckdbVector, size)
   of DuckType.Blob:
@@ -555,7 +577,6 @@ proc newVector*(duckVector: duckdbVector, size: int, offset: int, kind: DuckType
       parseDecimalBigInt(kind, handle, scale, size)
     else:
       parseDecimalHugeInt(kind, handle, scale, size)
-
   of DuckType.TimestampS:
     var data = newSeq[DateTime](size)
     let
@@ -566,7 +587,6 @@ proc newVector*(duckVector: duckdbVector, size: int, offset: int, kind: DuckType
       data[i] = fromUnix(raw[i]).inZone(utc())
 
     return Vector(kind: kind, mask: validityMask, valueTimestampS: data)
-
   of DuckType.TimestampMs:
     var data = newSeq[DateTime](size)
     let
@@ -575,10 +595,10 @@ proc newVector*(duckVector: duckdbVector, size: int, offset: int, kind: DuckType
 
     for i in offset ..< size:
       let (seconds, milliseconds) = divmod(raw[i], 1000)
-      data[i] = fromUnix(seconds).inZone(utc()) + initDuration(milliseconds=milliseconds)
+      data[i] =
+        fromUnix(seconds).inZone(utc()) + initDuration(milliseconds = milliseconds)
 
     return Vector(kind: kind, mask: validityMask, valueTimestampMs: data)
-
   of DuckType.TimestampNs:
     var data = newSeq[DateTime](size)
     let
@@ -587,13 +607,13 @@ proc newVector*(duckVector: duckdbVector, size: int, offset: int, kind: DuckType
 
     for i in offset ..< size:
       let
-          (s, ns) = divMod(raw[i], 1_000_000_000)
-          us = ns div 1000
-          nsRem = ns mod 1000
-      data[i] = fromUnix(s).inZone(utc()) + initDuration(microseconds=us, nanoseconds=nsRem)
+        (s, ns) = divMod(raw[i], 1_000_000_000)
+        us = ns div 1000
+        nsRem = ns mod 1000
+      data[i] =
+        fromUnix(s).inZone(utc()) + initDuration(microseconds = us, nanoseconds = nsRem)
 
     return Vector(kind: kind, mask: validityMask, valueTimestampNs: data)
-
   of DuckType.Enum:
     let enum_tp = cast[DuckType](duckdb_enum_internal_type(logicalType.handle))
     case enum_tp
@@ -605,7 +625,6 @@ proc newVector*(duckVector: duckdbVector, size: int, offset: int, kind: DuckType
       parseHandle(handle, result, uint32, result.valueEnum, uint)
     else:
       raise newException(ValueError, fmt"got invalid enum type: {enum_tp}")
-
   of DuckType.List, DuckType.Array:
     let
       raw = cast[ptr UncheckedArray[duckdbListEntry]](handle)
@@ -631,7 +650,6 @@ proc newVector*(duckVector: duckdbVector, size: int, offset: int, kind: DuckType
       data[i] = childArray
 
     return Vector(kind: kind, mask: validityMask, valueList: data)
-
   of DuckType.Struct:
     let
       childCount = duckdbStructTypeChildCount(logicalType.handle).int
@@ -641,18 +659,16 @@ proc newVector*(duckVector: duckdbVector, size: int, offset: int, kind: DuckType
     for childIdx in 0 ..< childCount:
       let
         children = duckdbStructVectorGetChild(duckVector, childIdx.idx_t)
-        childType = newLogicalType(
-          duckdbStructTypeChildType(logicalType.handle, childIdx.idx_t)
-        )
-        childName = newDuckString(
-          duckdbStructTypeChildName(logicalType.handle, childIdx.idx_t)
-        )
+        childType =
+          newLogicalType(duckdbStructTypeChildType(logicalType.handle, childIdx.idx_t))
+        childName =
+          newDuckString(duckdbStructTypeChildName(logicalType.handle, childIdx.idx_t))
         child = newVector(
           duckVector = children,
           size = size,
           offset = offset,
           kind = newDuckType(childType),
-          logicalType = childType
+          logicalType = childType,
         )
 
       vectorStruct[$child_name] = child
@@ -683,7 +699,7 @@ proc newVector*(duckVector: duckdbVector, size: int, offset: int, kind: DuckType
         size = lsize.int,
         offset = 0,
         kind = newDuckType(childType),
-        logicalType = childType
+        logicalType = childType,
       )
       for e in elements.valueStruct:
         vectorMap[$e["key"]] = e["value"]
@@ -708,19 +724,18 @@ proc newVector*(duckVector: duckdbVector, size: int, offset: int, kind: DuckType
     let
       validityMask = newValidityMask(duckVector, size)
       children = newVector(
-        duckVector=duckVector,
-        size=size,
-        offset=offset,
+        duckVector = duckVector,
+        size = size,
+        offset = offset,
         kind = DuckType.Struct,
-        logicalType = logicalType
+        logicalType = logicalType,
       )
       childCount = len(children)
 
     var tags = newSeq[string]()
     for childIdx in 0 ..< childCount:
-      let childName = newDuckString(
-        duckdbStructTypeChildName(logicalType.handle, childIdx.idxT)
-      )
+      let childName =
+        newDuckString(duckdbStructTypeChildName(logicalType.handle, childIdx.idxT))
       if $childName != "":
         tags.add($childName)
 
@@ -733,12 +748,10 @@ proc newVector*(duckVector: duckdbVector, size: int, offset: int, kind: DuckType
             row[tag] = e[tag]
         data[i] = row
     return Vector(kind: kind, mask: validityMask, valueUnion: data)
-
   of DuckType.Bit:
     let validityMask = newValidityMask(duckVector, size)
     var data = newVector(duckVector, size, offset, kind, logicalType).valueVarChar
     return Vector(kind: kind, mask: validityMask, valueBit: data)
-
   of DuckType.TimeTz:
     let
       raw = cast[ptr UncheckedArray[int64]](handle)
@@ -770,7 +783,6 @@ proc newVector*(duckVector: duckdbVector, size: int, offset: int, kind: DuckType
       data[i] = timeValue
 
     return Vector(kind: kind, mask: validityMask, valueTimeTz: data)
-
   of DuckType.TimestampTz:
     raise newException(ValueError, "TimestampTz type not implemented")
   of DuckType.UHugeInt:
@@ -794,7 +806,6 @@ proc `[]`*(v: Vector, idx: int): Value =
   return vecToValue(v, idx)
 
 proc appendMask*(a: var ValidityMask, b: ValidityMask) {.inline.} =
-
   # a &= b
   # return
   ## Optimized mask concatenation using 64-bit words
@@ -815,18 +826,18 @@ proc appendMask*(a: var ValidityMask, b: ValidityMask) {.inline.} =
 
   if bitOffset == 0:
     # Direct copy when perfectly aligned
-    for i in 0..<b.len:
+    for i in 0 ..< b.len:
       a[wordOffset + i] = b[i]
   else:
     # Bitwise merging when misaligned
     let
       shift = bitOffset
       inverseShift = BITS_PER_VALUE - shift
-      lastA = a[^1]  # Get last element before extending
+      lastA = a[^1] # Get last element before extending
 
     # Process first element with carry-over
     var carry = lastA
-    for i in 0..<b.len:
+    for i in 0 ..< b.len:
       let current = b[i]
       a[wordOffset + i] = carry or (current shl shift)
       carry = current shr inverseShift

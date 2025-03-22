@@ -10,6 +10,7 @@ type
     handle*: duckdbAggregateFunction
 
   AggregateFunction* = ref object of AggregateFunctionBase
+  ValidityMaskRegistry* = Table[string, ValidityMask]
 
 proc `=destroy`(agg: AggregateFunctionBase) =
   if not isNil(agg.addr):
@@ -69,10 +70,16 @@ macro newAggregateFunction*(
     combineWrapperName = newIdentNode("combineWrapper")
     finalizeWrapperName = newIdentNode("finalizeWrapper")
 
+      # initFun: `@ stateInitImpl`
+      # combineFun: `@ combineImpl`
+  # let foo = newTree(nnkProcTy, combineImpl[0], newTree(nnkEmpty))
+  # echo foo.treeRepr
+  # echo combineImpl.repr
+  # echo combineImpl[0][0].repr
+      # combineFun: `@ foo`
   let callBackObjDefinition = quote("@"):
     type `@ callbackObjName` = ref object
       sizeFun: proc(info: FunctionInfo): int
-      initFun: `@ stateInitImpl`
       initFun: proc(state: `@ stateType`)
       updateFun: proc(info: FunctionInfo, states: seq[`@ stateType`]): string
       combineFun: proc(
@@ -96,8 +103,6 @@ macro newAggregateFunction*(
     proc destroyCallbackFunction(p: pointer) {.cdecl.} =
       var callback = cast[`@ callbackObjName`](p)
       `=destroy`(callback)
-
-  echo callBackObjDefinition.treeRepr
 
   let callbacksProcedures = quote:
     proc `stateSizeCallbackName`(info: FunctionInfo): int =
@@ -180,11 +185,16 @@ macro newAggregateFunction*(
       )
       aggFun
 
+  dumpTree:
+    type Foo = ref object
+      bar: proc(foo: string): string
+
   result = newStmtList()
   result.add quote do:
     `callBackObjDefinition`
     `callbacksProcedures`
     `aggregationFunctionDefinition`
+  echo result.repr
 
 proc register*(con: Connection, fun: AggregateFunction) =
   check(

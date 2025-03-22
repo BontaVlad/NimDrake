@@ -4,8 +4,9 @@ import /[api, types, vector, exceptions]
 type
   DataChunkBase = object of RootObj
     handle*: duckdbDataChunk
-    types: seq[LogicalType]  # only here for lifetime tracking, maybe I can avoid this
+    types: seq[LogicalType] # only here for lifetime tracking, maybe I can avoid this
     shouldDestroy: bool
+
   DataChunk* = ref object of DataChunkBase
 
 converter toC*(d: DataChunk): duckdbdatachunk =
@@ -24,11 +25,12 @@ proc `=destroy`(d: DataChunkBase) =
     # logical types we need to cleanup ourselfs
     `=destroy`(d.types)
 
-
 proc columnCount*(chunk: DataChunk): int =
   return duckdbDataChunkGetColumnCount(chunk.handle).int
 
-proc newDataChunk*(handle: duckdbDataChunk, types: seq[DuckType], shouldDestroy: bool = true): DataChunk =
+proc newDataChunk*(
+    handle: duckdbDataChunk, types: seq[DuckType], shouldDestroy: bool = true
+): DataChunk =
   let columnCount = len(types)
   var logicalTypes = newSeq[LogicalType](columnCount)
 
@@ -46,10 +48,9 @@ proc newDataChunk*(types: seq[DuckType], shouldDestroy: bool = true): DataChunk 
     logicalTypes[i] = newLogicalType(tp)
     duckLogicalTypes[i] = logicalTypes[i].handle
 
-  let
-    chunk = duckdb_create_data_chunk(
-      cast[ptr duckdb_logical_type](duckLogicalTypes[0].addr), len(types).idx_t
-    )
+  let chunk = duckdb_create_data_chunk(
+    cast[ptr duckdb_logical_type](duckLogicalTypes[0].addr), len(types).idx_t
+  )
 
   if chunk == nil:
     raise newException(OperationError, "Failed to create data chunk")

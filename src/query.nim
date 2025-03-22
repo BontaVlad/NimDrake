@@ -348,12 +348,7 @@ template append*(appender: Appender, val: DataChunk): untyped =
     )
     var appender = newAppender(conn, "appender_table")
 
-    let types =
-      @[
-        DuckType.Integer,
-        DuckType.Varchar,
-        DuckType.Boolean
-      ]
+    let types = @[DuckType.Integer, DuckType.Varchar, DuckType.Boolean]
     var chunk = newDataChunk(types)
     let
       intValues = @[1'i32, 2'i32, 3'i32]
@@ -372,10 +367,7 @@ template append*(appender: Appender, val: DataChunk): untyped =
     assert outcome[1].valueVarchar == strValues
     assert outcome[2].valueBoolean == boolValues
 
-  check(
-    duckdb_append_datachunk(appender, val.handle),
-    "Failed to append DataChunk: ",
-  )
+  check(duckdb_append_datachunk(appender, val.handle), "Failed to append DataChunk: ")
 
 proc execute*[T: Values](
     con: Connection, statement: Statement, args: T

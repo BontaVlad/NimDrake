@@ -17,13 +17,7 @@ proc newDataFrame*(data: Table[string, Vector]): DataFrame =
 
   var columns = newSeq[Column]()
   for idx, key in enumerate(data.keys):
-    columns.add(
-      Column(
-        idx: idx,
-        name: key,
-        kind: values[idx].kind
-      )
-    )
+    columns.add(Column(idx: idx, name: key, kind: values[idx].kind))
   result = DataFrame(columns: columns, values: values)
 
 proc len*(df: DataFrame): int =
