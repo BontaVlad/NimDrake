@@ -1,7 +1,3 @@
-import std/[macros, tables]
-import pretty
-import fusion/[matching]
-
 import
   /[
     types, config, api, database, datachunk, query, query_result, table_functions,
