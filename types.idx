@@ -1,0 +1,41 @@
+nimTitle	types	types.html	module src/types		0
+nim	BITS_PER_VALUE	types.html#BITS_PER_VALUE	const BITS_PER_VALUE		10
+nim	STRING_INLINE_LENGTH	types.html#STRING_INLINE_LENGTH	const STRING_INLINE_LENGTH		11
+nim	SECONDS_PER_DAY	types.html#SECONDS_PER_DAY	const SECONDS_PER_DAY		12
+nim	Timestamp	types.html#Timestamp	type Timestamp		15
+nim	ValidityMask	types.html#ValidityMask	type ValidityMask		16
+nim	QueryResult	types.html#QueryResult	object QueryResult		17
+nim	PendingQueryResult	types.html#PendingQueryResult	object PendingQueryResult		18
+nim	DuckType	types.html#DuckType	enum DuckType		20
+nim	Value	types.html#Value	type Value		97
+nim	Vector	types.html#Vector	type Vector		99
+nim	LogicalType	types.html#LogicalType	object LogicalType		137
+nim	Column	types.html#Column	type Column		144
+nim	`=destroy`	types.html#=destroy,LogicalType	proc `=destroy`(ltp: LogicalType)		149
+nim	`$`	types.html#$,Timestamp	proc `$`(x: Timestamp): string		157
+nim	toTime	types.html#toTime,Timestamp	proc toTime(x: Timestamp): Time		160
+nim	`==`	types.html#==,Timestamp,Timestamp	proc `==`(x, y: Timestamp): bool		162
+nim	format	types.html#format,Timestamp,string	proc format(dt: Timestamp; f: string): string		164
+nim	toBase	types.html#toBase.c,ptr.PendingQueryResult	converter toBase(p: ptr PendingQueryResult): ptr duckdb_pending_result		170
+nim	toBase	types.html#toBase.c,PendingQueryResult	converter toBase(p: PendingQueryResult): duckdb_pending_result		173
+nim	add	types.html#add,ValidityMask,uint64	proc add(x: var ValidityMask; y: uint64)		176
+nim	len	types.html#len,ValidityMask	proc len(s: ValidityMask): int		179
+nim	`[]`	types.html#[],ValidityMask,T	proc `[]`[T](s: ValidityMask; i: T): uint64		180
+nim	`[]=`	types.html#[]=,ValidityMask,int,uint64	proc `[]=`(s: var ValidityMask; i: int; x: uint64)		183
+nim	`&=`	types.html#&=,ValidityMask,ValidityMask	proc `&=`(a: var ValidityMask; b: ValidityMask)		186
+nim	newValidityMask	types.html#newValidityMask	proc newValidityMask(): ValidityMask		189
+nim	newValidityMask	types.html#newValidityMask,duckdb_vector,int	proc newValidityMask(vec: duckdb_vector; size: int): ValidityMask		207
+nim	toEnum	types.html#toEnum.t,int	template toEnum[T](x: int): T		219
+nim	newDuckType	types.html#newDuckType,duckdb_logical_type	proc newDuckType(i: duckdb_logical_type): DuckType		225
+nim	newDuckType	types.html#newDuckType,LogicalType	proc newDuckType(i: LogicalType): DuckType		229
+nim	newDuckType	types.html#newDuckType,enum_DUCKDB_TYPE	proc newDuckType(i: enum_DUCKDB_TYPE): DuckType		232
+nim	newDuckType	types.html#newDuckType,typedesc[T]	proc newDuckType[T](t: typedesc[T]): DuckType		235
+nim	newDuckType	types.html#newDuckType,NimNode	proc newDuckType(node: NimNode): DuckType		275
+nim	newLogicalType	types.html#newLogicalType,duckdb_logical_type	proc newLogicalType(i: duckdb_logical_type): LogicalType		317
+nim	newLogicalType	types.html#newLogicalType,DuckType	proc newLogicalType(pt: DuckType): LogicalType		320
+nim	`$`	types.html#$,LogicalType	proc `$`(ltp: LogicalType): string		327
+nimgrp	$	types.html#$-procs-all	proc		157
+nimgrp	newvaliditymask	types.html#newValidityMask-procs-all	proc		189
+nimgrp	newlogicaltype	types.html#newLogicalType-procs-all	proc		317
+nimgrp	newducktype	types.html#newDuckType-procs-all	proc		225
+nimgrp	tobase	types.html#toBase-converters-all	converter		170

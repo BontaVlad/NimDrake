@@ -1,0 +1,19 @@
+nimTitle	datachunk	datachunk.html	module src/datachunk		0
+nim	DataChunk	datachunk.html#DataChunk	type DataChunk		10
+nim	toC	datachunk.html#toC.c,DataChunk	converter toC(d: DataChunk): duckdb_data_chunk		12
+nim	toBool	datachunk.html#toBool.c,DataChunk	converter toBool(d: DataChunk): bool		15
+nim	columnCount	datachunk.html#columnCount,DataChunk	proc columnCount(chunk: DataChunk): int		28
+nim	newDataChunk	datachunk.html#newDataChunk,duckdb_data_chunk,seq[DuckType],bool	proc newDataChunk(handle: duckdb_data_chunk; types: seq[DuckType];\n             shouldDestroy: bool = true): DataChunk		31
+nim	newDataChunk	datachunk.html#newDataChunk,seq[DuckType],bool	proc newDataChunk(types: seq[DuckType]; shouldDestroy: bool = true): DataChunk		42
+nim	newDataChunk	datachunk.html#newDataChunk,duckdb_data_chunk,bool	proc newDataChunk(handle: duckdb_data_chunk; shouldDestroy: bool = true): DataChunk		60
+nim	len	datachunk.html#len,DataChunk	proc len(chunk: DataChunk): int		71
+nim	len=	datachunk.html#len=,DataChunk,int	proc len=(chunk: DataChunk; sz: int)		74
+nim	`[]=`	datachunk.html#[]=.t,duckdb_vector,int,T	template `[]=`[T: SomeNumber](vec: duckdb_vector; i: int; val: T)		77
+nim	`[]=`	datachunk.html#[]=.t,duckdb_vector,int,bool	template `[]=`(vec: duckdb_vector; i: int; val: bool)		84
+nim	`[]=`	datachunk.html#[]=,DataChunk,int,seq[T]	proc `[]=`[T](chunk: var DataChunk; colIdx: int; values: seq[T])		88
+nim	`[]=`	datachunk.html#[]=,duckdb_vector,int,string	proc `[]=`(vec: duckdb_vector; i: int; val: string)		105
+nim	`[]=`	datachunk.html#[]=,DataChunk,int,seq[string]	proc `[]=`(chunk: var DataChunk; colIdx: int; values: seq[string])		108
+nim	`[]`	datachunk.html#[],DataChunk,int	proc `[]`(chunk: DataChunk; colIdx: int): Vector		123
+nimgrp	newdatachunk	datachunk.html#newDataChunk-procs-all	proc		31
+nimgrp	[]=	datachunk.html#[]=-procs-all	proc		88
+nimgrp	[]=	datachunk.html#[]=-templates-all	template		77

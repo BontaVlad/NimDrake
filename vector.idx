@@ -1,0 +1,39 @@
+nimTitle	vector	vector.html	module src/vector		0
+nim	`$`	vector.html#$,Vector	proc `$`(vector: Vector): string		11
+nim	len	vector.html#len,Vector	proc len(vec: Vector): int		80
+nim	isValid	vector.html#isValid,ValidityMask,int	proc isValid(mask: ValidityMask; idx: int): bool		149
+nim	isValid	vector.html#isValid,Vector,int	proc isValid(vec: Vector; idx: int): bool		159
+nim	vecToValue	vector.html#vecToValue,Vector,int	proc vecToValue(vec: Vector; idx: int): Value		240
+nim	items	vector.html#items.i,Vector	iterator items(vec: Vector): Value		310
+nim	newVector	vector.html#newVector,DuckType	proc newVector(kind: DuckType): Vector		314
+nim	newVector	vector.html#newVector,seq[bool]	proc newVector(data: seq[bool]): Vector		383
+nim	newVector	vector.html#newVector,seq[int8]	proc newVector(data: seq[int8]): Vector		386
+nim	newVector	vector.html#newVector,seq[int16]	proc newVector(data: seq[int16]): Vector		389
+nim	newVector	vector.html#newVector,seq[int32]	proc newVector(data: seq[int32]): Vector		392
+nim	newVector	vector.html#newVector,seq[int64]	proc newVector(data: seq[int64]): Vector		395
+nim	newVector	vector.html#newVector,seq[uint8]	proc newVector(data: seq[uint8]): Vector		398
+nim	newVector	vector.html#newVector,seq[uint16]	proc newVector(data: seq[uint16]): Vector		401
+nim	newVector	vector.html#newVector,seq[uint32]	proc newVector(data: seq[uint32]): Vector		404
+nim	newVector	vector.html#newVector,seq[uint64]	proc newVector(data: seq[uint64]): Vector		407
+nim	newVector	vector.html#newVector,seq[float32]	proc newVector(data: seq[float32]): Vector		410
+nim	newVector	vector.html#newVector,seq[float64]	proc newVector(data: seq[float64]): Vector		413
+nim	newVector	vector.html#newVector,seq[Timestamp]	proc newVector(data: seq[Timestamp]): Vector		416
+nim	newVector	vector.html#newVector,seq[Time]	proc newVector(data: seq[Time]): Vector		419
+nim	newVector	vector.html#newVector,seq[TimeInterval]	proc newVector(data: seq[TimeInterval]): Vector		422
+nim	newVector	vector.html#newVector,seq[Int128]	proc newVector(data: seq[Int128]): Vector		425
+nim	newVector	vector.html#newVector,seq[string]	proc newVector(data: seq[string]): Vector		428
+nim	newVector	vector.html#newVector,seq[seq[byte]]	proc newVector(data: seq[seq[byte]]): Vector		431
+nim	newVector	vector.html#newVector,seq[DecimalType]	proc newVector(data: seq[DecimalType]): Vector		434
+nim	newVector	vector.html#newVector,seq[uint]	proc newVector(data: seq[uint]): Vector		437
+nim	newVector	vector.html#newVector,seq[seq[Value]]	proc newVector(data: seq[seq[Value]]): Vector		440
+nim	newVector	vector.html#newVector,seq[Table[string,Value]]	proc newVector(data: seq[Table[string, Value]]): Vector		443
+nim	newVector	vector.html#newVector,seq[Uuid]	proc newVector(data: seq[Uuid]): Vector		446
+nim	newVector	vector.html#newVector,seq[ZonedTime]	proc newVector(data: seq[ZonedTime]): Vector		452
+nim	newVector	vector.html#newVector,seq[]	proc newVector(data: seq[int | int64]): Vector		455
+nim	newVector	vector.html#newVector,duckdb_vector,int,int,DuckType,LogicalType	proc newVector(duckVector: duckdb_vector; size: int; offset: int; kind: DuckType;\n          logicalType: LogicalType): Vector		516
+nim	newVector	vector.html#newVector,duckdb_vector,int,int	proc newVector(duckVector: duckdb_vector; size: int; offset: int = 0): Vector		799
+nim	`[]`	vector.html#[],Vector,int	proc `[]`(v: Vector; idx: int): Value		805
+nim	appendMask	vector.html#appendMask,ValidityMask,ValidityMask	proc appendMask(a: var ValidityMask; b: ValidityMask)		808
+nim	`&=`	vector.html#&=,Vector,Vector	proc `&=`(left: var Vector; right: Vector): void		849
+nimgrp	isvalid	vector.html#isValid-procs-all	proc		149
+nimgrp	newvector	vector.html#newVector-procs-all	proc		314
