@@ -147,14 +147,15 @@ macro scalar*(body: typed): untyped =
       rawChunk = ident("rawChunk")
       typesNode = ident("types") # size of the select size
       output = ident("output") # obj where we dump the results
+      outputValidityMask = ident("outputValidityMask") # obj where we dump the results
 
     # define the parameters required by the wrapper function
     let parameters = [
       newEmptyNode(),
-      newIdentDefs(ident("info"), ident("duckdb_function_info")), # Function context
-      newIdentDefs(rawChunk, ident("duckdb_data_chunk")),
+      newIdentDefs(ident("info"), ident("duckdbFunctionInfo")), # Function context
+      newIdentDefs(rawChunk, ident("duckdbDataChunk")),
         # The result chunk that will contain the passed parameters
-      newIdentDefs(output, ident("duckdb_vector")), # Obj where to dump the results
+      newIdentDefs(output, ident("duckdbVector")), # Obj where to dump the results
     ]
 
     let wrapperBody = buildAst(stmtList):
@@ -175,16 +176,34 @@ macro scalar*(body: typed): untyped =
           newCall(bindSym "add", typesNode, newLit duckTp)
           arguments[genSym(nskLet, p.strVal).strVal] = duckTp
 
+      newCall(bindSym "duckdbVectorEnsureValidityWritable", output)
       newLetStmt(
         size,
         newDotExpr(
-          newCall(bindSym "duckdb_data_chunk_get_size", rawChunk), ident("int")
+          newCall(bindSym "duckdbDataChunkGetSize", rawChunk), ident("int")
         ),
       )
       newLetStmt(
         chunk,
         newCall(bindSym"newDataChunk", ident("rawChunk"), typesNode, newLit false),
       )
+      # newVarStmt(
+      #   outputValidityMask,
+      #   newCall(bindSym"newValidityMask", output, size)
+      # )
+
+      # let ridx = ident "ridx"
+      # ForStmt:
+      #   ridx
+      #   Infix:
+      #     ident "..<"
+      #     newLit 0
+      #     size
+      #   StmtList:
+      #     Command:
+      #       bindSym "duckdb_validity_set_row_invalid"
+      #       outputValidityMask
+      #       ridx
 
       for idx, p, tp in enumerate(arguments.pairs):
         let container = nnkBracketExpr.newTree(chunk, newLit idx)
@@ -273,6 +292,8 @@ macro scalar*(body: typed): untyped =
     `wrapper`
 
     `createdScalarFunc`
+
+  echo result.repr
 
 proc register*(con: Connection, fun: ScalarFunction) =
   check(

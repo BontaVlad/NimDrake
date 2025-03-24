@@ -103,13 +103,20 @@ proc `[]=`*[T](chunk: var DataChunk, colIdx: int, values: seq[T]) =
   chunk.len = len(values)
 
 proc `[]=`*(vec: duckdbVector, i: int, val: string) =
-  duckdbVectorAssignStringElement(vec, i.idx_t, val.cstring)
+  discard
+  # duckdbVectorAssignStringElement(vec, i.idx_t, val.cstring)
 
 proc `[]=`*(chunk: var DataChunk, colIdx: int, values: seq[string]) =
-  var vec = duckdbDataChunkGetVector(chunk, colIdx.idx_t)
+  var
+    vec = duckdbDataChunkGetVector(chunk, colIdx.idx_t)
+    size = duckdbDataChunkGetSize(chunk).int
+    validity = newValidityMask(vec, len(values), isWritable=true)
   let kind = newLogicalType(duckdbVectorGetColumnType(vec))
+
+  echo validity.repr
   if newDuckType(kind) != DuckType.Varchar:
     raise newException(ValueError, "Column is not of type VarChar")
+
   for i, e in values:
     vec[i] = e
 

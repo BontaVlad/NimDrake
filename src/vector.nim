@@ -146,16 +146,6 @@ proc len*(vec: Vector): int =
   of DuckType.UHugeInt:
     result = vec.valueUHugeint.len
 
-proc isValid*(mask: ValidityMask, idx: int): bool {.inline.} =
-  let
-    entryIdx = idx div BITS_PER_VALUE
-    indexInEntry = idx mod BITS_PER_VALUE
-
-  if entryIdx >= mask.len:
-    return true
-
-  return (mask[entryIdx] and (1'u64 shl indexInEntry)) != 0
-
 proc isValid*(vec: Vector, idx: int): bool {.inline.} =
   return vec.mask.isValid(idx)
 
@@ -521,6 +511,7 @@ proc newVector*(
     logicalType: LogicalType,
 ): Vector =
   let handle = duckdbVectorGetData(duckVector)
+  echo kind
   case kind
   of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
     raise newException(ValueError, fmt"got invalid enum type: {kind}")
@@ -804,47 +795,6 @@ proc newVector*(duckVector: duckdbVector, size: int, offset: int = 0): Vector =
 
 proc `[]`*(v: Vector, idx: int): Value =
   return vecToValue(v, idx)
-
-proc appendMask*(a: var ValidityMask, b: ValidityMask) {.inline.} =
-  # a &= b
-  # return
-  ## Optimized mask concatenation using 64-bit words
-  let
-    aBits = a.len * BITS_PER_VALUE
-    bBits = b.len * BITS_PER_VALUE
-    totalBits = aBits + bBits
-
-  # Calculate alignment parameters
-  let
-    bitOffset = aBits mod BITS_PER_VALUE
-    wordOffset = aBits div BITS_PER_VALUE
-
-  # TODO: really slow, be smart and make this faster
-  let extend = newSeq[uint64]((totalBits + BITS_PER_VALUE - 1) div BITS_PER_VALUE)
-  for e in extend:
-    a.add(e)
-
-  if bitOffset == 0:
-    # Direct copy when perfectly aligned
-    for i in 0 ..< b.len:
-      a[wordOffset + i] = b[i]
-  else:
-    # Bitwise merging when misaligned
-    let
-      shift = bitOffset
-      inverseShift = BITS_PER_VALUE - shift
-      lastA = a[^1] # Get last element before extending
-
-    # Process first element with carry-over
-    var carry = lastA
-    for i in 0 ..< b.len:
-      let current = b[i]
-      a[wordOffset + i] = carry or (current shl shift)
-      carry = current shr inverseShift
-
-    # Handle final carry
-    if carry != 0:
-      a[wordOffset + b.len] = carry
 
 proc `&=`*(left: var Vector, right: Vector): void =
   if left.kind != right.kind:

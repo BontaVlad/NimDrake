@@ -33,15 +33,15 @@ suite "Vector from datachunk column":
 
   test "new varchar vector":
     let
-      rawVec = duckdb_data_chunk_get_vector(chunk.handle, varCharColumn.idx.idx_t)
-      chunkSize = duckdb_data_chunk_get_size(chunk.handle).int
+      rawVec = duckdbDataChunkGetVector(chunk.handle, varCharColumn.idx.idx_t)
+      chunkSize = duckdbDataChunkGetSize(chunk.handle).int
       vec = newVector(rawVec, chunk_size)
     check vec.valueVarchar == varCharValues
 
   test "new bool vector":
     let
-      rawVec = duckdb_data_chunk_get_vector(chunk.handle, boolColumn.idx.idx_t)
-      chunkSize = duckdb_data_chunk_get_size(chunk.handle).int
+      rawVec = duckdbDataChunkGetVector(chunk.handle, boolColumn.idx.idx_t)
+      chunkSize = duckdbDataChunkGetSize(chunk.handle).int
       vec = newVector(rawVec, chunk_size)
     check vec.valueBoolean == boolValues
 
