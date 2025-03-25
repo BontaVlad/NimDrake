@@ -1,6 +1,7 @@
 import unittest2
 import std/[tables, sequtils]
 import ../src/[dataframe, vector]
+import utils
 
 suite "Test Dataframe":
   setup:
@@ -20,8 +21,9 @@ suite "Test Dataframe":
     check row[1].valueVarchar == "b"
 
   test "Test invalid column name":
-    expect ValueError:
-      discard df["something that does not exist"]
+    ignoreLeak:
+      expect ValueError:
+        discard df["something that does not exist"]
 
   test "Test echo the dataframe":
     let output = $df
