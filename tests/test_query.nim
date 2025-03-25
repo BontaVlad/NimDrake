@@ -568,3 +568,62 @@ suite "Test appender dispatch":
       check outcome[0].valueInteger == intValues
       check outcome[1].valueVarchar == strValues
       check outcome[2].valueBoolean == boolValues
+
+  test "Append throws an error on missing column on flush":
+    let db = newDatabase()
+    let conn = db.connect()
+
+    conn.execute("CREATE TABLE test (i INTEGER, d double, s string)")
+
+    # Test appender with invalid table
+    doAssertRaises(OperationError):
+      discard newAppender(conn, "unknown_table")
+
+    # Create valid appender
+    var appender = newAppender(conn, "test")
+
+    # Start appending rows
+    appender.append(42'i32)
+    appender.append(4.2)
+    appender.append("Hello, World")
+    appender.endRow()
+    appender.flush()
+
+    # Next row with missing column
+    appender.append(69'i32)
+    appender.append(6.9)
+
+    # Should cause an error if we try to end the row without all columns
+    doAssertRaises(OperationError):
+      appender.endRow()
+
+    # Complete the row correctly
+    appender.append("Hello, Duckdb")
+    appender.endRow()
+    appender.flush()
+
+    let outcome = conn.execute("SELECT * FROM test").fetchall()
+
+    # number of columns
+    check outcome.len == 3
+    check outcome[0].valueInteger[0] == 42'i64
+    check outcome[1].valueDouble[1] == 6.9
+    check outcome[2].valueVarchar[1] == "Hello, Duckdb"
+
+  test "Complex varchar":
+    skip()
+    let conn = newDatabase().connect()
+
+    let query = """
+      select
+        case
+          when i != 0
+          and i % 42 = 0 then NULL
+          else repeat(chr((65 + (i % 26))::INTEGER),
+          (4 + (i % 12)))
+        end
+      from
+        range(5000) tbl(i);
+    """
+
+    # echo conn.execute(query)

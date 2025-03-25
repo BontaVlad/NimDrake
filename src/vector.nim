@@ -184,11 +184,6 @@ template parseHandle(
   ) -> auto:
     castType(val)
 
-template parseHandle(
-    handle: pointer, vec: Vector, rawType: untyped, resultField: untyped
-): untyped =
-  parseHandle(handle, vec, rawType, resultField, rawType)
-
 template parseDecimalBigInt(kind, handle, scale, size: untyped) =
   var data = newSeq[DecimalType](size)
   let
@@ -794,8 +789,6 @@ proc `&=`*(left: var Vector, right: Vector): void =
       fmt"Vector.kind:{left.kind} != Vector.kind:{right.kind}. Can't concatenate different kinds of vectors",
     )
 
-  # TODO: needs be tested
-  left.mask.appendMask(right.mask)
   case left.kind
   of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
     raise newException(ValueError, fmt"got invalid enum type: {left.kind}")

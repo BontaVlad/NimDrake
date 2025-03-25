@@ -426,6 +426,7 @@ proc newAppender*(con: Connection, table: string): Appender =
   check(
     duckdb_appender_create(con.handle, nil, table.cstring, result.addr),
     fmt"Failed to create appender for table: {table}",
+    `=destroy`(result)
   )
 
 proc newAppender*[T](con: Connection, table: string, ent: seq[seq[T]]) =

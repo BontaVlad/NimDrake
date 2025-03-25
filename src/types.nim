@@ -140,10 +140,6 @@ type
   LogicalType* = object
     handle*: duckdbLogicalType
 
-  # LogicalTypeBase = object of RootObj
-  #   handle*: duckdb_logical_type
-
-  # LogicalType* = ref object of LogicalTypeBase
   Column* = ref object
     idx*: int
     name*: string
@@ -153,7 +149,7 @@ proc `=destroy`*(ltp: LogicalType) =
   if not isNil(ltp.addr) and not isNil(ltp.handle.addr):
     duckdb_destroy_logical_type(ltp.handle.addr)
 
-proc `=destroy`(qresult: QueryResult) =
+proc `=destroy`*(qresult: QueryResult) =
   if not isNil(qresult.addr):
     duckdbDestroyResult(qresult.addr)
 
@@ -167,48 +163,11 @@ proc `==`*(x, y: Timestamp): bool {.borrow.}
 proc format*(dt: Timestamp, f: string): string =
   return DateTime(dt).format(f)
 
-# converter toNim*(d: duckdbdatachunk): DataChunk =
-#   cast[DataChunk](d)
-
 converter toBase*(p: ptr PendingQueryResult): ptr duckdb_pending_result =
   cast[ptr duckdb_pending_result](p)
 
 converter toBase*(p: PendingQueryResult): duckdb_pending_result =
   cast[duckdb_pending_result](p)
-
-# proc add*(x: var ValidityMask, y: uint64) =
-#   (seq[uint64])(x).add(y)
-
-# proc len*(s: ValidityMask): int {.borrow.}
-# proc `[]`*[T](s: ValidityMask, i: T): uint64 =
-#   (seq[uint64])(s)[i]
-
-# proc `[]=`*(s: var ValidityMask, i: int, x: uint64) =
-#   (seq[uint64])(s)[i] = x
-
-# proc `&=`*(a: var ValidityMask, b: ValidityMask) =
-#   (seq[uint64])(a) &= (seq[uint64])(b)
-
-# proc makeValidityWritable*(vec: duckdbVector) =
-#   duckdb_vector_ensure_validity_writable(vec)
-
-# proc newValidityMask*(): ValidityMask =
-#   const BITS_PER_VALUE = 64
-#   let
-#     size = VECTOR_SIZE
-#     numEntries = (size + BITS_PER_VALUE - 1) div BITS_PER_VALUE
-
-# Initialize the validity mask with a sequence of uint64
-# result = ValidityMask(newSeq[uint64](numEntries))
-
-# for i in 0 ..< numEntries:
-#   let remainingBits = size - i * BITS_PER_VALUE
-#   if remainingBits >= BITS_PER_VALUE:
-#     # All bits are valid
-#     result[i.int] = not 0.uint64
-#   else:
-#     # Only a partial mask for the remaining bits
-#     result[i.int] = (1.uint64 shl remainingBits) - 1
 
 proc newValidityMask*(): ValidityMask =
   return ValidityMask(size: 0, mask: nil)
@@ -245,48 +204,6 @@ proc isValid*(validity: ValidityMask, idx: int): bool {.inline.} =
 
 proc setValidity*(validity: ValidityMask, rowIdx: int, isValid: bool) =
   duckdb_validity_set_row_validity(validity.mask[0].addr, rowIdx.idx_t, isValid)
-
-proc appendMask*(a: var ValidityMask, b: ValidityMask) {.inline.} =
-  discard
-  # a &= b
-  # return
-  ## Optimized mask concatenation using 64-bit words
-  # let
-  #   aBits = a.size * BITS_PER_VALUE
-  #   bBits = b.size * BITS_PER_VALUE
-  #   totalBits = aBits + bBits
-
-  # # Calculate alignment parameters
-  # let
-  #   bitOffset = aBits mod BITS_PER_VALUE
-  #   wordOffset = aBits div BITS_PER_VALUE
-
-  # # TODO: really slow, be smart and make this faster
-  # let extend = newSeq[uint64]((totalBits + BITS_PER_VALUE - 1) div BITS_PER_VALUE)
-  # for e in extend:
-  #   a.add(e)
-
-  # if bitOffset == 0:
-  #   # Direct copy when perfectly aligned
-  #   for i in 0 ..< b.size:
-  #     a[wordOffset + i] = b[i]
-  # else:
-  #   # Bitwise merging when misaligned
-  #   let
-  #     shift = bitOffset
-  #     inverseShift = BITS_PER_VALUE - shift
-  #     lastA = a[^1] # Get last element before extending
-
-  #   # Process first element with carry-over
-  #   var carry = lastA
-  #   for i in 0 ..< b.len:
-  #     let current = b[i]
-  #     a[wordOffset + i] = carry or (current shl shift)
-  #     carry = current shr inverseShift
-
-  #   # Handle final carry
-  #   if carry != 0:
-  #     a[wordOffset + b.len] = carry
 
 proc newDuckType*(i: duckdb_logical_type): DuckType =
   let id = duckdbGetTypeId(i)

@@ -74,7 +74,7 @@ proc `$`*(df: DataFrame): string =
     for i, row in rows.mpairs:
       row.insert(newValue(i), 0)
 
-  if len(rows) > maxRows:
+  if maxRows > 0 and len(rows) > maxRows:
     let
       middleIdx = len(rows) div 2
       padding = min(middleIdx div 2, 5)

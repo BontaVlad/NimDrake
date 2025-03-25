@@ -97,3 +97,13 @@ suite "Connections":
     check results[3].valueInteger[0] == 0'i64
     check results[3].valueInteger[1] == 1'i64
     check results[3].valueInteger[2] == 2'i64
+
+  test "Multiple In-Memory DB Start Up and Shutdown":
+    var
+      databases: array[10, Database]
+      connections: array[100, Connection]
+
+    for i in 0..<10:
+      databases[i] = newDatabase()
+      for j in 0..<10:
+        connections[i * 10 + j] = databases[i].connect()
