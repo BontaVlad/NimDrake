@@ -74,34 +74,25 @@ macro generateTypeToField(registryName: static[string], vectorType: typed): unty
     caseStmt[i].assertMatch:
       OfBranch:
         pref DotExpr[_, (strVal: @types)]
-        RecList[any IdentDefs[any Postfix[_, (strVal: @fieldName)]]] | IdentDefs[any Postfix[_, (strVal: @fieldName)]]
+        RecList[any IdentDefs[any Postfix[_, (strVal: @fieldName)]]] |
+          IdentDefs[any Postfix[_, (strVal: @fieldName)]]
 
     # if duckType.strVal in
     # echo types.repr, " -> ", fieldName.repr
 
     for key in types:
-      let keyExpr = nnkDotExpr.newTree(
-        newIdentNode("DuckType"),
-        newIdentNode(key)
-      )
+      let keyExpr = nnkDotExpr.newTree(newIdentNode("DuckType"), newIdentNode(key))
 
       # let valueExpr = nnkIdent.newTree(valueIdent)
 
       # Create the key-value pair
-      tableExpr.add(
-        nnkExprColonExpr.newTree(
-          keyExpr, newLit(fieldName[0])
-        )
-      )
+      tableExpr.add(nnkExprColonExpr.newTree(keyExpr, newLit(fieldName[0])))
 
   result = nnkLetSection.newTree(
     nnkIdentDefs.newTree(
       newIdentNode(registryName),
       newEmptyNode(),
-      nnkDotExpr.newTree(
-        tableExpr,
-        newIdentNode("toTable")
-      )
+      nnkDotExpr.newTree(tableExpr, newIdentNode("toTable")),
     )
   )
 
@@ -128,7 +119,7 @@ macro scalar*(body: typed): untyped =
     scalarFunc = ident(name) # the name of the actual function we want to pass to duckdb
     callbackNode = ident(name & "callBack")
     callback = newProc(name = callbackNode, params = params, body = implementation)
-      # the actual proc we want to call on the rows
+    # the actual proc we want to call on the rows
     wrapperName = ident("scalarWrapper" & name) # proc that will be called by duckdb
 
   # The function that will be called by duckdb
@@ -179,31 +170,29 @@ macro scalar*(body: typed): untyped =
       newCall(bindSym "duckdbVectorEnsureValidityWritable", output)
       newLetStmt(
         size,
-        newDotExpr(
-          newCall(bindSym "duckdbDataChunkGetSize", rawChunk), ident("int")
-        ),
+        newDotExpr(newCall(bindSym "duckdbDataChunkGetSize", rawChunk), ident("int")),
       )
       newLetStmt(
         chunk,
         newCall(bindSym"newDataChunk", ident("rawChunk"), typesNode, newLit false),
       )
-      # newVarStmt(
-      #   outputValidityMask,
-      #   newCall(bindSym"newValidityMask", output, size)
-      # )
+      newVarStmt(
+        outputValidityMask, newCall(bindSym"newValidityMask", output, size, newLit true)
+      )
 
-      # let ridx = ident "ridx"
-      # ForStmt:
-      #   ridx
-      #   Infix:
-      #     ident "..<"
-      #     newLit 0
-      #     size
-      #   StmtList:
-      #     Command:
-      #       bindSym "duckdb_validity_set_row_invalid"
-      #       outputValidityMask
-      #       ridx
+      let ridx = ident "ridx"
+      ForStmt:
+        ridx
+        Infix:
+          ident "..<"
+          newLit 0
+          size
+        StmtList:
+          Command:
+            bindSym "setValidity"
+            outputValidityMask
+            ridx
+            newLit false
 
       for idx, p, tp in enumerate(arguments.pairs):
         let container = nnkBracketExpr.newTree(chunk, newLit idx)
@@ -227,6 +216,12 @@ macro scalar*(body: typed): untyped =
                 BracketExpr:
                   ident p
                   iNode
+          Command:
+            bindSym "setValidity"
+            outputValidityMask
+            iNode
+            newLit true
+
     # the actual wrapper definition
     newProc(
       name = wrapperName,
@@ -292,8 +287,6 @@ macro scalar*(body: typed): untyped =
     `wrapper`
 
     `createdScalarFunc`
-
-  echo result.repr
 
 proc register*(con: Connection, fun: ScalarFunction) =
   check(

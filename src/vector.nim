@@ -8,6 +8,20 @@ import uuid4
 
 import /[api, value, types]
 
+template `[]=`*[T: SomeNumber](vec: duckdbVector, i: int, val: T) =
+  var raw = duckdbVectorGetData(vec)
+  when T is int:
+    cast[ptr UncheckedArray[cint]](raw)[i] = cint(val)
+  else:
+    cast[ptr UncheckedArray[T]](raw)[i] = val
+
+template `[]=`*(vec: duckdbVector, i: int, val: bool) =
+  var raw = duckdbVectorGetData(vec)
+  cast[ptr UncheckedArray[uint8]](raw)[i] = val.uint8
+
+template `[]=`*(vec: duckdbVector, i: int, val: string) =
+  duckdbVectorAssignStringElement(vec, i.idx_t, val.cstring)
+
 proc `$`*(vector: Vector): string =
   case vector.kind
   of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
@@ -156,32 +170,6 @@ template collectValid[T, U](
   collect:
     for i in offset ..< size:
       transform(raw[i])
-
-template collectValidString[T](
-    handle: pointer,
-    vec: Vector,
-    offset, size: int,
-    resultField: var auto,
-    transform: untyped,
-): untyped =
-  resultField = collect:
-    for i in offset ..< size:
-      if vec.isValid(i):
-        let
-          basePtr = cast[pointer](cast[uint](handle) + (i * sizeof(duckdbstringt)).uint)
-          strLength = cast[ptr int32](basePtr)[]
-        var rawStr: cstring
-
-        if strLength <= STRING_INLINE_LENGTH:
-          rawStr = cast[cstring](cast[uint](basePtr) + sizeof(int32).uint)
-        else:
-          rawStr = cast[ptr cstring](cast[uint](basePtr) + sizeof(int32).uint * 2)[]
-        transform(rawStr)
-      else:
-        when T is string:
-          "" # TODO: not sure about this
-        else:
-          newSeq[byte](0) # Empty byte array for blobs
 
 template parseHandle(
     handle: pointer,
@@ -472,19 +460,24 @@ template handleVectorCase(
 template handleVectorCaseString(kind, handle, duckdbVector, size) =
   let validityMask = newValidityMask(duckVector, size)
   var data = newSeq[string](size)
+  let raw = cast[ptr UncheckedArray[duckdbstringt]](handle)
   for i in offset ..< size:
-    let
-      basePtr = cast[pointer](cast[uint](handle) + (i * sizeof(duckdbstringt)).uint)
-      strLength = cast[ptr int32](basePtr)[]
-    var rawStr: cstring
+    if duckdb_string_is_inlined(raw[i]):
+      let stringStruct = cast[struct_duckdb_string_t_value_t_inlined_t](raw[i])
+      var output = newString(stringStruct.length)
+      for i in 0 ..< stringStruct.length.int:
+        output[i] = char(stringStruct.inlined[i])
+      data[i] = output
 
-    if strLength <= STRING_INLINE_LENGTH:
-      rawStr = cast[cstring](cast[uint](basePtr) + sizeof(int32).uint)
     else:
-      rawStr = cast[ptr cstring](cast[uint](basePtr) + sizeof(int32).uint * 2)[]
-    data[i] = $rawStr
+      let stringStruct = cast[struct_duckdb_string_t_value_t](raw[i])
+      var output = $cast[cstring](stringStruct.pointer_field.ptr_field)
+      output.setLen(stringStruct.pointer_field.length)
+      data[i] = output
+
   return Vector(kind: kind, mask: validityMask, valueVarchar: data)
 
+# TODO: this is most likelly wrong
 template handleVectorCaseBlob(kind, handle, duckdbVector, size) =
   let validityMask = newValidityMask(duckVector, size)
   var data = newSeq[seq[byte]](size)
@@ -511,7 +504,6 @@ proc newVector*(
     logicalType: LogicalType,
 ): Vector =
   let handle = duckdbVectorGetData(duckVector)
-  echo kind
   case kind
   of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
     raise newException(ValueError, fmt"got invalid enum type: {kind}")

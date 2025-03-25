@@ -4,7 +4,6 @@ import
     scalar_functions, vector, value,
   ]
 
-
 ## NimDrake is a Nim language package designed to integrate with **DuckDB**,
 ## an in-process SQL OLAP database management system. It simplifies database interactions while maintaining flexibility for advanced use cases.
 ## NimDrake is built with two ideas in mind, the high-level interface offers quick and easy database operations, ideal for rapid development and simplicity,

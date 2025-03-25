@@ -1,10 +1,9 @@
 import unittest2
-import ../../src/[api, database, datachunk, query, query_result, scalar_functions, types]
+import ../../src/[api, database, vector, datachunk, query, query_result, scalar_functions, types]
 
 suite "Test scalar functions":
 
   test "int64 input and output":
-    skip()
     let conn = newDatabase().connect()
 
     template doubleValue(val, bar: int64): int64 {.scalar.} =
@@ -20,11 +19,12 @@ suite "Test scalar functions":
       @[0'i64, 1'i64, 4'i64]
 
   test "scalar function with strings":
-    let conn = newDatabase("test.db").connect()
+    let conn = newDatabase().connect()
 
     template myConcat(left, right: string): string {.scalar.} =
-      echo "left: ", left
-      echo "right ", right
+      # echo "called"
+      # echo "left: ", left, " right ", right
+      # return "foo" & "bar"
       return left & right
 
     conn.register(myConcat)
@@ -36,7 +36,6 @@ suite "Test scalar functions":
         CREATE TABLE test_table (
             column1 VARCHAR,
             column2 VARCHAR,
-            res VARCHAR
         );
 
         INSERT INTO test_table (column1, column2)
@@ -46,17 +45,8 @@ suite "Test scalar functions":
         FROM range(5);
     """
     )
-    conn.execute(
-    """
-        INSERT INTO test_table (res)
-        SELECT myConcat(column1, column2) as concatenated FROM test_table
-    """
-    )
 
-    # let outcome = conn.execute("SELECT myConcat(column1, column2) as concatenated FROM test_table").fetchAll()
+    let outcome = conn.execute("SELECT CONCAT(column1, column2) AS correct, myConcat(column1, column2) as concatenated FROM test_table").fetchAll()
 
-    # check outcome[0].valueVarchar ==
-    # @[
-    #     "697d2d000c905c7c", "e3238862a70f1078", "b7747524d912609f", "09cc03874e311ba1",
-    #     "129634022d368161",
-    # ]
+    for i, correct in outcome[0].valueVarchar:
+      check correct == outcome[1].valueVarchar[i]

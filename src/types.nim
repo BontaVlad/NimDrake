@@ -13,7 +13,7 @@ const
 
 type
   Timestamp* {.borrow: `.`.} = distinct DateTime
-  ValidityMask*  = object
+  ValidityMask* = object
     mask: ptr UncheckedArray[uint64]
     size: int
 
@@ -198,22 +198,24 @@ converter toBase*(p: PendingQueryResult): duckdb_pending_result =
 #     size = VECTOR_SIZE
 #     numEntries = (size + BITS_PER_VALUE - 1) div BITS_PER_VALUE
 
-  # Initialize the validity mask with a sequence of uint64
-  # result = ValidityMask(newSeq[uint64](numEntries))
+# Initialize the validity mask with a sequence of uint64
+# result = ValidityMask(newSeq[uint64](numEntries))
 
-  # for i in 0 ..< numEntries:
-  #   let remainingBits = size - i * BITS_PER_VALUE
-  #   if remainingBits >= BITS_PER_VALUE:
-  #     # All bits are valid
-  #     result[i.int] = not 0.uint64
-  #   else:
-  #     # Only a partial mask for the remaining bits
-  #     result[i.int] = (1.uint64 shl remainingBits) - 1
+# for i in 0 ..< numEntries:
+#   let remainingBits = size - i * BITS_PER_VALUE
+#   if remainingBits >= BITS_PER_VALUE:
+#     # All bits are valid
+#     result[i.int] = not 0.uint64
+#   else:
+#     # Only a partial mask for the remaining bits
+#     result[i.int] = (1.uint64 shl remainingBits) - 1
 
 proc newValidityMask*(): ValidityMask =
   return ValidityMask(size: 0, mask: nil)
 
-proc newValidityMask*(vec: duckdb_vector, size: int, isWritable: bool = false): ValidityMask =
+proc newValidityMask*(
+    vec: duckdb_vector, size: int, isWritable: bool = false
+): ValidityMask =
   let numEntries = (size + BITS_PER_VALUE - 1) div BITS_PER_VALUE
 
   if isWritable:
@@ -230,7 +232,6 @@ template toEnum*[T](x: int): T =
 
 proc isValid*(validity: ValidityMask, idx: int): bool {.inline.} =
   if isNil(validity.mask):
-    writeStackTrace()
     return true
 
   let
@@ -238,13 +239,12 @@ proc isValid*(validity: ValidityMask, idx: int): bool {.inline.} =
     indexInEntry = idx mod BITS_PER_VALUE
 
   if entryIdx >= validity.size:
-    echo "entryIdx"
     raise newException(ValueError, fmt"Idx {idx} not in 0 .. {validity.size}")
 
   return (validity.mask[entryIdx] and (1'u64 shl indexInEntry)) != 0
 
-proc setValidity*(validity: ValidityMask, isValid: bool, rowIdx: int) =
-  duckdb_validity_set_row_validity(validity.mask, rowIdx.inx_t, isValid);
+proc setValidity*(validity: ValidityMask, rowIdx: int, isValid: bool) =
+  duckdb_validity_set_row_validity(validity.mask[0].addr, rowIdx.idx_t, isValid)
 
 proc appendMask*(a: var ValidityMask, b: ValidityMask) {.inline.} =
   discard
@@ -287,7 +287,6 @@ proc appendMask*(a: var ValidityMask, b: ValidityMask) {.inline.} =
   #   # Handle final carry
   #   if carry != 0:
   #     a[wordOffset + b.len] = carry
-
 
 proc newDuckType*(i: duckdb_logical_type): DuckType =
   let id = duckdbGetTypeId(i)
