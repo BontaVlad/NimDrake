@@ -36,13 +36,13 @@ jobs:
 
     - uses: extractions/setup-just@v2
 
-    # Cache apt packages (clang and libclang-dev)
     - name: Cache apt packages
       uses: actions/cache@v3
-      id: cache-apt
       with:
-        path: /var/cache/apt/archives
-        key: ${{ runner.os }}-apt-${{ hashFiles('.github/apt-packages.txt') }}
+        path: /var/lib/apt/lists
+        key: ${{ runner.os }}-apt-${{ hashFiles('**/apt-requirements.txt', '**/setup-apt.sh') }}
+        restore-keys: |
+        ${{ runner.os }}-apt-
 
     - name: Install dependencies
       run: |
