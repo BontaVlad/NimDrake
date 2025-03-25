@@ -84,4 +84,4 @@ proc `$`*(df: DataFrame): string =
   t.setHeaders(headers)
   t.separateRows = false
   t.addRows(rows.toSeq.map(row => row.map(e => $e)))
-  result = t.render()
+  return t.render()
