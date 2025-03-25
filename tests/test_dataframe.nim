@@ -1,6 +1,6 @@
 import unittest2
 import std/[tables, sequtils]
-import ../../src/[dataframe, vector]
+import ../src/[dataframe, vector]
 
 suite "Test Dataframe":
   setup:
@@ -19,10 +19,9 @@ suite "Test Dataframe":
     check row[0].valueBigint == 20
     check row[1].valueVarchar == "b"
 
-  # memory leak with the except stuff
-  # test "Test invalid column name":
-  #   expect ValueError:
-  #     discard df["something that does not exist"]
+  test "Test invalid column name":
+    expect ValueError:
+      discard df["something that does not exist"]
 
   test "Test echo the dataframe":
     let output = $df

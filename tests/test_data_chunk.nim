@@ -1,5 +1,5 @@
 import unittest2
-import ../../src/[api, datachunk, types]
+import ../src/[api, datachunk, types]
 
 suite "Test datachunk":
   test "Test datachunk creation":

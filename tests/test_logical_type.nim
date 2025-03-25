@@ -1,5 +1,5 @@
 import unittest2
-import ../../src/[api, types]
+import ../src/[api, types]
 
 suite "Test logical type":
   test "Test logical type creation from duckdb handle":

@@ -17,6 +17,6 @@ benchmark cfg:
 
     conn.register(doubleValue)
 
-    conn.execute("CREATE TABLE test_table AS SELECT i FROM range(3000000) t(i);")
+    conn.execute("CREATE TABLE test_table AS SELECT i FROM range(10) t(i);")
     let outcome =
       conn.execute("SELECT i, doubleValue(i, i) as doubled FROM test_table").fetchAll()

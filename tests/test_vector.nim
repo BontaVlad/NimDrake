@@ -1,6 +1,6 @@
 import std/[times, sequtils, sugar]
 import unittest2
-import ../../src/[api, types, vector, datachunk, query_result]
+import ../src/[api, types, vector, datachunk, query_result]
 
 suite "Vector from datachunk column":
   setup:

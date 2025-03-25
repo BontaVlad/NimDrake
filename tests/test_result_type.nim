@@ -2,8 +2,8 @@ import std/[times, tables, strformat]
 import unittest2
 import nint128
 import decimal
-import ../../src/[types, database, query, query_result]
-import ../utils
+import ../src/[types, database, query, query_result]
+import utils
 
 # TODO: expand tests with more scenarios, especially the unhappy types
 

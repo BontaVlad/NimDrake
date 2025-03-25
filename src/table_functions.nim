@@ -3,71 +3,71 @@ import fusion/[matching, astdsl]
 import /[api, datachunk, database, types, exceptions, value]
 
 type
-  FunctionInfo* = object of duckdb_function_info
+  FunctionInfo* = object of duckdbFunctionInfo
   TableFunction* = ref object
     name: string
-    handle: duckdb_table_function
+    handle: duckdbTableFunction
     bindFunc: proc(info: BindInfo)
     initFunc: proc(info: InitInfo)
     initLocalFunc: proc(info: InitInfo)
-    mainFunc: proc(info: FunctionInfo, chunk: duckdb_datachunk)
+    mainFunc: proc(info: FunctionInfo, chunk: duckdbDatachunk)
     extraData*: ref RootObj # globalObjects*: Table[string, DataFrame]
 
   BindInfo* = object
-    handle*: duckdb_bind_info
+    handle*: duckdbBindInfo
     mainFunction*: TableFunction
 
   InitInfo* = object
-    handle*: duckdb_init_info
+    handle*: duckdbInitInfo
     mainFunction*: TableFunction # globalLock::ReentrantLock
 
-converter toC*(fi: FunctionInfo): duckdb_function_info =
-  cast[duckdb_function_info](fi)
+converter toC*(fi: FunctionInfo): duckdbFunctionInfo =
+  cast[duckdbFunctionInfo](fi)
 
-converter toNim*(fi: duckdb_function_info): FunctionInfo =
+converter toNim*(fi: duckdbFunctionInfo): FunctionInfo =
   cast[FunctionInfo](fi)
 
-converter toCptr*(fi: ptr FunctionInfo): ptr duckdb_function_info =
-  cast[ptr duckdb_function_info](fi)
+converter toCptr*(fi: ptr FunctionInfo): ptr duckdbFunctionInfo =
+  cast[ptr duckdbFunctionInfo](fi)
 
 proc destroyTableFunction(p: pointer) {.cdecl.} =
   let tf = cast[TableFunction](p)
-  duckdb_destroy_table_function(tf.handle.addr)
+  duckdbDestroyTableFunction(tf.handle.addr)
   `=destroy`(tf)
 
 proc `$`*(tf: TableFunction): string =
   result = tf.name
 
-proc parameter_count*(info: BindInfo): int =
-  duckdb_bind_get_parameter_count(info.handle).int
+proc parameterCount*(info: BindInfo): int =
+  duckdbBindGetParameterCount(info.handle).int
 
-proc get_parameter(info: BindInfo, index: int): Value =
-  result = newValue(newDuckValue(duckdb_bind_get_parameter(info.handle, index.idx_t)))
+proc getParameter(info: BindInfo, index: int): Value =
+  result = newValue(newDuckValue(duckdbBindGetParameter(info.handle, index.idx_t)))
 
 iterator parameters*(info: BindInfo): Value =
-  for idx in 0 ..< info.parameter_count:
-    yield info.get_parameter(idx)
+  for idx in 0 ..< info.parameterCount:
+    yield info.getParameter(idx)
 
-proc add_result_column*(info: BindInfo, name: string, tp: LogicalType) =
-  duckdb_bind_add_result_column(info.handle, name.cstring, tp.handle)
+proc addResultColumn*(info: BindInfo, name: string, tp: LogicalType) =
+  duckdbBindAddResultColumn(info.handle, name.cstring, tp.handle)
 
-proc add_result_column*(info: BindInfo, name: string, tp: DuckType) =
-  info.add_result_column(name, newLogicalType(tp))
+proc addResultColumn*(info: BindInfo, name: string, tp: DuckType) =
+  info.addResultColumn(name, newLogicalType(tp))
 
-proc tableBind(info: duckdb_bind_info) {.cdecl.} =
-  let tf = cast[TableFunction](duckdb_bind_get_extra_info(info))
+proc tableBind(info: duckdbBindInfo) {.cdecl.} =
+  let tf = cast[TableFunction](duckdbBindGetExtraInfo(info))
   tf.bindFunc(BindInfo(handle: info, mainFunction: tf))
 
-proc tableInit(info: duckdb_init_info) {.cdecl.} =
-  let tf = cast[TableFunction](duckdb_init_get_extra_info(info))
+proc tableInit(info: duckdbInitInfo) {.cdecl.} =
+  let tf = cast[TableFunction](duckdbInitGetExtraInfo(info))
   tf.initFunc(InitInfo(handle: info, mainFunction: tf))
 
-proc tableLocalInit(info: duckdb_init_info) {.cdecl.} =
-  let tf = cast[TableFunction](duckdb_init_get_extra_info(info))
+proc tableLocalInit(info: duckdbInitInfo) {.cdecl.} =
+  let tf = cast[TableFunction](duckdbInitGetExtraInfo(info))
   tf.initLocalFunc(InitInfo(handle: info, mainFunction: tf))
 
-proc tableMain(info: duckdb_function_info, chunk: duckdb_datachunk) {.cdecl.} =
-  let tf = cast[TableFunction](duckdb_function_get_extra_info(info))
+proc tableMain(info: duckdbFunctionInfo, chunk: duckdbDatachunk) {.cdecl.} =
+  let tf = cast[TableFunction](duckdbFunctionGetExtraInfo(info))
   tf.mainFunc(info, chunk)
 
 proc newTableFunction*(
@@ -76,13 +76,13 @@ proc newTableFunction*(
     bindFunc: proc(info: BindInfo),
     initFunc: proc(info: InitInfo),
     initLocalFunc: proc(info: InitInfo),
-    mainFunc: proc(info: FunctionInfo, chunk: duckdb_datachunk),
+    mainFunc: proc(info: FunctionInfo, chunk: duckdbDatachunk),
     extraData: RootRef,
     projectionPushdown: bool,
 ): TableFunction =
   result = TableFunction(
     name: name,
-    handle: duckdb_create_table_function(),
+    handle: duckdbCreateTableFunction(),
     bindFunc: bindFunc,
     initFunc: initFunc,
     initLocalFunc: initLocalFunc,
@@ -90,23 +90,23 @@ proc newTableFunction*(
     extraData: extraData,
   )
 
-  duckdb_table_function_set_name(result.handle, name.cstring)
+  duckdbTableFunctionSetName(result.handle, name.cstring)
 
   for param in parameters:
-    duckdb_table_function_add_parameter(result.handle, param.handle)
+    duckdbTableFunctionAddParameter(result.handle, param.handle)
 
   GC_ref(result)
-  duckdb_table_function_set_extra_info(
+  duckdbTableFunctionSetExtraInfo(
     result.handle, cast[ptr TableFunction](result), destroyTableFunction
   )
 
   # Register the callbacks
-  duckdb_table_function_set_bind(result.handle, tableBind)
-  duckdb_table_function_set_init(result.handle, tableInit)
-  duckdb_table_function_set_local_init(result.handle, tableLocalInit)
-  duckdb_table_function_set_function(result.handle, tableMain)
+  duckdbTableFunctionSetBind(result.handle, tableBind)
+  duckdbTableFunctionSetInit(result.handle, tableInit)
+  duckdbTableFunctionSetLocalInit(result.handle, tableLocalInit)
+  duckdbTableFunctionSetFunction(result.handle, tableMain)
 
-  duckdb_table_function_supports_projection_pushdown(result.handle, projectionPushdown)
+  duckdbTableFunctionSupportsProjectionPushdown(result.handle, projectionPushdown)
 
 proc arguments(params: seq[NimNode]): seq[NimNode] =
   result = newSeq[NimNode]()
@@ -291,18 +291,18 @@ macro producer*(body: typed): untyped =
     producerInvoke = newCall(producerIteratorName, producerArguments)
 
   let mainFunctionStmt = quote:
-    proc `mainFunctionName`(info: FunctionInfo, rawChunk: duckdb_datachunk) =
-      var `bindDataSymName` = cast[`bindDataName`](duckdb_function_get_bind_data(info))
-      var initInfo = cast[`initDataName`](duckdb_function_get_init_data(info))
+    proc `mainFunctionName`(info: FunctionInfo, rawChunk: duckdbDatachunk) =
+      var `bindDataSymName` = cast[`bindDataName`](duckdbFunctionGetBindData(info))
+      var initInfo = cast[`initDataName`](duckdbFunctionGetInitData(info))
 
       `producerFactory`
 
-      let vecPtr = duckdb_data_chunk_get_vector(rawChunk, 0.idx_t)
+      let vecPtr = duckdbDataChunkGetVector(rawChunk, 0.idx_t)
 
       `producerIterator`
 
       var count = 0
-      while not initInfo.exausted and initInfo.pos < duckdb_vector_size().int:
+      while not initInfo.exausted and initInfo.pos < duckdbVectorSize().int:
         let res = `producerInvoke`
         if finished(`producerIteratorName`):
           initInfo.exausted = true
@@ -310,7 +310,7 @@ macro producer*(body: typed): untyped =
         vecPtr[count] = res
         count += 1
         initInfo.pos += 1
-      duckdb_data_chunk_set_size(rawChunk, count.idx_t)
+      duckdbDataChunkSetSize(rawChunk, count.idx_t)
 
   var tableFunctionParameters = newSeq[NimNode]()
   for param in params[1 ..^ 1]:
@@ -351,8 +351,5 @@ macro producer*(body: typed): untyped =
 
 proc register*(con: Connection, fun: TableFunction) =
   check(
-    duckdb_register_table_function(con.handle, fun.handle), "Failed to regiter function"
+    duckdbRegisterTableFunction(con.handle, fun.handle), "Failed to regiter function"
   )
-
-proc unregister*(con: Connection, name: string) {.discardable.} =
-  discard

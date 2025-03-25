@@ -1,6 +1,6 @@
 import std/[tables]
 import unittest2
-import ../../src/[types, database, dataframe, query, query_result, vector, table_scan]
+import ../src/[types, database, dataframe, query, query_result, vector, table_scan]
 
 suite "Table Scan":
 

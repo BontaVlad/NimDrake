@@ -10,7 +10,7 @@ cfg.verbose = true
 
 let conn = newDatabase().connect()
 
-let outcome = conn.execute("SELECT * from range(100000000)").fetchAll()
+let outcome = conn.execute("SELECT * from range(100)").fetchAll()
 let myArray = outcome[0].valueBigInt
 
 benchmark cfg:

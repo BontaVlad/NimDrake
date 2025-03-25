@@ -1,7 +1,7 @@
 import std/[sequtils, times]
 import unittest2
 import nint128
-import ../../src/[api, database, datachunk, types, query, query_result, transaction, exceptions]
+import ../src/[api, database, datachunk, types, query, query_result, transaction, exceptions]
 
 suite "Basic queries":
 

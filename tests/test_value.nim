@@ -2,7 +2,7 @@ import std/[times, tables]
 import unittest2
 import uuid4
 import nint128
-import ../../src/[api, types, value]
+import ../src/[api, types, value]
 
 suite "Tests value creations":
   test "Create Boolean Value":

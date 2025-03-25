@@ -5,7 +5,7 @@ type
   DataChunkBase = object of RootObj
     handle*: duckdbDataChunk
     types: seq[LogicalType] # only here for lifetime tracking, maybe I can avoid this
-    shouldDestroy: bool  # in some cases duckdb takes care of the cleaning
+    shouldDestroy: bool # in some cases duckdb takes care of the cleaning
 
   DataChunk* = ref object of DataChunkBase
 
@@ -90,27 +90,6 @@ proc `[]=`*[T](chunk: var DataChunk, colIdx: int, values: seq[T]) =
     vec[i] = e
 
   chunk.len = len(values)
-
-# proc `[]=`*(chunk: var DataChunk, colIdx: int, values: seq[string]) =
-#   var
-#     vec = duckdbDataChunkGetVector(chunk, colIdx.idx_t)
-#     size = duckdbDataChunkGetSize(chunk).int
-#     validity = newValidityMask(vec, len(values), isWritable = true)
-#   let kind = newLogicalType(duckdbVectorGetColumnType(vec))
-
-#   if newDuckType(kind) != DuckType.Varchar:
-#     raise newException(ValueError, "Column is not of type VarChar")
-
-#   for i, e in values:
-#     validity.setValidity(i, true)
-#     vec[i] = e
-
-#   if chunk.len != 0 and chunk.len != len(values):
-#     raise newException(
-#       ValueError,
-#       fmt"Chunk size is inconsistent, new size of {len(values)} is different from {chunk.len}",
-#     )
-#   chunk.len = len(values)
 
 proc `[]`*(chunk: DataChunk, colIdx: int): Vector =
   let vec = duckdbDataChunkGetVector(chunk.handle, colIdx.idx_t)

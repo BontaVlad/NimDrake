@@ -468,7 +468,6 @@ template handleVectorCaseString(kind, handle, duckdbVector, size) =
       for i in 0 ..< stringStruct.length.int:
         output[i] = char(stringStruct.inlined[i])
       data[i] = output
-
     else:
       let stringStruct = cast[struct_duckdb_string_t_value_t](raw[i])
       var output = $cast[cstring](stringStruct.pointer_field.ptr_field)
