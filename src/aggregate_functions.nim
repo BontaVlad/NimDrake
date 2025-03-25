@@ -76,7 +76,7 @@ macro newAggregateFunction*(
   # echo foo.treeRepr
   # echo combineImpl.repr
   # echo combineImpl[0][0].repr
-      # combineFun: `@ foo`
+  # combineFun: `@ foo`
   let callBackObjDefinition = quote("@"):
     type `@ callbackObjName` = ref object
       sizeFun: proc(info: FunctionInfo): int

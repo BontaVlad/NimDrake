@@ -8,6 +8,20 @@ import uuid4
 
 import /[api, value, types]
 
+template `[]=`*[T: SomeNumber](vec: duckdbVector, i: int, val: T) =
+  var raw = duckdbVectorGetData(vec)
+  when T is int:
+    cast[ptr UncheckedArray[cint]](raw)[i] = cint(val)
+  else:
+    cast[ptr UncheckedArray[T]](raw)[i] = val
+
+template `[]=`*(vec: duckdbVector, i: int, val: bool) =
+  var raw = duckdbVectorGetData(vec)
+  cast[ptr UncheckedArray[uint8]](raw)[i] = val.uint8
+
+template `[]=`*(vec: duckdbVector, i: int, val: string) =
+  duckdbVectorAssignStringElement(vec, i.idx_t, val.cstring)
+
 proc `$`*(vector: Vector): string =
   case vector.kind
   of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
@@ -146,16 +160,6 @@ proc len*(vec: Vector): int =
   of DuckType.UHugeInt:
     result = vec.valueUHugeint.len
 
-proc isValid*(mask: ValidityMask, idx: int): bool {.inline.} =
-  let
-    entryIdx = idx div BITS_PER_VALUE
-    indexInEntry = idx mod BITS_PER_VALUE
-
-  if entryIdx >= mask.len:
-    return true
-
-  return (mask[entryIdx] and (1'u64 shl indexInEntry)) != 0
-
 proc isValid*(vec: Vector, idx: int): bool {.inline.} =
   return vec.mask.isValid(idx)
 
@@ -166,32 +170,6 @@ template collectValid[T, U](
   collect:
     for i in offset ..< size:
       transform(raw[i])
-
-template collectValidString[T](
-    handle: pointer,
-    vec: Vector,
-    offset, size: int,
-    resultField: var auto,
-    transform: untyped,
-): untyped =
-  resultField = collect:
-    for i in offset ..< size:
-      if vec.isValid(i):
-        let
-          basePtr = cast[pointer](cast[uint](handle) + (i * sizeof(duckdbstringt)).uint)
-          strLength = cast[ptr int32](basePtr)[]
-        var rawStr: cstring
-
-        if strLength <= STRING_INLINE_LENGTH:
-          rawStr = cast[cstring](cast[uint](basePtr) + sizeof(int32).uint)
-        else:
-          rawStr = cast[ptr cstring](cast[uint](basePtr) + sizeof(int32).uint * 2)[]
-        transform(rawStr)
-      else:
-        when T is string:
-          "" # TODO: not sure about this
-        else:
-          newSeq[byte](0) # Empty byte array for blobs
 
 template parseHandle(
     handle: pointer,
@@ -482,19 +460,24 @@ template handleVectorCase(
 template handleVectorCaseString(kind, handle, duckdbVector, size) =
   let validityMask = newValidityMask(duckVector, size)
   var data = newSeq[string](size)
+  let raw = cast[ptr UncheckedArray[duckdbstringt]](handle)
   for i in offset ..< size:
-    let
-      basePtr = cast[pointer](cast[uint](handle) + (i * sizeof(duckdbstringt)).uint)
-      strLength = cast[ptr int32](basePtr)[]
-    var rawStr: cstring
+    if duckdb_string_is_inlined(raw[i]):
+      let stringStruct = cast[struct_duckdb_string_t_value_t_inlined_t](raw[i])
+      var output = newString(stringStruct.length)
+      for i in 0 ..< stringStruct.length.int:
+        output[i] = char(stringStruct.inlined[i])
+      data[i] = output
 
-    if strLength <= STRING_INLINE_LENGTH:
-      rawStr = cast[cstring](cast[uint](basePtr) + sizeof(int32).uint)
     else:
-      rawStr = cast[ptr cstring](cast[uint](basePtr) + sizeof(int32).uint * 2)[]
-    data[i] = $rawStr
+      let stringStruct = cast[struct_duckdb_string_t_value_t](raw[i])
+      var output = $cast[cstring](stringStruct.pointer_field.ptr_field)
+      output.setLen(stringStruct.pointer_field.length)
+      data[i] = output
+
   return Vector(kind: kind, mask: validityMask, valueVarchar: data)
 
+# TODO: this is most likelly wrong
 template handleVectorCaseBlob(kind, handle, duckdbVector, size) =
   let validityMask = newValidityMask(duckVector, size)
   var data = newSeq[seq[byte]](size)
@@ -804,47 +787,6 @@ proc newVector*(duckVector: duckdbVector, size: int, offset: int = 0): Vector =
 
 proc `[]`*(v: Vector, idx: int): Value =
   return vecToValue(v, idx)
-
-proc appendMask*(a: var ValidityMask, b: ValidityMask) {.inline.} =
-  # a &= b
-  # return
-  ## Optimized mask concatenation using 64-bit words
-  let
-    aBits = a.len * BITS_PER_VALUE
-    bBits = b.len * BITS_PER_VALUE
-    totalBits = aBits + bBits
-
-  # Calculate alignment parameters
-  let
-    bitOffset = aBits mod BITS_PER_VALUE
-    wordOffset = aBits div BITS_PER_VALUE
-
-  # TODO: really slow, be smart and make this faster
-  let extend = newSeq[uint64]((totalBits + BITS_PER_VALUE - 1) div BITS_PER_VALUE)
-  for e in extend:
-    a.add(e)
-
-  if bitOffset == 0:
-    # Direct copy when perfectly aligned
-    for i in 0 ..< b.len:
-      a[wordOffset + i] = b[i]
-  else:
-    # Bitwise merging when misaligned
-    let
-      shift = bitOffset
-      inverseShift = BITS_PER_VALUE - shift
-      lastA = a[^1] # Get last element before extending
-
-    # Process first element with carry-over
-    var carry = lastA
-    for i in 0 ..< b.len:
-      let current = b[i]
-      a[wordOffset + i] = carry or (current shl shift)
-      carry = current shr inverseShift
-
-    # Handle final carry
-    if carry != 0:
-      a[wordOffset + b.len] = carry
 
 proc `&=`*(left: var Vector, right: Vector): void =
   if left.kind != right.kind:

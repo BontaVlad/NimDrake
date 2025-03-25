@@ -112,7 +112,7 @@ test isParallel="false":
     if {{isParallel}} =~ truthy_regex; then
         echo "Running tests in parallel..."
         # Run tests in parallel using xargs
-        echo "$TEST_FILES" | xargs -n 1 -P 4 -I {} bash -c 'run_test "$@"' _ {}
+        echo "$TEST_FILES" | xargs -n 1 -P 8 -I {} bash -c 'run_test "$@"' _ {}
     else
         echo "Running tests sequentially..."
         # Run tests sequentially
