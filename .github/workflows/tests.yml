@@ -17,20 +17,56 @@ jobs:
           - ubuntu-latest
     steps:
     - uses: actions/checkout@v2
+
+    # Cache Nim compiler and packages
+    - name: Cache Nim
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.nimble
+          ~/.cache/nim
+        key: ${{ runner.os }}-nim-${{ matrix.version }}-${{ hashFiles('*.nimble') }}
+        restore-keys: |
+          ${{ runner.os }}-nim-${{ matrix.version }}-
+          ${{ runner.os }}-nim-
+
     - uses: iffy/install-nim@v5
       with:
         version: ${{ matrix.version }}
+
     - uses: extractions/setup-just@v2
+
+    # Cache apt packages (clang and libclang-dev)
+    - name: Cache apt packages
+      uses: actions/cache@v3
+      id: cache-apt
+      with:
+        path: /var/cache/apt/archives
+        key: ${{ runner.os }}-apt-${{ hashFiles('.github/apt-packages.txt') }}
+
     - name: Install dependencies
       run: |
-        sudo apt install clang libclang-dev
-    # Install DuckDB
+        sudo apt-get update
+        sudo apt-get install -y clang libclang-dev
+
+    # Cache DuckDB downloads
+    - name: Cache DuckDB
+      uses: actions/cache@v3
+      id: cache-duckdb
+      with:
+        path: ./duckdb-cache
+        key: ${{ runner.os }}-duckdb-1.1.2
+
     - name: Install DuckDB
       run: |
-        wget https://github.com/duckdb/duckdb/releases/download/v1.1.2/libduckdb-linux-amd64.zip
-        unzip libduckdb-linux-amd64.zip
-        sudo mv libduckdb.so /usr/lib/
+        if [ ! -f "./duckdb-cache/libduckdb.so" ]; then
+          mkdir -p ./duckdb-cache
+          wget https://github.com/duckdb/duckdb/releases/download/v1.1.2/libduckdb-linux-amd64.zip
+          unzip libduckdb-linux-amd64.zip -d ./duckdb-cache
+        fi
+        sudo cp ./duckdb-cache/libduckdb.so /usr/lib/
         sudo ldconfig
+
     - name: Test and Benchmark
       run: |
         nimble install -y
