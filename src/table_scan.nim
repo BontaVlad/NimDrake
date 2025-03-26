@@ -1,5 +1,5 @@
 import std/[locks, sequtils, tables, strformat, math]
-import /[api, database, dataframe, query, table_functions, types, vector, value]
+import /[api, database, dataframe, datachunk, query, table_functions, types, vector, value]
 
 type
   ExtraData* = ref object of RootObj
@@ -29,10 +29,11 @@ proc destroyLocalData(p: pointer) {.cdecl.} =
 
 # TODO  this needs work
 proc scanColumn(
-    kind: DuckType,
     values: Vector,
-    rowOffset, scanCount, resultIdx: int,
-    chunk: duckdb_data_chunk,
+    rowOffset: int,
+    scanCount: int,
+    resultIdx: int,
+    chunk: duckdbDataChunk,
 ) =
   let vec = duckdb_data_chunk_get_vector(chunk, resultIdx.idx_t)
 
@@ -41,9 +42,9 @@ proc scanColumn(
     raw = duckdb_vector_get_data(vec)
     validity = duckdb_vector_get_validity(vec)
 
-  case kind
+  case values.kind
   of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
-    raise newException(ValueError, fmt"got invalid enum type: {kind}")
+    raise newException(ValueError, fmt"got invalid enum type: {values.kind}")
   of DuckType.Boolean:
     var resultArray = cast[ptr UncheckedArray[uint8]](raw)
     for i, e in values.valueBoolean[rowOffset ..< scanCount]:
@@ -193,42 +194,37 @@ proc bindFunction(info: BindInfo) =
     df = cast[ExtraData](info.mainFunction.extraData).data[name]
     data = BindData(df: df)
 
-  duckdb_bind_set_cardinality(info.handle, len(df).uint64, true)
+  duckdbBindSetCardinality(info.handle, len(df).uint64, true)
   for column in df.columns:
-    info.add_result_column(column.name, column.kind)
+    info.addResultColumn(column.name, column.kind)
   GC_ref(data)
-  duckdb_bind_set_bind_data(info.handle, cast[ptr BindData](data), destroyBind)
+  duckdbBindSetBindData(info.handle, cast[ptr BindData](data), destroyBind)
 
 proc initFunction(info: InitInfo) =
   let
-    bindInfo = cast[BindData](duckdb_init_get_bind_data(info.handle))
+    bindInfo = cast[BindData](duckdbInitGetBindData(info.handle))
     maxThreads = ceil(len(bindInfo.df) / ROW_GROUP_SIZE)
   var rowLock: Lock
   initLock rowLock
   let data = GlobalData(pos: 0, lock: rowLock)
-  duckdb_init_set_max_threads(info.handle, max_threads.idx_t)
+  duckdbInitSetMaxThreads(info.handle, maxThreads.idx_t)
   GC_ref(data)
-  duckdb_init_set_init_data(info.handle, cast[ptr GlobalData](data), destroyGlobalData)
+  duckdbInitSetInitData(info.handle, cast[ptr GlobalData](data), destroyGlobalData)
 
 proc initLocalFunction(info: InitInfo) =
   let
-    bindInfo = cast[BindData](duckdb_init_get_bind_data(info.handle))
+    bindInfo = cast[BindData](duckdbInitGetBindData(info.handle))
     data = LocalData(currentPos: 0, endPos: 0, rowCount: bindInfo.df.len)
-    columnCount = duckdb_init_get_column_count(info.handle)
-
-  let columns = bindInfo.df.columns.toSeq
-  for i in 0 ..< columnCount:
-    let colIdx = duckdb_init_get_column_index(info.handle, i)
-    data.columns.add(columns[colIdx])
 
   GC_ref(data)
-  duckdb_init_set_init_data(info.handle, cast[ptr LocalData](data), destroyLocalData)
+  duckdbInitSetInitData(info.handle, cast[ptr LocalData](data), destroyLocalData)
 
-proc mainFunction(info: FunctionInfo, chunk: duckdb_data_chunk) =
-  let bindInfo = cast[BindData](duckdb_function_get_bind_data(info))
+proc mainFunction(info: FunctionInfo, duckdbChunk: duckdbDataChunk) =
+  let bindInfo = cast[BindData](duckdbFunctionGetBindData(info))
   var
-    globalData = cast[GlobalData](duckdb_function_get_init_data(info))
-    localData = cast[LocalData](duckdb_function_get_local_init_data(info))
+    globalData = cast[GlobalData](duckdbFunctionGetInitData(info))
+    localData = cast[LocalData](duckdbFunctionGetLocalInitData(info))
+    chunk = newDataChunk(duckdbChunk, shouldDestroy=false)
 
   # Set the boundries for another chunk
   if localData.currentPos >= localData.endPos:
@@ -254,14 +250,13 @@ proc mainFunction(info: FunctionInfo, chunk: duckdb_data_chunk) =
 
   # set result array
   var resultIdx = 0
-  for col in localData.columns:
+  for colIdx in 0 ..< chunk.columnCount:
     scanColumn(
-      col.kind, bindInfo.df.values[col.idx], currentRow, scanCount, resultIdx, chunk
+      bindInfo.df.values[colIdx], currentRow, scanCount, resultIdx, chunk.handle
     )
     resultIdx += 1
 
-  # GC_ref(chunk)
-  duckdb_data_chunk_set_size(chunk, scanCount.idx_t)
+  chunk.setLen(scanCount)
 
 proc newExtraData(): ExtraData =
   result = ExtraData(data: initTable[string, DataFrame]())

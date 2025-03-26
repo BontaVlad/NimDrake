@@ -71,7 +71,7 @@ proc newDataChunk*(handle: duckdb_data_chunk, shouldDestroy: bool = true): DataC
 proc len*(chunk: DataChunk): int =
   result = duckdbDataChunkGetSize(chunk.handle).int
 
-proc `len=`*(chunk: DataChunk, sz: int) =
+proc setLen*(chunk: DataChunk, sz: int) =
   duckdbDataChunkSetSize(chunk.handle, sz.idx_t)
 
 proc `[]=`*[T](chunk: var DataChunk, colIdx: int, values: seq[T]) =
@@ -89,7 +89,7 @@ proc `[]=`*[T](chunk: var DataChunk, colIdx: int, values: seq[T]) =
   for i, e in values:
     vec[i] = e
 
-  chunk.len = len(values)
+  chunk.setLen(len(values))
 
 proc `[]`*(chunk: DataChunk, colIdx: int): Vector =
   let vec = duckdbDataChunkGetVector(chunk.handle, colIdx.idx_t)

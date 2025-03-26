@@ -8,7 +8,7 @@ import uuid4
 
 import /[api, value, types]
 
-template `[]=`*[T: SomeNumber](vec: duckdbVector, i: int, val: T) =
+template `[]=`*[T: SomeInteger](vec: duckdbVector, i: int, val: T) =
   var raw = duckdbVectorGetData(vec)
   when T is int:
     cast[ptr UncheckedArray[cint]](raw)[i] = cint(val)
@@ -782,7 +782,7 @@ proc newVector*(duckVector: duckdbVector, size: int, offset: int = 0): Vector =
 proc `[]`*(v: Vector, idx: int): Value =
   return vecToValue(v, idx)
 
-proc `&=`*(left: var Vector, right: Vector): void =
+proc `&=`*(left: var Vector, right: sink Vector): void =
   if left.kind != right.kind:
     raise newException(
       ValueError,

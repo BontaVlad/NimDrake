@@ -1,3 +1,5 @@
+import std/strformat
+
 when defined(useFuthark):
   import os, futhark
   # Tell futhark where to find the C libraries you will compile with, and what
@@ -15,3 +17,7 @@ else:
 const
   VECTOR_SIZE* = 2048
   ROW_GROUP_SIZE* = VECTOR_SIZE * 100
+
+let runtimeVectorSize = duckdb_vector_size().int
+if runtimeVectorSize != VECTOR_SIZE:
+  raise newException(ValueError, fmt"Duckdb was compiled for a size of {VECTOR_SIZE}, this configuration of DUCKDB was set at {runtimeVectorSize}")

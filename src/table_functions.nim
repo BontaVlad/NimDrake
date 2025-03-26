@@ -1,6 +1,7 @@
 import std/[macros, tables, sequtils, sugar]
 import fusion/[matching, astdsl]
 import /[api, datachunk, database, types, exceptions, value]
+import tools/wrench
 
 type
   FunctionInfo* = object of duckdbFunctionInfo
@@ -145,42 +146,8 @@ proc createBindFunctionStmt(
     params: seq[NimNode],
     producerReturnType: DuckType,
 ): NimNode =
-  let typeToField = {
-    DuckType.Invalid: ident"valueInvalid",
-    DuckType.ANY: ident"valueInvalid",
-    DuckType.VARINT: ident"valueInvalid",
-    DuckType.SQLNULL: ident"valueInvalid",
-    DuckType.Boolean: ident"valueBoolean",
-    DuckType.TinyInt: ident"valueTinyint",
-    DuckType.SmallInt: ident"valueSmallint",
-    DuckType.Integer: ident"valueInteger",
-    DuckType.BigInt: ident"valueBigint",
-    DuckType.UTinyInt: ident"valueUTinyint",
-    DuckType.USmallInt: ident"valueUSmallint",
-    DuckType.UInteger: ident"valueUInteger",
-    DuckType.UBigInt: ident"valueUBigint",
-    DuckType.Float: ident"valueFloat",
-    DuckType.Double: ident"valueDouble",
-    DuckType.Timestamp: ident"valueTimestamp",
-    DuckType.Date: ident"valueDate",
-    DuckType.Time: ident"valueTime",
-    DuckType.Interval: ident"valueInterval",
-    DuckType.HugeInt: ident"valueHugeint",
-    DuckType.Varchar: ident"valueVarchar",
-    DuckType.Blob: ident"valueBlob",
-    DuckType.Decimal: ident"valueDecimal",
-    DuckType.TimestampS: ident"valueTimestampS",
-    DuckType.TimestampMs: ident"valueTimestampMs",
-    DuckType.TimestampNs: ident"valueTimestampNs",
-    DuckType.Enum: ident"valueEnum",
-    DuckType.List: ident"valueList",
-    DuckType.Struct: ident"valueStruct",
-    DuckType.Map: ident"valueMap",
-    DuckType.UUID: ident"valueUUID",
-    DuckType.Union: ident"valueUnion",
-    DuckType.Bit: ident"valueBit",
-    DuckType.TimeTz: ident"valueTimeTz",
-  }.toTable
+
+  generateTypeToField("typeToField", Vector)
 
   var bindDataCreateStmt = newNimNode(nnkObjConstr).add(bindDataName)
   var paramCount = 0
@@ -244,9 +211,7 @@ macro producer*(body: typed): untyped =
     bindDataName = genSym(nskType, "BindData")
     bindDataSymName = genSym(nskVar, "bindData")
     initDataName = genSym(nskType, "InitData")
-    # destroyBindDataName = ident(genSym(nskProc, "destroyBind"))
     destroyBindData = genSym(nskProc, "destroyBind")
-    # destroyInitDataName = genSym(nskProc, "destroyInit")
     destroyInitData = genSym(nskProc, "destroyInit")
 
   let bindDataNode = createBindData(bindDataName, params)
@@ -302,7 +267,7 @@ macro producer*(body: typed): untyped =
       `producerIterator`
 
       var count = 0
-      while not initInfo.exausted and initInfo.pos < duckdbVectorSize().int:
+      while not initInfo.exausted and initInfo.pos < VECTOR_SIZE:
         let res = `producerInvoke`
         if finished(`producerIteratorName`):
           initInfo.exausted = true
