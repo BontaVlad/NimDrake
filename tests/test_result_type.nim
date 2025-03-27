@@ -7,7 +7,7 @@ import utils
 
 # TODO: expand tests with more scenarios, especially the unhappy types
 
-suite "results":
+suite "Test result types":
   test "Test Boolean result type":
     let conn = newDatabase().connect()
     conn.execute("CREATE TABLE booleans(i BOOLEAN);")

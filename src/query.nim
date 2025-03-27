@@ -5,7 +5,6 @@ import /[api, types, database, query_result, datachunk, value, exceptions]
 
 type
   Query* = distinct string
-  Statement* = distinct ptr duckdbPreparedStatement
   Values = (tuple or object)
   Appender* = distinct ptr duckdbAppender
   AppenderColumn* = object
@@ -16,12 +15,6 @@ type
     name*: string
     idx*: int
     tpy*: DuckType
-
-converter toBase*(s: ptr Statement): ptr duckdbPreparedStatement =
-  cast[ptr duckdbPreparedStatement](s)
-
-converter toBase*(s: Statement): duckdbPreparedStatement =
-  cast[duckdbPreparedStatement](s)
 
 converter toBase*(a: ptr Appender): ptr duckdbappender =
   cast[ptr duckdbappender](a)
@@ -41,23 +34,10 @@ proc `=copy`*(
   dest: var Appender, source: Appender
 ) {.error: "Appender cannot be copied".}
 
-proc `=dup`*(
-  statement: Statement
-): Statement {.error: "Statement cannot be duplicated".}
-
-proc `=copy`*(
-  dest: var Statement, source: Statement
-) {.error: "Statement cannot be copied".}
-
 proc `=destroy`*(appender: Appender) =
   ## Destroys an appender instance if it exists
   if not isNil(appender.addr):
     discard duckdbAppenderDestroy(appender.addr)
-
-proc `=destroy`*(statement: Statement) =
-  ## Destroys a prepared statement instance if it exists
-  if not isNil(statement.addr):
-    duckdbDestroyPrepare(statement.addr)
 
 proc newStatement*(con: Connection, query: Query): Statement =
   ## Creates a new prepared statement from a connection and query
@@ -381,6 +361,11 @@ proc execute*[T: Values](
     )
   check(duckdbExecutePrepared(statement, result.addr), result.error)
 
+proc execute*(con: Connection, statement: Statement): QueryResult {.discardable.} =
+  ## Executes a prepared statement with provided arguments
+  result = QueryResult()
+  check(duckdbExecutePrepared(statement, result.addr), result.error)
+
 proc execute*(con: Connection, query: Query): QueryResult {.discardable.} =
   ## Executes a raw query without any prepared arguments
   result = QueryResult()
@@ -392,6 +377,13 @@ proc execute*[T: Values](
   ## Executes a query with arguments by first preparing a statement
   let statement = newStatement(con, query)
   result = con.execute(statement, args)
+
+proc execute*(pending: PendingQueryResult): QueryResult {.discardable.} =
+  result = QueryResult()
+  check(duckdbExecutePending(pending, result.addr), result.error)
+
+proc executeTask*(pending: PendingQueryResult): duckdbPendingState =
+  return duckdbPendingExecuteTask(pending)
 
 proc flush*(appender: Appender) {.discardable.} =
   let error = duckdb_appender_flush(appender)

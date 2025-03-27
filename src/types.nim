@@ -17,8 +17,9 @@ type
     mask: ptr UncheckedArray[uint64]
     size: int
 
+  Statement* = distinct ptr duckdbPreparedStatement
+  PendingQueryResult* = distinct ptr duckdbPendingResult
   QueryResult* = object of duckdbResult
-  PendingQueryResult* = object of duckdbPendingResult
 
   DuckType* {.pure.} = enum
     Invalid = enumDuckdbType.DUCKDB_TYPE_INVALID
@@ -145,29 +146,51 @@ type
     name*: string
     kind*: DuckType
 
+converter toBase*(s: ptr Statement): ptr duckdbPreparedStatement =
+  cast[ptr duckdbPreparedStatement](s)
+
+converter toBase*(s: Statement): duckdbPreparedStatement =
+  cast[duckdbPreparedStatement](s)
+
+converter toBase*(p: ptr PendingQueryResult): ptr duckdbPendingResult =
+  cast[ptr duckdbPendingResult](p)
+
+converter toBase*(p: PendingQueryResult): duckdbPendingResult =
+  cast[duckdbPendingResult](p)
+
+proc `=destroy`*(statement: Statement) =
+  ## Destroys a prepared statement instance if it exists
+  if not isNil(statement.addr):
+    duckdbDestroyPrepare(statement.addr)
+
+proc `=dup`*(
+  statement: Statement
+): Statement {.error: "Statement cannot be duplicated".}
+
+proc `=copy`*(
+  dest: var Statement, source: Statement
+) {.error: "Statement cannot be copied".}
+
+
 proc `=destroy`*(ltp: LogicalType) =
   if not isNil(ltp.addr) and not isNil(ltp.handle.addr):
-    duckdb_destroy_logical_type(ltp.handle.addr)
+    duckdbDestroyLogicalType(ltp.handle.addr)
 
 proc `=destroy`*(qresult: QueryResult) =
   if not isNil(qresult.addr):
     duckdbDestroyResult(qresult.addr)
 
+proc `=destroy`*(pqresult: PendingQueryResult) =
+  if not isNil(pqresult.addr):
+    duckdbDestroyPending(pqresult.addr)
+
 proc `$`*(x: Timestamp): string =
   $DateTime(x)
 
 proc toTime*(x: Timestamp): Time {.borrow.}
-
 proc `==`*(x, y: Timestamp): bool {.borrow.}
-
 proc format*(dt: Timestamp, f: string): string =
   return DateTime(dt).format(f)
-
-converter toBase*(p: ptr PendingQueryResult): ptr duckdb_pending_result =
-  cast[ptr duckdb_pending_result](p)
-
-converter toBase*(p: PendingQueryResult): duckdb_pending_result =
-  cast[duckdb_pending_result](p)
 
 proc newValidityMask*(): ValidityMask =
   return ValidityMask(size: 0, mask: nil)

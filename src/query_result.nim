@@ -1,6 +1,6 @@
 import std/[math, tables, sequtils]
 
-import /[api, datachunk, dataframe, types, vector]
+import /[api, exceptions, datachunk, dataframe, types, vector]
 
 proc isStreaming(qresult: QueryResult): bool =
   return duckdbResultIsStreaming(qresult)
@@ -13,6 +13,14 @@ proc newColumn(qresult: QueryResult, idx: int): Column =
     idx = idx,
     name = $duckdbColumnName(qresult.addr, idx.idx_t),
     kind = newDuckType(duckdbColumnType(qresult.addr, idx.idx_t)),
+  )
+
+proc newPendingResult*(statement: Statement): PendingQueryResult =
+  result = PendingQueryResult(nil)
+  check(
+    duckdbPendingPrepared(statement, result.addr),
+    "Failed to execute the pending prepared statement",
+    `=destroy`(result)
   )
 
 iterator columns(qresult: QueryResult): Column =
@@ -86,6 +94,9 @@ proc df*(qresult: QueryResult): DataFrame =
 
 proc error*(qresult: QueryResult): string =
   return $duckdbResultError(qresult.addr)
+
+proc error*(pqresult: PendingQueryResult): string =
+  return $duckdbPendingError(pqresult)
 
 proc `$`*(qresult: QueryResult): string =
   return $qresult.df()

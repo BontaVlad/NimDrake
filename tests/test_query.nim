@@ -611,7 +611,6 @@ suite "Test appender dispatch":
     check outcome[2].valueVarchar[1] == "Hello, Duckdb"
 
   test "Complex varchar":
-    skip()
     let conn = newDatabase().connect()
 
     let query = """
@@ -626,4 +625,36 @@ suite "Test appender dispatch":
         range(5000) tbl(i);
     """
 
-    # echo conn.execute(query)
+suite "Test pending statement queries":
+
+  test "Basic pending query, execute directly, skipping asking the task future":
+    let
+      conn = newDatabase().connect()
+      prepared = conn.newStatement("SELECT SUM(i) FROM range(1000000) tbl(i);")
+      pending = newPendingResult(prepared)
+
+    let outcome = pending.execute().fetchall()
+    check outcome[0].valueHugeInt[0] == i128("499999500000")
+
+  test "Basic pending query asking the task future":
+    let
+      conn = newDatabase().connect()
+      prepared = conn.newStatement("SELECT SUM(i) FROM range(1000000) tbl(i);")
+      pending = newPendingResult(prepared)
+
+    while true:
+      let state = pending.executeTask()
+      case state:
+      of DUCKDB_PENDING_RESULT_READY:
+        break
+      of DUCKDB_PENDING_RESULT_NOT_READY:
+        continue
+      of DUCKDB_PENDING_ERROR:
+        break
+        # echo pending.error
+      of DUCKDB_PENDING_NO_TASKS_AVAILABLE:
+        continue
+        # echo "no tasks"
+
+    let outcome = pending.execute().fetchall()
+    check outcome[0].valueHugeInt[0] == i128("499999500000")
