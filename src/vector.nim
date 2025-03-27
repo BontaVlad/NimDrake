@@ -8,7 +8,7 @@ import uuid4
 
 import /[api, value, types]
 
-template `[]=`*[T: SomeInteger](vec: duckdbVector, i: int, val: T) =
+template `[]=`*[T: SomeNumber](vec: duckdbVector, i: int, val: T) =
   var raw = duckdbVectorGetData(vec)
   when T is int:
     cast[ptr UncheckedArray[cint]](raw)[i] = cint(val)
