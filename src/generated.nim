@@ -36,6 +36,8 @@ type enum_DUCKDB_TYPE* {.size: sizeof(cuint).} = enum
   DUCKDB_TYPE_ANY = 34
   DUCKDB_TYPE_VARINT = 35
   DUCKDB_TYPE_SQLNULL = 36
+  DUCKDB_TYPE_STRING_LITERAL = 37
+  DUCKDB_TYPE_INTEGER_LITERAL = 38
 
 type enum_duckdb_state* {.size: sizeof(cuint).} = enum
   DuckDBSuccess = 0
@@ -133,101 +135,116 @@ type enum_duckdb_cast_mode* {.size: sizeof(cuint).} = enum
   DUCKDB_CAST_TRY = 1
 
 type
-  duckdb_type* = enum_DUCKDB_TYPE ## Generated based on /usr/include/duckdb.h:138:3
-  duckdb_state* = enum_duckdb_state ## Generated based on /usr/include/duckdb.h:140:66
+  duckdb_type* = enum_DUCKDB_TYPE ## Generated based on /usr/include/duckdb.h:141:3
+  duckdb_state* = enum_duckdb_state ## Generated based on /usr/include/duckdb.h:143:66
   duckdb_pending_state* = enum_duckdb_pending_state
-    ## Generated based on /usr/include/duckdb.h:147:3
+    ## Generated based on /usr/include/duckdb.h:150:3
   duckdb_result_type* = enum_duckdb_result_type
-    ## Generated based on /usr/include/duckdb.h:154:3
+    ## Generated based on /usr/include/duckdb.h:157:3
   duckdb_statement_type* = enum_duckdb_statement_type
-    ## Generated based on /usr/include/duckdb.h:185:3
+    ## Generated based on /usr/include/duckdb.h:188:3
   duckdb_error_type* = enum_duckdb_error_type
-    ## Generated based on /usr/include/duckdb.h:231:3
+    ## Generated based on /usr/include/duckdb.h:234:3
   duckdb_cast_mode* = enum_duckdb_cast_mode
-    ## Generated based on /usr/include/duckdb.h:233:79
-  idx_t* = uint64 ## Generated based on /usr/include/duckdb.h:240:18
+    ## Generated based on /usr/include/duckdb.h:236:79
+  idx_t* = uint64 ## Generated based on /usr/include/duckdb.h:243:18
   duckdb_delete_callback_t* = proc(a0: pointer): void {.cdecl.}
-    ## Generated based on /usr/include/duckdb.h:244:16
-  duckdb_task_state* = pointer ## Generated based on /usr/include/duckdb.h:247:15
+    ## Generated based on /usr/include/duckdb.h:247:16
+  duckdb_task_state* = pointer ## Generated based on /usr/include/duckdb.h:250:15
   struct_duckdb_date* {.pure, inheritable, bycopy.} = object
-    days*: int32 ## Generated based on /usr/include/duckdb.h:255:9
+    days*: int32 ## Generated based on /usr/include/duckdb.h:258:9
 
-  duckdb_date* = struct_duckdb_date ## Generated based on /usr/include/duckdb.h:257:3
+  duckdb_date* = struct_duckdb_date ## Generated based on /usr/include/duckdb.h:260:3
   struct_duckdb_date_struct* {.pure, inheritable, bycopy.} = object
-    year*: int32 ## Generated based on /usr/include/duckdb.h:258:9
+    year*: int32 ## Generated based on /usr/include/duckdb.h:261:9
     month*: int8
     day*: int8
 
   duckdb_date_struct* = struct_duckdb_date_struct
-    ## Generated based on /usr/include/duckdb.h:262:3
+    ## Generated based on /usr/include/duckdb.h:265:3
   struct_duckdb_time* {.pure, inheritable, bycopy.} = object
-    micros*: int64 ## Generated based on /usr/include/duckdb.h:266:9
+    micros*: int64 ## Generated based on /usr/include/duckdb.h:269:9
 
-  duckdb_time* = struct_duckdb_time ## Generated based on /usr/include/duckdb.h:268:3
+  duckdb_time* = struct_duckdb_time ## Generated based on /usr/include/duckdb.h:271:3
   struct_duckdb_time_struct* {.pure, inheritable, bycopy.} = object
-    hour*: int8 ## Generated based on /usr/include/duckdb.h:269:9
+    hour*: int8 ## Generated based on /usr/include/duckdb.h:272:9
     min*: int8
     sec*: int8
     micros*: int32
 
   duckdb_time_struct* = struct_duckdb_time_struct
-    ## Generated based on /usr/include/duckdb.h:274:3
+    ## Generated based on /usr/include/duckdb.h:277:3
   struct_duckdb_time_tz* {.pure, inheritable, bycopy.} = object
-    bits*: uint64 ## Generated based on /usr/include/duckdb.h:277:9
+    bits*: uint64 ## Generated based on /usr/include/duckdb.h:280:9
 
   duckdb_time_tz* = struct_duckdb_time_tz
-    ## Generated based on /usr/include/duckdb.h:279:3
+    ## Generated based on /usr/include/duckdb.h:282:3
   struct_duckdb_time_tz_struct* {.pure, inheritable, bycopy.} = object
-    time*: duckdb_time_struct ## Generated based on /usr/include/duckdb.h:280:9
+    time*: duckdb_time_struct ## Generated based on /usr/include/duckdb.h:283:9
     offset*: int32
 
   duckdb_time_tz_struct* = struct_duckdb_time_tz_struct
-    ## Generated based on /usr/include/duckdb.h:283:3
+    ## Generated based on /usr/include/duckdb.h:286:3
   struct_duckdb_timestamp* {.pure, inheritable, bycopy.} = object
-    micros*: int64 ## Generated based on /usr/include/duckdb.h:287:9
+    micros*: int64 ## Generated based on /usr/include/duckdb.h:290:9
 
   duckdb_timestamp* = struct_duckdb_timestamp
-    ## Generated based on /usr/include/duckdb.h:289:3
+    ## Generated based on /usr/include/duckdb.h:292:3
+  struct_duckdb_timestamp_s* {.pure, inheritable, bycopy.} = object
+    seconds*: int64 ## Generated based on /usr/include/duckdb.h:295:9
+
+  duckdb_timestamp_s* = struct_duckdb_timestamp_s
+    ## Generated based on /usr/include/duckdb.h:297:3
+  struct_duckdb_timestamp_ms* {.pure, inheritable, bycopy.} = object
+    millis*: int64 ## Generated based on /usr/include/duckdb.h:300:9
+
+  duckdb_timestamp_ms* = struct_duckdb_timestamp_ms
+    ## Generated based on /usr/include/duckdb.h:302:3
+  struct_duckdb_timestamp_ns* {.pure, inheritable, bycopy.} = object
+    nanos*: int64 ## Generated based on /usr/include/duckdb.h:305:9
+
+  duckdb_timestamp_ns* = struct_duckdb_timestamp_ns
+    ## Generated based on /usr/include/duckdb.h:307:3
   struct_duckdb_timestamp_struct* {.pure, inheritable, bycopy.} = object
-    date*: duckdb_date_struct ## Generated based on /usr/include/duckdb.h:290:9
+    date*: duckdb_date_struct ## Generated based on /usr/include/duckdb.h:309:9
     time*: duckdb_time_struct
 
   duckdb_timestamp_struct* = struct_duckdb_timestamp_struct
-    ## Generated based on /usr/include/duckdb.h:293:3
+    ## Generated based on /usr/include/duckdb.h:312:3
   struct_duckdb_interval* {.pure, inheritable, bycopy.} = object
-    months*: int32 ## Generated based on /usr/include/duckdb.h:294:9
+    months*: int32 ## Generated based on /usr/include/duckdb.h:314:9
     days*: int32
     micros*: int64
 
   duckdb_interval* = struct_duckdb_interval
-    ## Generated based on /usr/include/duckdb.h:298:3
+    ## Generated based on /usr/include/duckdb.h:318:3
   struct_duckdb_hugeint* {.pure, inheritable, bycopy.} = object
-    lower*: uint64 ## Generated based on /usr/include/duckdb.h:303:9
+    lower*: uint64 ## Generated based on /usr/include/duckdb.h:323:9
     upper*: int64
 
   duckdb_hugeint* = struct_duckdb_hugeint
-    ## Generated based on /usr/include/duckdb.h:306:3
+    ## Generated based on /usr/include/duckdb.h:326:3
   struct_duckdb_uhugeint* {.pure, inheritable, bycopy.} = object
-    lower*: uint64 ## Generated based on /usr/include/duckdb.h:307:9
+    lower*: uint64 ## Generated based on /usr/include/duckdb.h:327:9
     upper*: uint64
 
   duckdb_uhugeint* = struct_duckdb_uhugeint
-    ## Generated based on /usr/include/duckdb.h:310:3
+    ## Generated based on /usr/include/duckdb.h:330:3
   struct_duckdb_decimal* {.pure, inheritable, bycopy.} = object
-    width*: uint8 ## Generated based on /usr/include/duckdb.h:313:9
+    width*: uint8 ## Generated based on /usr/include/duckdb.h:333:9
     scale*: uint8
     value*: duckdb_hugeint
 
   duckdb_decimal* = struct_duckdb_decimal
-    ## Generated based on /usr/include/duckdb.h:317:3
+    ## Generated based on /usr/include/duckdb.h:337:3
   struct_duckdb_query_progress_type* {.pure, inheritable, bycopy.} = object
-    percentage*: cdouble ## Generated based on /usr/include/duckdb.h:320:9
+    percentage*: cdouble ## Generated based on /usr/include/duckdb.h:340:9
     rows_processed*: uint64
     total_rows_to_process*: uint64
 
   duckdb_query_progress_type* = struct_duckdb_query_progress_type
-    ## Generated based on /usr/include/duckdb.h:324:3
-  struct_duckdb_string_t_value_t_pointer_field_t* {.pure, inheritable, bycopy.} = object
+    ## Generated based on /usr/include/duckdb.h:344:3
+  struct_duckdb_string_t_value_t_pointer_t* {.pure, inheritable, bycopy.} = object
     length*: uint32
     prefix*: array[4'i64, cschar]
     ptr_field*: cstring
@@ -237,243 +254,275 @@ type
     inlined*: array[12'i64, cschar]
 
   struct_duckdb_string_t_value_t* {.union, bycopy.} = object
-    pointer_field*: struct_duckdb_string_t_value_t_pointer_field_t
+    pointer*: struct_duckdb_string_t_value_t_pointer_t
     inlined*: struct_duckdb_string_t_value_t_inlined_t
 
   struct_duckdb_string_t* {.pure, inheritable, bycopy.} = object
     value*: struct_duckdb_string_t_value_t
-      ## Generated based on /usr/include/duckdb.h:330:9
+      ## Generated based on /usr/include/duckdb.h:350:9
 
   duckdb_string_t* = struct_duckdb_string_t
-    ## Generated based on /usr/include/duckdb.h:342:3
+    ## Generated based on /usr/include/duckdb.h:362:3
   struct_duckdb_list_entry* {.pure, inheritable, bycopy.} = object
-    offset*: uint64 ## Generated based on /usr/include/duckdb.h:347:9
+    offset*: uint64 ## Generated based on /usr/include/duckdb.h:367:9
     length*: uint64
 
   duckdb_list_entry* = struct_duckdb_list_entry
-    ## Generated based on /usr/include/duckdb.h:350:3
+    ## Generated based on /usr/include/duckdb.h:370:3
   struct_duckdb_column* {.pure, inheritable, bycopy.} = object
-    deprecated_data*: pointer ## Generated based on /usr/include/duckdb.h:356:9
+    deprecated_data*: pointer ## Generated based on /usr/include/duckdb.h:376:9
     deprecated_nullmask*: ptr bool
     deprecated_type*: duckdb_type
     deprecated_name*: cstring
     internal_data*: pointer
 
-  duckdb_column* = struct_duckdb_column ## Generated based on /usr/include/duckdb.h:366:3
+  duckdb_column* = struct_duckdb_column ## Generated based on /usr/include/duckdb.h:386:3
   struct_duckdb_vector* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:370:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:390:16
 
   duckdb_vector* = ptr struct_duckdb_vector
-    ## Generated based on /usr/include/duckdb.h:372:5
+    ## Generated based on /usr/include/duckdb.h:392:5
   struct_duckdb_string* {.pure, inheritable, bycopy.} = object
-    data*: cstring ## Generated based on /usr/include/duckdb.h:380:9
+    data*: cstring ## Generated based on /usr/include/duckdb.h:400:9
     size*: idx_t
 
-  duckdb_string* = struct_duckdb_string ## Generated based on /usr/include/duckdb.h:383:3
+  duckdb_string* = struct_duckdb_string ## Generated based on /usr/include/duckdb.h:403:3
   struct_duckdb_blob* {.pure, inheritable, bycopy.} = object
-    data*: pointer ## Generated based on /usr/include/duckdb.h:387:9
+    data*: pointer ## Generated based on /usr/include/duckdb.h:407:9
     size*: idx_t
 
-  duckdb_blob* = struct_duckdb_blob ## Generated based on /usr/include/duckdb.h:390:3
+  duckdb_blob* = struct_duckdb_blob ## Generated based on /usr/include/duckdb.h:410:3
+  struct_duckdb_bit* {.pure, inheritable, bycopy.} = object
+    data*: ptr uint8 ## Generated based on /usr/include/duckdb.h:417:9
+    size*: idx_t
+
+  duckdb_bit* = struct_duckdb_bit ## Generated based on /usr/include/duckdb.h:420:3
+  struct_duckdb_varint* {.pure, inheritable, bycopy.} = object
+    data*: ptr uint8 ## Generated based on /usr/include/duckdb.h:425:9
+    size*: idx_t
+    is_negative*: bool
+
+  duckdb_varint* = struct_duckdb_varint ## Generated based on /usr/include/duckdb.h:429:3
   struct_duckdb_result* {.pure, inheritable, bycopy.} = object
-    deprecated_column_count*: idx_t ## Generated based on /usr/include/duckdb.h:394:9
+    deprecated_column_count*: idx_t ## Generated based on /usr/include/duckdb.h:433:9
     deprecated_row_count*: idx_t
     deprecated_rows_changed*: idx_t
     deprecated_columns*: ptr duckdb_column
     deprecated_error_message*: cstring
     internal_data*: pointer
 
-  duckdb_result* = struct_duckdb_result ## Generated based on /usr/include/duckdb.h:406:3
+  duckdb_result* = struct_duckdb_result ## Generated based on /usr/include/duckdb.h:445:3
+  struct_duckdb_instance_cache* {.pure, inheritable, bycopy.} = object
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:448:16
+
+  duckdb_instance_cache* = ptr struct_duckdb_instance_cache
+    ## Generated based on /usr/include/duckdb.h:450:5
   struct_duckdb_database* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:409:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:453:16
 
   duckdb_database* = ptr struct_duckdb_database
-    ## Generated based on /usr/include/duckdb.h:411:5
+    ## Generated based on /usr/include/duckdb.h:455:5
   struct_duckdb_connection* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:414:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:458:16
 
   duckdb_connection* = ptr struct_duckdb_connection
-    ## Generated based on /usr/include/duckdb.h:416:5
+    ## Generated based on /usr/include/duckdb.h:460:5
   struct_duckdb_prepared_statement* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:420:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:464:16
 
   duckdb_prepared_statement* = ptr struct_duckdb_prepared_statement
-    ## Generated based on /usr/include/duckdb.h:422:5
+    ## Generated based on /usr/include/duckdb.h:466:5
   struct_duckdb_extracted_statements* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:425:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:469:16
 
   duckdb_extracted_statements* = ptr struct_duckdb_extracted_statements
-    ## Generated based on /usr/include/duckdb.h:427:5
+    ## Generated based on /usr/include/duckdb.h:471:5
   struct_duckdb_pending_result* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:431:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:475:16
 
   duckdb_pending_result* = ptr struct_duckdb_pending_result
-    ## Generated based on /usr/include/duckdb.h:433:5
+    ## Generated based on /usr/include/duckdb.h:477:5
   struct_duckdb_appender* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:437:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:481:16
 
   duckdb_appender* = ptr struct_duckdb_appender
-    ## Generated based on /usr/include/duckdb.h:439:5
+    ## Generated based on /usr/include/duckdb.h:483:5
   struct_duckdb_table_description* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:443:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:487:16
 
   duckdb_table_description* = ptr struct_duckdb_table_description
-    ## Generated based on /usr/include/duckdb.h:445:5
+    ## Generated based on /usr/include/duckdb.h:489:5
   struct_duckdb_config* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:449:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:493:16
 
   duckdb_config* = ptr struct_duckdb_config
-    ## Generated based on /usr/include/duckdb.h:451:5
+    ## Generated based on /usr/include/duckdb.h:495:5
   struct_duckdb_logical_type* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:455:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:499:16
 
   duckdb_logical_type* = ptr struct_duckdb_logical_type
-    ## Generated based on /usr/include/duckdb.h:457:5
+    ## Generated based on /usr/include/duckdb.h:501:5
   struct_duckdb_create_type_info* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:461:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:505:16
 
   duckdb_create_type_info* = ptr struct_duckdb_create_type_info
-    ## Generated based on /usr/include/duckdb.h:463:5
+    ## Generated based on /usr/include/duckdb.h:507:5
   struct_duckdb_data_chunk* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:467:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:511:16
 
   duckdb_data_chunk* = ptr struct_duckdb_data_chunk
-    ## Generated based on /usr/include/duckdb.h:469:5
+    ## Generated based on /usr/include/duckdb.h:513:5
   struct_duckdb_value* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:473:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:517:16
 
   duckdb_value* = ptr struct_duckdb_value
-    ## Generated based on /usr/include/duckdb.h:475:5
+    ## Generated based on /usr/include/duckdb.h:519:5
   struct_duckdb_profiling_info* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:478:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:522:16
 
   duckdb_profiling_info* = ptr struct_duckdb_profiling_info
-    ## Generated based on /usr/include/duckdb.h:480:5
+    ## Generated based on /usr/include/duckdb.h:524:5
   struct_duckdb_extension_info* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:486:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:530:16
 
   duckdb_extension_info* = ptr struct_duckdb_extension_info
-    ## Generated based on /usr/include/duckdb.h:488:5
+    ## Generated based on /usr/include/duckdb.h:532:5
   struct_duckdb_function_info* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:494:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:538:16
 
   duckdb_function_info* = ptr struct_duckdb_function_info
-    ## Generated based on /usr/include/duckdb.h:496:5
+    ## Generated based on /usr/include/duckdb.h:540:5
   struct_duckdb_scalar_function* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:502:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:546:16
 
   duckdb_scalar_function* = ptr struct_duckdb_scalar_function
-    ## Generated based on /usr/include/duckdb.h:504:5
+    ## Generated based on /usr/include/duckdb.h:548:5
   struct_duckdb_scalar_function_set* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:507:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:551:16
 
   duckdb_scalar_function_set* = ptr struct_duckdb_scalar_function_set
-    ## Generated based on /usr/include/duckdb.h:509:5
+    ## Generated based on /usr/include/duckdb.h:553:5
   duckdb_scalar_function_t* = proc(
     a0: duckdb_function_info, a1: duckdb_data_chunk, a2: duckdb_vector
-  ): void {.cdecl.} ## Generated based on /usr/include/duckdb.h:512:16
+  ): void {.cdecl.} ## Generated based on /usr/include/duckdb.h:556:16
   struct_duckdb_aggregate_function* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:518:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:562:16
 
   duckdb_aggregate_function* = ptr struct_duckdb_aggregate_function
-    ## Generated based on /usr/include/duckdb.h:520:5
+    ## Generated based on /usr/include/duckdb.h:564:5
   struct_duckdb_aggregate_function_set* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:523:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:567:16
 
   duckdb_aggregate_function_set* = ptr struct_duckdb_aggregate_function_set
-    ## Generated based on /usr/include/duckdb.h:525:5
+    ## Generated based on /usr/include/duckdb.h:569:5
   struct_duckdb_aggregate_state* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:528:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:572:16
 
   duckdb_aggregate_state* = ptr struct_duckdb_aggregate_state
-    ## Generated based on /usr/include/duckdb.h:530:5
+    ## Generated based on /usr/include/duckdb.h:574:5
   duckdb_aggregate_state_size* = proc(a0: duckdb_function_info): idx_t {.cdecl.}
-    ## Generated based on /usr/include/duckdb.h:533:17
+    ## Generated based on /usr/include/duckdb.h:577:17
   duckdb_aggregate_init_t* =
     proc(a0: duckdb_function_info, a1: duckdb_aggregate_state): void {.cdecl.}
-    ## Generated based on /usr/include/duckdb.h:535:16
+    ## Generated based on /usr/include/duckdb.h:579:16
   duckdb_aggregate_destroy_t* =
     proc(a0: ptr duckdb_aggregate_state, a1: idx_t): void {.cdecl.}
-    ## Generated based on /usr/include/duckdb.h:537:16
+    ## Generated based on /usr/include/duckdb.h:581:16
   duckdb_aggregate_update_t* = proc(
     a0: duckdb_function_info, a1: duckdb_data_chunk, a2: ptr duckdb_aggregate_state
-  ): void {.cdecl.} ## Generated based on /usr/include/duckdb.h:539:16
+  ): void {.cdecl.} ## Generated based on /usr/include/duckdb.h:583:16
   duckdb_aggregate_combine_t* = proc(
     a0: duckdb_function_info,
     a1: ptr duckdb_aggregate_state,
     a2: ptr duckdb_aggregate_state,
     a3: idx_t,
-  ): void {.cdecl.} ## Generated based on /usr/include/duckdb.h:542:16
+  ): void {.cdecl.} ## Generated based on /usr/include/duckdb.h:586:16
   duckdb_aggregate_finalize_t* = proc(
     a0: duckdb_function_info,
     a1: ptr duckdb_aggregate_state,
     a2: duckdb_vector,
     a3: idx_t,
     a4: idx_t,
-  ): void {.cdecl.} ## Generated based on /usr/include/duckdb.h:545:16
+  ): void {.cdecl.} ## Generated based on /usr/include/duckdb.h:589:16
   struct_duckdb_table_function* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:553:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:597:16
 
   duckdb_table_function* = ptr struct_duckdb_table_function
-    ## Generated based on /usr/include/duckdb.h:555:5
+    ## Generated based on /usr/include/duckdb.h:599:5
   struct_duckdb_bind_info* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:558:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:602:16
 
   duckdb_bind_info* = ptr struct_duckdb_bind_info
-    ## Generated based on /usr/include/duckdb.h:560:5
+    ## Generated based on /usr/include/duckdb.h:604:5
   struct_duckdb_init_info* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:563:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:607:16
 
   duckdb_init_info* = ptr struct_duckdb_init_info
-    ## Generated based on /usr/include/duckdb.h:565:5
+    ## Generated based on /usr/include/duckdb.h:609:5
   duckdb_table_function_bind_t* = proc(a0: duckdb_bind_info): void {.cdecl.}
-    ## Generated based on /usr/include/duckdb.h:568:16
+    ## Generated based on /usr/include/duckdb.h:612:16
   duckdb_table_function_init_t* = proc(a0: duckdb_init_info): void {.cdecl.}
-    ## Generated based on /usr/include/duckdb.h:571:16
+    ## Generated based on /usr/include/duckdb.h:615:16
   duckdb_table_function_t* =
     proc(a0: duckdb_function_info, a1: duckdb_data_chunk): void {.cdecl.}
-    ## Generated based on /usr/include/duckdb.h:574:16
+    ## Generated based on /usr/include/duckdb.h:618:16
   struct_duckdb_cast_function* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:581:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:625:16
 
   duckdb_cast_function* = ptr struct_duckdb_cast_function
-    ## Generated based on /usr/include/duckdb.h:583:5
+    ## Generated based on /usr/include/duckdb.h:627:5
   duckdb_cast_function_t* = proc(
     a0: duckdb_function_info, a1: idx_t, a2: duckdb_vector, a3: duckdb_vector
-  ): bool {.cdecl.} ## Generated based on /usr/include/duckdb.h:585:16
+  ): bool {.cdecl.} ## Generated based on /usr/include/duckdb.h:629:16
   struct_duckdb_replacement_scan_info* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:593:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:637:16
 
   duckdb_replacement_scan_info* = ptr struct_duckdb_replacement_scan_info
-    ## Generated based on /usr/include/duckdb.h:595:5
+    ## Generated based on /usr/include/duckdb.h:639:5
   duckdb_replacement_callback_t* =
     proc(a0: duckdb_replacement_scan_info, a1: cstring, a2: pointer): void {.cdecl.}
-    ## Generated based on /usr/include/duckdb.h:598:16
+    ## Generated based on /usr/include/duckdb.h:642:16
   struct_duckdb_arrow* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:605:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:649:16
 
   duckdb_arrow* = ptr struct_duckdb_arrow
-    ## Generated based on /usr/include/duckdb.h:607:5
+    ## Generated based on /usr/include/duckdb.h:651:5
   struct_duckdb_arrow_stream* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:610:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:654:16
 
   duckdb_arrow_stream* = ptr struct_duckdb_arrow_stream
-    ## Generated based on /usr/include/duckdb.h:612:5
+    ## Generated based on /usr/include/duckdb.h:656:5
   struct_duckdb_arrow_schema* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:615:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:659:16
 
   duckdb_arrow_schema* = ptr struct_duckdb_arrow_schema
-    ## Generated based on /usr/include/duckdb.h:617:5
+    ## Generated based on /usr/include/duckdb.h:661:5
   struct_duckdb_arrow_array* {.pure, inheritable, bycopy.} = object
-    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:620:16
+    internal_ptr*: pointer ## Generated based on /usr/include/duckdb.h:664:16
 
   duckdb_arrow_array* = ptr struct_duckdb_arrow_array
-    ## Generated based on /usr/include/duckdb.h:622:5
+    ## Generated based on /usr/include/duckdb.h:666:5
   struct_duckdb_extension_access* {.pure, inheritable, bycopy.} = object
     set_error*: proc(a0: duckdb_extension_info, a1: cstring): void {.cdecl.}
-      ## Generated based on /usr/include/duckdb.h:628:8
+      ## Generated based on /usr/include/duckdb.h:672:8
     get_database*: proc(a0: duckdb_extension_info): ptr duckdb_database {.cdecl.}
     get_api*: proc(a0: duckdb_extension_info, a1: cstring): pointer {.cdecl.}
+
+proc duckdb_create_instance_cache*(): duckdb_instance_cache {.
+  cdecl, importc: "duckdb_create_instance_cache"
+.}
+
+proc duckdb_get_or_create_from_cache*(
+  instance_cache: duckdb_instance_cache,
+  path: cstring,
+  out_database: ptr duckdb_database,
+  config: duckdb_config,
+  out_error: ptr cstring,
+): duckdb_state {.cdecl, importc: "duckdb_get_or_create_from_cache".}
+
+proc duckdb_destroy_instance_cache*(
+  instance_cache: ptr duckdb_instance_cache
+): void {.cdecl, importc: "duckdb_destroy_instance_cache".}
 
 proc duckdb_open*(
   path: cstring, out_database: ptr duckdb_database
@@ -692,15 +741,15 @@ proc duckdb_malloc*(size: csize_t): pointer {.cdecl, importc: "duckdb_malloc".}
 proc duckdb_free*(ptr_arg: pointer): void {.cdecl, importc: "duckdb_free".}
 proc duckdb_vector_size*(): idx_t {.cdecl, importc: "duckdb_vector_size".}
 proc duckdb_string_is_inlined*(
-  string_arg: duckdb_string_t
+  string: duckdb_string_t
 ): bool {.cdecl, importc: "duckdb_string_is_inlined".}
 
 proc duckdb_string_t_length*(
-  string_arg: duckdb_string_t
+  string: duckdb_string_t
 ): uint32 {.cdecl, importc: "duckdb_string_t_length".}
 
 proc duckdb_string_t_data*(
-  string_arg: ptr duckdb_string_t
+  string: ptr duckdb_string_t
 ): cstring {.cdecl, importc: "duckdb_string_t_data".}
 
 proc duckdb_from_date*(
@@ -742,6 +791,18 @@ proc duckdb_to_timestamp*(
 proc duckdb_is_finite_timestamp*(
   ts: duckdb_timestamp
 ): bool {.cdecl, importc: "duckdb_is_finite_timestamp".}
+
+proc duckdb_is_finite_timestamp_s*(
+  ts: duckdb_timestamp_s
+): bool {.cdecl, importc: "duckdb_is_finite_timestamp_s".}
+
+proc duckdb_is_finite_timestamp_ms*(
+  ts: duckdb_timestamp_ms
+): bool {.cdecl, importc: "duckdb_is_finite_timestamp_ms".}
+
+proc duckdb_is_finite_timestamp_ns*(
+  ts: duckdb_timestamp_ns
+): bool {.cdecl, importc: "duckdb_is_finite_timestamp_ns".}
 
 proc duckdb_hugeint_to_double*(
   val: duckdb_hugeint
@@ -792,6 +853,10 @@ proc duckdb_parameter_name*(
 proc duckdb_param_type*(
   prepared_statement: duckdb_prepared_statement, param_idx: idx_t
 ): duckdb_type {.cdecl, importc: "duckdb_param_type".}
+
+proc duckdb_param_logical_type*(
+  prepared_statement: duckdb_prepared_statement, param_idx: idx_t
+): duckdb_logical_type {.cdecl, importc: "duckdb_param_logical_type".}
 
 proc duckdb_clear_bindings*(
   prepared_statement: duckdb_prepared_statement
@@ -1024,6 +1089,14 @@ proc duckdb_create_uhugeint*(
   input: duckdb_uhugeint
 ): duckdb_value {.cdecl, importc: "duckdb_create_uhugeint".}
 
+proc duckdb_create_varint*(
+  input: duckdb_varint
+): duckdb_value {.cdecl, importc: "duckdb_create_varint".}
+
+proc duckdb_create_decimal*(
+  input: duckdb_decimal
+): duckdb_value {.cdecl, importc: "duckdb_create_decimal".}
+
 proc duckdb_create_float*(
   input: cfloat
 ): duckdb_value {.cdecl, importc: "duckdb_create_float".}
@@ -1048,6 +1121,22 @@ proc duckdb_create_timestamp*(
   input: duckdb_timestamp
 ): duckdb_value {.cdecl, importc: "duckdb_create_timestamp".}
 
+proc duckdb_create_timestamp_tz*(
+  input: duckdb_timestamp
+): duckdb_value {.cdecl, importc: "duckdb_create_timestamp_tz".}
+
+proc duckdb_create_timestamp_s*(
+  input: duckdb_timestamp_s
+): duckdb_value {.cdecl, importc: "duckdb_create_timestamp_s".}
+
+proc duckdb_create_timestamp_ms*(
+  input: duckdb_timestamp_ms
+): duckdb_value {.cdecl, importc: "duckdb_create_timestamp_ms".}
+
+proc duckdb_create_timestamp_ns*(
+  input: duckdb_timestamp_ns
+): duckdb_value {.cdecl, importc: "duckdb_create_timestamp_ns".}
+
 proc duckdb_create_interval*(
   input: duckdb_interval
 ): duckdb_value {.cdecl, importc: "duckdb_create_interval".}
@@ -1055,6 +1144,14 @@ proc duckdb_create_interval*(
 proc duckdb_create_blob*(
   data: ptr uint8, length: idx_t
 ): duckdb_value {.cdecl, importc: "duckdb_create_blob".}
+
+proc duckdb_create_bit*(
+  input: duckdb_bit
+): duckdb_value {.cdecl, importc: "duckdb_create_bit".}
+
+proc duckdb_create_uuid*(
+  input: duckdb_uhugeint
+): duckdb_value {.cdecl, importc: "duckdb_create_uuid".}
 
 proc duckdb_get_bool*(val: duckdb_value): bool {.cdecl, importc: "duckdb_get_bool".}
 proc duckdb_get_int8*(val: duckdb_value): int8 {.cdecl, importc: "duckdb_get_int8".}
@@ -1082,6 +1179,14 @@ proc duckdb_get_uhugeint*(
   val: duckdb_value
 ): duckdb_uhugeint {.cdecl, importc: "duckdb_get_uhugeint".}
 
+proc duckdb_get_varint*(
+  val: duckdb_value
+): duckdb_varint {.cdecl, importc: "duckdb_get_varint".}
+
+proc duckdb_get_decimal*(
+  val: duckdb_value
+): duckdb_decimal {.cdecl, importc: "duckdb_get_decimal".}
+
 proc duckdb_get_float*(val: duckdb_value): cfloat {.cdecl, importc: "duckdb_get_float".}
 proc duckdb_get_double*(
   val: duckdb_value
@@ -1103,6 +1208,22 @@ proc duckdb_get_timestamp*(
   val: duckdb_value
 ): duckdb_timestamp {.cdecl, importc: "duckdb_get_timestamp".}
 
+proc duckdb_get_timestamp_tz*(
+  val: duckdb_value
+): duckdb_timestamp {.cdecl, importc: "duckdb_get_timestamp_tz".}
+
+proc duckdb_get_timestamp_s*(
+  val: duckdb_value
+): duckdb_timestamp_s {.cdecl, importc: "duckdb_get_timestamp_s".}
+
+proc duckdb_get_timestamp_ms*(
+  val: duckdb_value
+): duckdb_timestamp_ms {.cdecl, importc: "duckdb_get_timestamp_ms".}
+
+proc duckdb_get_timestamp_ns*(
+  val: duckdb_value
+): duckdb_timestamp_ns {.cdecl, importc: "duckdb_get_timestamp_ns".}
+
 proc duckdb_get_interval*(
   val: duckdb_value
 ): duckdb_interval {.cdecl, importc: "duckdb_get_interval".}
@@ -1114,6 +1235,11 @@ proc duckdb_get_value_type*(
 proc duckdb_get_blob*(
   val: duckdb_value
 ): duckdb_blob {.cdecl, importc: "duckdb_get_blob".}
+
+proc duckdb_get_bit*(val: duckdb_value): duckdb_bit {.cdecl, importc: "duckdb_get_bit".}
+proc duckdb_get_uuid*(
+  val: duckdb_value
+): duckdb_uhugeint {.cdecl, importc: "duckdb_get_uuid".}
 
 proc duckdb_get_varchar*(
   value: duckdb_value
@@ -1142,6 +1268,34 @@ proc duckdb_get_map_key*(
 proc duckdb_get_map_value*(
   value: duckdb_value, index: idx_t
 ): duckdb_value {.cdecl, importc: "duckdb_get_map_value".}
+
+proc duckdb_is_null_value*(
+  value: duckdb_value
+): bool {.cdecl, importc: "duckdb_is_null_value".}
+
+proc duckdb_create_null_value*(): duckdb_value {.
+  cdecl, importc: "duckdb_create_null_value"
+.}
+
+proc duckdb_get_list_size*(
+  value: duckdb_value
+): idx_t {.cdecl, importc: "duckdb_get_list_size".}
+
+proc duckdb_get_list_child*(
+  value: duckdb_value, index: idx_t
+): duckdb_value {.cdecl, importc: "duckdb_get_list_child".}
+
+proc duckdb_create_enum_value*(
+  type_arg: duckdb_logical_type, value: uint64
+): duckdb_value {.cdecl, importc: "duckdb_create_enum_value".}
+
+proc duckdb_get_enum_value*(
+  value: duckdb_value
+): uint64 {.cdecl, importc: "duckdb_get_enum_value".}
+
+proc duckdb_get_struct_child*(
+  value: duckdb_value, index: idx_t
+): duckdb_value {.cdecl, importc: "duckdb_get_struct_child".}
 
 proc duckdb_create_logical_type*(
   type_arg: duckdb_type
@@ -1418,11 +1572,11 @@ proc duckdb_destroy_scalar_function_set*(
 ): void {.cdecl, importc: "duckdb_destroy_scalar_function_set".}
 
 proc duckdb_add_scalar_function_to_set*(
-  set_arg: duckdb_scalar_function_set, function: duckdb_scalar_function
+  set: duckdb_scalar_function_set, function: duckdb_scalar_function
 ): duckdb_state {.cdecl, importc: "duckdb_add_scalar_function_to_set".}
 
 proc duckdb_register_scalar_function_set*(
-  con: duckdb_connection, set_arg: duckdb_scalar_function_set
+  con: duckdb_connection, set: duckdb_scalar_function_set
 ): duckdb_state {.cdecl, importc: "duckdb_register_scalar_function_set".}
 
 proc duckdb_create_aggregate_function*(): duckdb_aggregate_function {.
@@ -1491,11 +1645,11 @@ proc duckdb_destroy_aggregate_function_set*(
 ): void {.cdecl, importc: "duckdb_destroy_aggregate_function_set".}
 
 proc duckdb_add_aggregate_function_to_set*(
-  set_arg: duckdb_aggregate_function_set, function: duckdb_aggregate_function
+  set: duckdb_aggregate_function_set, function: duckdb_aggregate_function
 ): duckdb_state {.cdecl, importc: "duckdb_add_aggregate_function_to_set".}
 
 proc duckdb_register_aggregate_function_set*(
-  con: duckdb_connection, set_arg: duckdb_aggregate_function_set
+  con: duckdb_connection, set: duckdb_aggregate_function_set
 ): duckdb_state {.cdecl, importc: "duckdb_register_aggregate_function_set".}
 
 proc duckdb_create_table_function*(): duckdb_table_function {.
@@ -1674,6 +1828,14 @@ proc duckdb_appender_create*(
   out_appender: ptr duckdb_appender,
 ): duckdb_state {.cdecl, importc: "duckdb_appender_create".}
 
+proc duckdb_appender_create_ext*(
+  connection: duckdb_connection,
+  catalog: cstring,
+  schema: cstring,
+  table: cstring,
+  out_appender: ptr duckdb_appender,
+): duckdb_state {.cdecl, importc: "duckdb_appender_create_ext".}
+
 proc duckdb_appender_column_count*(
   appender: duckdb_appender
 ): idx_t {.cdecl, importc: "duckdb_appender_column_count".}
@@ -1698,6 +1860,14 @@ proc duckdb_appender_destroy*(
   appender: ptr duckdb_appender
 ): duckdb_state {.cdecl, importc: "duckdb_appender_destroy".}
 
+proc duckdb_appender_add_column*(
+  appender: duckdb_appender, name: cstring
+): duckdb_state {.cdecl, importc: "duckdb_appender_add_column".}
+
+proc duckdb_appender_clear_columns*(
+  appender: duckdb_appender
+): duckdb_state {.cdecl, importc: "duckdb_appender_clear_columns".}
+
 proc duckdb_appender_begin_row*(
   appender: duckdb_appender
 ): duckdb_state {.cdecl, importc: "duckdb_appender_begin_row".}
@@ -1709,6 +1879,10 @@ proc duckdb_appender_end_row*(
 proc duckdb_append_default*(
   appender: duckdb_appender
 ): duckdb_state {.cdecl, importc: "duckdb_append_default".}
+
+proc duckdb_append_default_to_chunk*(
+  appender: duckdb_appender, chunk: duckdb_data_chunk, col: idx_t, row: idx_t
+): duckdb_state {.cdecl, importc: "duckdb_append_default_to_chunk".}
 
 proc duckdb_append_bool*(
   appender: duckdb_appender, value: bool
@@ -1794,6 +1968,10 @@ proc duckdb_append_null*(
   appender: duckdb_appender
 ): duckdb_state {.cdecl, importc: "duckdb_append_null".}
 
+proc duckdb_append_value*(
+  appender: duckdb_appender, value: duckdb_value
+): duckdb_state {.cdecl, importc: "duckdb_append_value".}
+
 proc duckdb_append_data_chunk*(
   appender: duckdb_appender, chunk: duckdb_data_chunk
 ): duckdb_state {.cdecl, importc: "duckdb_append_data_chunk".}
@@ -1804,6 +1982,14 @@ proc duckdb_table_description_create*(
   table: cstring,
   out_arg: ptr duckdb_table_description,
 ): duckdb_state {.cdecl, importc: "duckdb_table_description_create".}
+
+proc duckdb_table_description_create_ext*(
+  connection: duckdb_connection,
+  catalog: cstring,
+  schema: cstring,
+  table: cstring,
+  out_arg: ptr duckdb_table_description,
+): duckdb_state {.cdecl, importc: "duckdb_table_description_create_ext".}
 
 proc duckdb_table_description_destroy*(
   table_description: ptr duckdb_table_description
@@ -1816,6 +2002,10 @@ proc duckdb_table_description_error*(
 proc duckdb_column_has_default*(
   table_description: duckdb_table_description, index: idx_t, out_arg: ptr bool
 ): duckdb_state {.cdecl, importc: "duckdb_column_has_default".}
+
+proc duckdb_table_description_get_column_name*(
+  table_description: duckdb_table_description, index: idx_t
+): cstring {.cdecl, importc: "duckdb_table_description_get_column_name".}
 
 proc duckdb_query_arrow*(
   connection: duckdb_connection, query: cstring, out_result: ptr duckdb_arrow

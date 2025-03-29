@@ -465,8 +465,8 @@ template handleVectorCaseString(kind, handle, duckdbVector, size) =
       data[i] = output
     else:
       let stringStruct = cast[struct_duckdb_string_t_value_t](raw[i])
-      var output = $cast[cstring](stringStruct.pointer_field.ptr_field)
-      output.setLen(stringStruct.pointer_field.length)
+      var output = $cast[cstring](stringStruct.pointer.ptr_field)
+      output.setLen(stringStruct.pointer.length)
       data[i] = output
 
   return Vector(kind: kind, mask: validityMask, valueVarchar: data)

@@ -1,5 +1,6 @@
 import std/[locks, sequtils, tables, strformat, math]
-import /[api, database, dataframe, datachunk, query, table_functions, types, vector, value]
+import
+  /[api, database, dataframe, datachunk, query, table_functions, types, vector, value]
 
 type
   ExtraData* = ref object of RootObj
@@ -224,7 +225,7 @@ proc mainFunction(info: FunctionInfo, duckdbChunk: duckdbDataChunk) =
   var
     globalData = cast[GlobalData](duckdbFunctionGetInitData(info))
     localData = cast[LocalData](duckdbFunctionGetLocalInitData(info))
-    chunk = newDataChunk(duckdbChunk, shouldDestroy=false)
+    chunk = newDataChunk(duckdbChunk, shouldDestroy = false)
 
   # Set the boundries for another chunk
   if localData.currentPos >= localData.endPos:

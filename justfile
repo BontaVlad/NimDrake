@@ -59,7 +59,7 @@ coverage:
     genhtml --branch-coverage --ignore-errors missing,range,corrupt,inconsistent --legend --output-directory coverage/ "${FILEINFO}"
 
 # Generate test coverage
-test isParallel="false":
+test isParallel="false" cores="4":
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -112,7 +112,7 @@ test isParallel="false":
     if {{isParallel}} =~ truthy_regex; then
         echo "Running tests in parallel..."
         # Run tests in parallel using xargs
-        echo "$TEST_FILES" | xargs -n 1 -P 4 -I {} bash -c 'run_test "$@"' _ {}
+        echo "$TEST_FILES" | xargs -n 1 -P {{cores}} -I {} bash -c 'run_test "$@"' _ {}
     else
         echo "Running tests sequentially..."
         # Run tests sequentially
@@ -290,3 +290,26 @@ benchmark name="":
         "${NIMCACHE_DIR}/benchmarks/${filename_no_ext}"
         echo "Running file: $file"
     done
+
+# Generate new duckdb.h wrappers
+generate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nim c \
+        -r \
+        -d:useFuthark:true \
+        -d:nodeclguards:true \
+        -d:exportall:true \
+        src/nimdrake.nim
+
+# Build a statically linked version
+build-static:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nim cpp \
+        -d:release \
+        --passL:"-static" \
+        --passL:"-L$(pwd)" \
+        --passL:"-l:src/include/libduckdb_bundle.a" \
+        --passL:"-lstdc++" \
+        src/nimdrake

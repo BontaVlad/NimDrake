@@ -146,7 +146,6 @@ proc createBindFunctionStmt(
     params: seq[NimNode],
     producerReturnType: DuckType,
 ): NimNode =
-
   generateTypeToField("typeToField", Vector)
 
   var bindDataCreateStmt = newNimNode(nnkObjConstr).add(bindDataName)

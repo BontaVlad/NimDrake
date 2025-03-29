@@ -171,7 +171,6 @@ proc `=copy`*(
   dest: var Statement, source: Statement
 ) {.error: "Statement cannot be copied".}
 
-
 proc `=destroy`*(ltp: LogicalType) =
   if not isNil(ltp.addr) and not isNil(ltp.handle.addr):
     duckdbDestroyLogicalType(ltp.handle.addr)
