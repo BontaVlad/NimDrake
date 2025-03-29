@@ -1,0 +1,17 @@
+nimTitle	table_functions	table_functions.html	module src/table_functions		0
+nim	FunctionInfo	table_functions.html#FunctionInfo	object FunctionInfo		7
+nim	TableFunction	table_functions.html#TableFunction	type TableFunction		8
+nim	BindInfo	table_functions.html#BindInfo	object BindInfo		17
+nim	InitInfo	table_functions.html#InitInfo	object InitInfo		21
+nim	toC	table_functions.html#toC.c,FunctionInfo	converter toC(fi: FunctionInfo): duckdb_function_info		25
+nim	toNim	table_functions.html#toNim.c,duckdb_function_info	converter toNim(fi: duckdb_function_info): FunctionInfo		28
+nim	toCptr	table_functions.html#toCptr.c,ptr.FunctionInfo	converter toCptr(fi: ptr FunctionInfo): ptr duckdb_function_info		31
+nim	`$`	table_functions.html#$,TableFunction	proc `$`(tf: TableFunction): string		39
+nim	parameterCount	table_functions.html#parameterCount,BindInfo	proc parameterCount(info: BindInfo): int		42
+nim	parameters	table_functions.html#parameters.i,BindInfo	iterator parameters(info: BindInfo): Value		48
+nim	addResultColumn	table_functions.html#addResultColumn,BindInfo,string,LogicalType	proc addResultColumn(info: BindInfo; name: string; tp: LogicalType)		52
+nim	addResultColumn	table_functions.html#addResultColumn,BindInfo,string,DuckType	proc addResultColumn(info: BindInfo; name: string; tp: DuckType)		55
+nim	newTableFunction	table_functions.html#newTableFunction,string,seq[LogicalType],proc(BindInfo),proc(InitInfo),proc(InitInfo),proc(FunctionInfo,duckdb_data_chunk),RootRef,bool	proc newTableFunction(name: string; parameters: seq[LogicalType];\n                 bindFunc: proc (info: BindInfo);\n                 initFunc: proc (info: InitInfo);\n                 initLocalFunc: proc (info: InitInfo);\n                 mainFunc: proc (info: FunctionInfo; chunk: duckdb_data_chunk);\n                 extraData: RootRef; projectionPushdown: bool): TableFunction		74
+nim	producer	table_functions.html#producer.m,typed	macro producer(body: typed): untyped		180
+nim	register	table_functions.html#register,Connection,TableFunction	proc register(con: Connection; fun: TableFunction)		316
+nimgrp	addresultcolumn	table_functions.html#addResultColumn-procs-all	proc		52

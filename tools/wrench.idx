@@ -1,0 +1,3 @@
+nimTitle	wrench	tools/wrench.html	module src/tools/wrench		0
+nim	generateTypeToField	tools/wrench.html#generateTypeToField.m,static[string],typed	macro generateTypeToField(registryName: static[string]; vectorType: typed): untyped		5
+nim	getField	tools/wrench.html#getField.m,,staticstring	macro getField(obj: object; fieldName: static string): untyped		84

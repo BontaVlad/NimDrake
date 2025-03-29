@@ -1,0 +1,6 @@
+nimTitle	scalar_functions	scalar_functions.html	module src/scalar_functions		0
+nim	ScalarFunctionBase	scalar_functions.html#ScalarFunctionBase	object ScalarFunctionBase		7
+nim	ScalarFunction	scalar_functions.html#ScalarFunction	type ScalarFunction		11
+nim	newScalarFunction	scalar_functions.html#newScalarFunction,string	proc newScalarFunction(name: string): ScalarFunction		17
+nim	scalar	scalar_functions.html#scalar.m,typed	macro scalar(body: typed): untyped		20
+nim	register	scalar_functions.html#register,Connection,ScalarFunction	proc register(con: Connection; fun: ScalarFunction)		212

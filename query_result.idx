@@ -1,0 +1,13 @@
+nimTitle	query_result	query_result.html	module src/query_result		0
+nim	newColumn	query_result.html#newColumn,int,string,DuckType	proc newColumn(idx: int; name: string; kind: DuckType): Column		8
+nim	newPendingResult	query_result.html#newPendingResult,Statement	proc newPendingResult(statement: Statement): PendingQueryResult		18
+nim	fetchOne	query_result.html#fetchOne,QueryResult	proc fetchOne(qresult: QueryResult): seq[Value]		41
+nim	rows	query_result.html#rows.i,QueryResult	iterator rows(qresult: QueryResult): seq[Value]		50
+nim	fetchOneNamed	query_result.html#fetchOneNamed,QueryResult	proc fetchOneNamed(qresult: QueryResult): Table[string, Value]		63
+nim	fetchAll	query_result.html#fetchAll,QueryResult	proc fetchAll(qresult: QueryResult): seq[Vector]		70
+nim	fetchAllNamed	query_result.html#fetchAllNamed,QueryResult	proc fetchAllNamed(qresult: QueryResult): Table[string, Vector]		83
+nim	df	query_result.html#df,QueryResult	proc df(qresult: QueryResult): DataFrame		92
+nim	error	query_result.html#error,QueryResult	proc error(qresult: QueryResult): string		95
+nim	error	query_result.html#error,PendingQueryResult	proc error(pqresult: PendingQueryResult): string		98
+nim	`$`	query_result.html#$,QueryResult	proc `$`(qresult: QueryResult): string		101
+nimgrp	error	query_result.html#error-procs-all	proc		95
