@@ -22,9 +22,6 @@ suite "Test scalar functions":
     let conn = newDatabase().connect()
 
     template myConcat(left, right: string): string {.scalar.} =
-      # echo "called"
-      # echo "left: ", left, " right ", right
-      # return "foo" & "bar"
       return left & right
 
     conn.register(myConcat)
@@ -50,3 +47,22 @@ suite "Test scalar functions":
 
     for i, correct in outcome[0].valueVarchar:
       check correct == outcome[1].valueVarchar[i]
+
+  test "int64 input and output with validity mask":
+    let conn = newDatabase().connect()
+
+    template doubleValue(val, bar: int64, mask: ScalarValidityMask): int64 {.scalar.} =
+      # if mask.isValid["val"] and mask.isValid["bar"]:
+      # echo repr mask
+      return val * bar
+      # else:
+      #   mask.outputIsValid = false
+
+    conn.register(doubleValue)
+
+    conn.execute("CREATE TABLE test_table AS SELECT i FROM range(3) t(i);")
+    let outcome =
+      conn.execute("SELECT i, doubleValue(i, i) as doubled FROM test_table").fetchAll()
+    check outcome[0].valueBigInt == @[0'i64, 1'i64, 2'i64]
+    check outcome[1].valueBigInt ==
+      @[0'i64, 1'i64, 4'i64]

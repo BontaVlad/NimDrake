@@ -185,10 +185,6 @@ macro newAggregateFunction*(
       )
       aggFun
 
-  dumpTree:
-    type Foo = ref object
-      bar: proc(foo: string): string
-
   result = newStmtList()
   result.add quote do:
     `callBackObjDefinition`

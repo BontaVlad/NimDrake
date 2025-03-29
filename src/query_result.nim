@@ -27,7 +27,7 @@ iterator columns(qresult: QueryResult): Column =
   for i in 0 ..< duckdbColumnCount(qresult.addr).int:
     yield newColumn(qresult, i)
 
-iterator chunks(qresult: QueryResult): DataChunk {.inline.} =
+iterator chunks*(qresult: QueryResult): DataChunk {.inline.} =
   var chunk: duckdbDataChunk
   while true:
     if qresult.isStreaming:

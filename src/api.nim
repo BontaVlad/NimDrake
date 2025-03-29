@@ -18,6 +18,6 @@ const
   VECTOR_SIZE* = 2048
   ROW_GROUP_SIZE* = VECTOR_SIZE * 100
 
-let runtimeVectorSize = duckdb_vector_size().int
+let runtimeVectorSize = duckdbVectorSize().int
 if runtimeVectorSize != VECTOR_SIZE:
   raise newException(ValueError, fmt"Duckdb was compiled for a size of {VECTOR_SIZE}, this configuration of DUCKDB was set at {runtimeVectorSize}")

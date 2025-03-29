@@ -164,7 +164,7 @@ proc `$`*(v: Value): string =
     return v.valueVarchar
   of DuckType.Blob:
     return $v.valueBlob
-  of DuckType.Decimal:
+  of DuckType.decimal:
     return $v.valueDecimal
   of DuckType.Enum:
     return $v.valueEnum

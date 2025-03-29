@@ -647,8 +647,10 @@ suite "Test pending statement queries":
       case state:
       of DUCKDB_PENDING_RESULT_READY:
         break
+        # echo "ready"
       of DUCKDB_PENDING_RESULT_NOT_READY:
         continue
+        # echo "not ready"
       of DUCKDB_PENDING_ERROR:
         break
         # echo pending.error
