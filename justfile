@@ -313,3 +313,5 @@ build-static:
         --passL:"-l:src/include/libduckdb_bundle.a" \
         --passL:"-lstdc++" \
         src/nimdrake
+
+# --gcc.exe:"musl-gcc" --gcc.linkerexe:"musl-gcc"

@@ -1,6 +1,5 @@
 import std/[strformat, enumerate, times]
 import nint128
-import decimal
 import /[api, types, database, query_result, datachunk, value, exceptions]
 
 type

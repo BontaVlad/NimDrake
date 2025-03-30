@@ -1,7 +1,7 @@
 import std/[times, tables, strformat]
 import unittest2
 import nint128
-import decimal
+import ../src/compatibility/decimal_compat
 import ../src/[types, database, query, query_result]
 import utils
 

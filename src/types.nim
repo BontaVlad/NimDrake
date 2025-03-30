@@ -1,10 +1,10 @@
 import std/[macros, tables, times, typetraits, strformat]
 
 import nint128
-import decimal
 import uuid4
 
 import /[api]
+import /compatibility/decimal_compat
 
 const
   BITS_PER_VALUE* = 64

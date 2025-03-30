@@ -3,10 +3,10 @@ import
   std/[tables, times, math, strformat, sequtils, sugar, typetraits, enumerate, macros]
 
 import nint128
-import decimal
 import uuid4
 
 import /[api, value, types]
+import /compatibility/decimal_compat
 
 template `[]=`*[T: SomeNumber](vec: duckdbVector, i: int, val: T) =
   var raw = duckdbVectorGetData(vec)
