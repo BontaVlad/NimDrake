@@ -1,5 +1,4 @@
 when defined(nox86Support):
-  echo "foo"
   type
     DecimalType* = object
 

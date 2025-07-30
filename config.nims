@@ -44,10 +44,10 @@ else:
 if not isx86:
   switch("define", "nox86Support")
 
-# if not isStaticBuild:
-#   switch("passL", "-lduckdb")
-#   switch("passL", "-L.")
-#   switch("passC", "-I.")
+if not isStaticBuild:
+  switch("passL", "-lduckdb")
+  switch("passL", "-L.")
+  switch("passC", "-I.")
 
 # ➜  NimDrake git:(main) ✗ nim c --cpu:arm64 --os:linux --cc:gcc \
 #     --gcc.exe="aarch64-linux-gnu-gcc" \

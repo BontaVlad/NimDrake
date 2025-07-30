@@ -98,24 +98,23 @@ proc toInterval*(val: TimeInterval): duckdbInterval {.inline.} =
   )
 
 proc fromInterval*(val: duckdbInterval): TimeInterval {.inline.} =
-  discard
-  # let
-  #   years = val.months div 12
-  #   months = val.months mod 12
-  #   hours = convert(Microseconds, Hours, val.micros)
-  #   minutes =
-  #     convert(Microseconds, Minutes, val.micros mod convert(Hours, Microseconds, 1))
-  #   seconds =
-  #     convert(Microseconds, Seconds, val.micros mod convert(Minutes, Microseconds, 1))
+  let
+    years = val.months div 12
+    months = val.months mod 12
+    hours = convert(Microseconds, Hours, val.micros)
+    minutes =
+      convert(Microseconds, Minutes, val.micros mod convert(Hours, Microseconds, 1))
+    seconds =
+      convert(Microseconds, Seconds, val.micros mod convert(Minutes, Microseconds, 1))
 
-  # return initTimeInterval(
-  #   years = years,
-  #   months = months,
-  #   days = val.days,
-  #   hours = hours,
-  #   minutes = minutes,
-  #   seconds = seconds,
-  # )
+  return initTimeInterval(
+    years = years,
+    months = months,
+    days = val.days,
+    hours = hours,
+    minutes = minutes,
+    seconds = seconds,
+  )
 
 proc `$`*(v: Value): string =
   if not v.isValid:
