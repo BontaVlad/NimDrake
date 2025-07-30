@@ -1,4 +1,4 @@
-import std/[strformat, enumerate, times]
+import std/[strformat, enumerate, times, options]
 import nint128
 import /[api, types, database, query_result, datachunk, value, exceptions]
 
@@ -206,9 +206,9 @@ template append*(appender: Appender, val: seq[byte]): untyped =
     "Failed to append blob value of length: " & $len(val),
   )
 
-template append*(appender: Appender, val: untyped): void =
-  ## Appends a NULL value to the appender.
-  check(duckdb_append_null(appender), "Failed to append NULL value")
+template append*(appender: Appender): untyped =
+  ## Appends a default value to the appender.
+  check(duckdb_append_default(appender), "Failed to append default value")
 
 template append*(appender: Appender, val: int8): untyped =
   ## Appends an int8_t value to the appender.
@@ -347,6 +347,12 @@ template append*(appender: Appender, val: DataChunk): untyped =
     assert outcome[2].valueBoolean == boolValues
 
   check(duckdb_append_datachunk(appender, val.handle), "Failed to append DataChunk: ")
+
+template append*[T](appender: var Appender, val: Option[T]) =
+  if val.isSome:
+    appender.append(val.get())
+  else:
+    check(duckdb_append_null(appender), "Failed to append bool value: " & $val)
 
 proc execute*[T: Values](
     con: Connection, statement: Statement, args: T

@@ -8,6 +8,10 @@ var targetCPU = hostCPU  # Default to host CPU
 var isInt128Supported = true  # Default assumption
 var isStaticBuild = false
 var isx86= false
+when defined(i386) or defined(amd64):
+  isx86 = true
+else:
+  isx86 = false
 
 # Check if specific CPU is targeted for cross-compilation
 for param in commandLineParams():
@@ -29,7 +33,7 @@ for param in commandLineParams():
       isInt128Supported = false
     else:
       echo "Warning: Unknown target CPU. Assuming no Int128 support."
-      isInt128Supported = false
+      isint128supported = false
 
 echo "Target CPU: ", targetCPU
 echo "Int128 support: ", isInt128Supported
@@ -40,9 +44,6 @@ if isInt128Supported:
 else:
   echo "Int128 features disabled for target CPU: ", targetCPU
   switch("define", "noInt128Support")
-
-if not isx86:
-  switch("define", "nox86Support")
 
 if not isStaticBuild:
   switch("passL", "-lduckdb")

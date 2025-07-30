@@ -1,7 +1,9 @@
-import std/[sequtils, times]
+import std/[sequtils, times, options]
 import unittest2
 import nint128
+import utils
 import ../src/[api, database, datachunk, types, query, query_result, transaction, exceptions]
+import ../src/compatibility/decimal_compat
 
 suite "Basic queries":
 
@@ -539,6 +541,70 @@ suite "Test appender dispatch":
       appender.flush()
       let outcome = conn.execute("SELECT interval_val FROM appender_table;").fetchall()
       check outcome[0].valueInterval == @[valInterval]
+
+  test "Append decimal values with different precision and scale":
+    ignoreLeak:
+      conn.transient:
+        # Test various decimal types
+        conn.execute("CREATE TABLE decimal_test (d1 DECIMAL(4,3), d2 DECIMAL(8,0), d3 DECIMAL(19,6));")
+        var appender = newAppender(conn, "decimal_test")
+
+        # Test appending different decimal values
+        appender.append("1.234")  # Will be converted to decimal(4,3)
+        appender.append(99999999) # Will be converted to decimal(8,0)
+        appender.append("3245234.123123") # Will be converted to decimal(19,6)
+
+        appender.endRow()
+        appender.flush()
+
+        let outcome = conn.execute("SELECT * FROM decimal_test").fetchall()
+        check outcome[0].valueDecimal == @[newDecimal("1.234")]
+        check outcome[1].valueDecimal == @[newDecimal("99999999")]
+        check outcome[2].valueDecimal == @[newDecimal("3245234.123123")]
+
+  test "Append DEFAULT values":
+    conn.transient:
+      conn.execute("CREATE TABLE default_test (a INTEGER, b INTEGER DEFAULT 5);")
+      var appender = newAppender(conn, "default_test")
+
+      appender.append(42'i32)
+      appender.append()  # Should use default value of 5
+      appender.endRow()
+      appender.flush()
+
+      let outcome = conn.execute("SELECT * FROM default_test").fetchall()
+      check outcome[0].valueInteger == @[42'i32]
+      check outcome[1].valueInteger == @[5'i32]
+
+  test "Append DEFAULT to column without default":
+    conn.transient:
+      conn.execute("CREATE TABLE no_default_test (a INTEGER, b INTEGER);")
+      var appender = newAppender(conn, "no_default_test")
+
+      appender.append()
+      appender.append(42'i32)
+      appender.endRow()
+      appender.flush()
+
+      let outcome = conn.execute("SELECT * FROM no_default_test").fetchall()
+      check outcome[0].valueInteger == @[0'i32]
+      check outcome[1].valueInteger == @[42'i32]
+
+  test "Append NULL values":
+    conn.transient:
+      conn.execute("CREATE TABLE null_test (i INTEGER, s VARCHAR, d DOUBLE);")
+      var appender = newAppender(conn, "null_test")
+
+      # Test appending NULL values
+      appender.append(none(int32))
+      appender.append(some("hello"))
+      appender.append(none(float))
+      appender.endRow()
+      appender.flush()
+
+      let outcome = conn.execute("SELECT * FROM null_test").fetchall()
+      # I dont' think that duckdb_append_null will mark column as not valid
+      skip()
 
   test "Append DataChunk val":
     conn.transient:

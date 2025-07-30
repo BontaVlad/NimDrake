@@ -1,6 +1,7 @@
 # {.experimental: "codeReordering".}
 import
   std/[tables, times, math, strformat, sequtils, sugar, typetraits, enumerate, macros]
+import sugar
 
 import nint128
 import uuid4
@@ -201,12 +202,14 @@ template parseDecimalHugeInt(kind, handle, scale, size: untyped) =
   let
     raw = cast[ptr UncheckedArray[duckdbHugeInt]](handle)
     validityMask = newValidityMask(duckVector, size)
+    fracScale = i128(int(pow(10.0, scale.float)))
 
   for i in offset ..< size:
     let
       value = fromHugeInt(raw[i])
-      fractional = cast[float](value) / pow(10.0, scale.float)
-    data[i] = newDecimal($fractional)
+      whole = $(value div fracScale)
+      fractional = $(value mod fracScale)
+    data[i] = newDecimal(whole & '.' & fractional)
 
   return Vector(kind: kind, mask: validityMask, valueDecimal: data)
 
