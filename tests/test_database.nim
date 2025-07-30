@@ -64,7 +64,7 @@ suite "Connections":
         id: int
         db: ptr Database
 
-    proc workerThread(data: ThreadData) {.gcsafe.} =
+    proc workerThread(data: ThreadData) =
       let conn = data.db[].connect()
 
       let
