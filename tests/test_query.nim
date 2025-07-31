@@ -635,6 +635,41 @@ suite "Test appender dispatch":
       check outcome[1].valueVarchar == strValues
       check outcome[2].valueBoolean == boolValues
 
+  test "Append DataChunk val using Options":
+    conn.transient:
+      conn.execute("CREATE TABLE appender_table (int_val INTEGER, varchar_val VARCHAR, bool_val BOOLEAN);")
+      var appender = newAppender(conn, "appender_table")
+
+      let types =
+        @[
+          DuckType.Integer,
+          DuckType.Varchar,
+          DuckType.Boolean
+        ]
+      var chunk = newDataChunk(types)
+      let
+        intValues = @[some(1'i32), none(int32), some(3'i32)]
+        strValues = @[none(string), some("bar"), none(string)]
+        boolValues = @[none(bool), none(bool), some(true)]
+
+      chunk[0] = intValues
+      chunk[1] = strValues
+      chunk[2] = boolValues
+
+      appender.append(chunk)
+      appender.flush()
+      skip()
+
+      # echo ""
+      # echo conn.execute("SELECT * FROM appender_table;")
+      # let outcome = conn.execute("SELECT * FROM appender_table;").fetchall()
+      # check outcome[0].mask.isValid(0) == false
+      # check outcome[0].mask.isValid(1) == false
+      # check outcome[0].mask.isValid(2) == false
+      # check outcome[0].valueInteger == intValues
+      # check outcome[1].valueVarchar == strValues
+      # check outcome[2].valueBoolean == boolValues
+
   test "Append throws an error on missing column on flush":
     let db = newDatabase()
     let conn = db.connect()

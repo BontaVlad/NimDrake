@@ -1,4 +1,4 @@
-import std/[strformat]
+import std/[strformat, options]
 import /[api, types, vector, exceptions]
 
 type
@@ -88,6 +88,30 @@ proc `[]=`*[T](chunk: var DataChunk, colIdx: int, values: seq[T]) =
   var vec = duckdbDataChunkGetVector(chunk, colIdx.idx_t)
   for i, e in values:
     vec[i] = e
+
+  chunk.setLen(len(values))
+
+proc `[]=`*[T](chunk: var DataChunk, colIdx: int, values: seq[Option[T]]) =
+  if chunk.len != 0 and chunk.len != len(values):
+    raise newException(
+      ValueError,
+      fmt"Chunk size is inconsistent, new size of {len(values)} is different from {chunk.len}",
+    )
+  elif len(values) > VECTOR_SIZE:
+    raise newException(
+      ValueError, fmt"Chunk size is bigger than the allowed vector size: {VECTOR_SIZE}"
+    )
+
+  var
+    vec = duckdbDataChunkGetVector(chunk, colIdx.idx_t)
+    validityMask = newValidityMask(vec, len(values), isWritable=true)
+  for i, e in values:
+    if e.isSome():
+      vec[i] = e.get()
+      validityMask.setValidity(i, true)
+    else:
+      # vec[i] = nil
+      validityMask.setValidity(i, false)
 
   chunk.setLen(len(values))
 

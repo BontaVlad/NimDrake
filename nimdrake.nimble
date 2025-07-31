@@ -19,7 +19,6 @@ requires "terminaltables >= 0.1.1"
 requires "uuid4 >= 0.9.3"
 requires "criterion >= 0.3.1"
 requires "fusion >= 1.2"
-requires "taskpools >= 0.1.0"
 requires "unittest2 >= 0.2.3"
 
 task test, "run testament":

@@ -434,3 +434,12 @@ proc newAppender*[T](con: Connection, table: string, ent: seq[seq[T]]) =
       appender.append(val)
     appender.endRow()
   appender.flush()
+
+proc newAppender*[T](con: Connection, table: string, ent: seq[seq[Option[T]]]) =
+  ## Appends a sequence of sequences of Options[T] to a specified table in a DuckDB database.
+  var appender = newAppender(con, table)
+  for row in ent:
+    for val in row:
+      appender.append(val)
+    appender.endRow()
+  appender.flush()

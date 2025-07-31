@@ -1,7 +1,5 @@
 import unittest2
-# import std/[threadpool, tables]
 import std/[cpuinfo, tables]
-import taskpools
 import utils
 import ../src/[api, database, config, query, query_result, exceptions]
 
@@ -64,7 +62,7 @@ suite "Connections":
         id: int
         db: ptr Database
 
-    proc workerThread(data: ThreadData) =
+    proc workerThread(data: ThreadData) {.thread.} =
       let conn = data.db[].connect()
 
       let
@@ -78,16 +76,15 @@ suite "Connections":
       )
 
     let n = 5
-    let nthreads = countProcessors()
+    let nthreads = min(n, countProcessors()) # Don't create more threads than tasks
 
-    var tp = Taskpool.new(num_threads = nthreads)
+    var threads = newSeq[Thread[ThreadData]](nthreads)
 
     for i in 0..<n:
       let data = ThreadData(id: i, db: db.addr)  # Pass address of db
-      tp.spawn workerThread(data)
+      createThread(threads[i], workerThread, data)
 
-    tp.syncAll()
-    tp.shutdown()
+    joinThreads(threads)
 
     let results = mainConn.execute("SELECT calculation_result, value_a, value_b, thread_id FROM results ORDER BY thread_id").fetchAll()
     check results[0].valueInteger[0] == 0'i64
