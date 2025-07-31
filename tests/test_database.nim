@@ -166,9 +166,9 @@ suite "Connections":
     var threads = newSeq[Thread[ThreadData]](nthreads)
     var threadData = newSeq[ThreadData](nthreads)
 
-    for i in 0..<n:
+    for i in 0..<nthreads:
       threadData[i] = ThreadData(id: i, db: db.addr)
-      createThread(threads[i], workerThread, data)
+      createThread(threads[i], workerThread, threadData[i])
 
     joinThreads(threads)
 
