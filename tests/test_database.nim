@@ -1,6 +1,5 @@
 import unittest2
 import std/[cpuinfo, tables]
-import taskpools
 import utils
 import ../src/[api, database, config, query, query_result, exceptions]
 
