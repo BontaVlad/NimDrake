@@ -6,7 +6,7 @@ import utils
 suite "Test Dataframe":
   setup:
     let df =
-      newDataFrame({"foo": newVector(@[10, 20]), "bar": newVector(@["a", "b"])}.toTable)
+      newDataFrame({"foo": newVector(@[10, 20]), "bar": newVector(@["a", "b"])}.toOrderedTable)
 
   test "Test dataframe columns":
     check df.columnNames == @["foo", "bar"]
