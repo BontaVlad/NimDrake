@@ -8,7 +8,7 @@ suite "Table Scan":
     let
       conn = newDatabase().connect()
       df = newDataFrame(
-        {"foo": newVector(@[10, 30, 20]), "bar": newVector(@["a", "b", "c"])}.toTable
+        {"foo": newVector(@[10, 30, 20]), "bar": newVector(@["a", "b", "c"])}.toOrderedTable
       )
     conn.register("df", df)
     let outcome = conn.execute("SELECT * FROM df ORDER BY foo;").fetchAllNamed()
@@ -18,7 +18,7 @@ suite "Table Scan":
   test "Test view into mutable dataframe":
     let
       conn = newDatabase().connect()
-      df = newDataFrame({"bar": newVector(@["a", "b", "c"])}.toTable
+      df = newDataFrame({"bar": newVector(@["a", "b", "c"])}.toOrderedTable
       )
 
     conn.register("df", df)

@@ -2,7 +2,7 @@ import std/[sequtils, times, options]
 import unittest2
 import nint128
 import utils
-import ../src/[api, database, datachunk, types, query, query_result, transaction, exceptions]
+import ../src/[api, database, datachunk, vector, types, query, query_result, transaction, exceptions]
 import ../src/compatibility/decimal_compat
 
 suite "Basic queries":
@@ -596,14 +596,18 @@ suite "Test appender dispatch":
       var appender = newAppender(conn, "null_test")
 
       # Test appending NULL values
-      appender.append(none(int32))
-      appender.append(some("hello"))
+      appender.append(42'i32)
+      appender.append(none(string))
       appender.append(none(float))
       appender.endRow()
       appender.flush()
 
       let outcome = conn.execute("SELECT * FROM null_test").fetchall()
-      # I dont' think that duckdb_append_null will mark column as not valid
+      check outcome[0].valueInteger[0] == 42'i32
+
+      check outcome[0].isValid(0) == true
+      check outcome[0].isValid(1) == false
+      check outcome[0].isValid(2) == false
       skip()
 
   test "Append DataChunk val":
@@ -658,17 +662,24 @@ suite "Test appender dispatch":
 
       appender.append(chunk)
       appender.flush()
-      skip()
 
-      # echo ""
-      # echo conn.execute("SELECT * FROM appender_table;")
-      # let outcome = conn.execute("SELECT * FROM appender_table;").fetchall()
-      # check outcome[0].mask.isValid(0) == false
-      # check outcome[0].mask.isValid(1) == false
-      # check outcome[0].mask.isValid(2) == false
-      # check outcome[0].valueInteger == intValues
-      # check outcome[1].valueVarchar == strValues
-      # check outcome[2].valueBoolean == boolValues
+      let outcome = conn.execute("SELECT * FROM appender_table;").fetchall()
+
+      check outcome[0].isValid(0) == true
+      check outcome[0].isValid(1) == false
+      check outcome[0].isValid(2) == true
+
+      check outcome[1].isValid(0) == false
+      check outcome[1].isValid(1) == true
+      check outcome[1].isValid(2) == false
+
+      check outcome[2].isValid(0) == false
+      check outcome[2].isValid(1) == false
+      check outcome[2].isValid(2) == true
+
+      check outcome[0].valueInteger[0] == intValues[0].get()
+      check outcome[1].valueVarchar[0] == ""
+      check outcome[2].valueBoolean[0] == false
 
   test "Append throws an error on missing column on flush":
     let db = newDatabase()

@@ -83,3 +83,17 @@ macro generateTypeToField*(registryName: static[string], vectorType: typed): unt
 
 macro getField*(obj: object, fieldName: static string): untyped =
   nnkDotExpr.newTree(obj, ident(fieldName))
+
+proc echoBitmask*(mask: ptr UncheckedArray[uint64], count: int) =
+  for i in 0 ..< count:
+    let word = mask[i shr 6]
+    let bit = (word shr (i and 63)) and 1
+    stdout.write($bit) # write 0 or 1 without newline
+  echo "" # final newline
+
+proc echoBitmask*(mask: seq[uint64], count: int) =
+  for i in 0 ..< count:
+    let word = mask[i shr 6]
+    let bit = (word shr (i and 63)) and 1
+    stdout.write($bit) # write 0 or 1 without newline
+  echo "" # final newline

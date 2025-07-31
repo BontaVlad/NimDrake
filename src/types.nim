@@ -14,8 +14,8 @@ const
 type
   Timestamp* {.borrow: `.`.} = distinct DateTime
   ValidityMask* = object
-    mask: ptr UncheckedArray[uint64]
-    size: int
+    handle*: ptr UncheckedArray[uint64]
+    size*: int
 
   Statement* = distinct ptr duckdbPreparedStatement
   PendingQueryResult* = distinct ptr duckdbPendingResult
@@ -101,7 +101,7 @@ type
   Value* = ref object of ValueBase
 
   Vector* = ref object
-    mask*: ValidityMask
+    mask*: seq[uint64] = newSeq[uint64]()
     case kind*: DuckType
     of DuckType.Invalid, DuckType.ANY, DuckType.VARINT, DuckType.SQLNULL:
       valueInvalid*: uint8
@@ -192,7 +192,7 @@ proc format*(dt: Timestamp, f: string): string =
   return DateTime(dt).format(f)
 
 proc newValidityMask*(): ValidityMask =
-  return ValidityMask(size: 0, mask: nil)
+  return ValidityMask(size: 0, handle: nil)
 
 proc newValidityMask*(
     vec: duckdb_vector, size: int, isWritable: bool = false
@@ -203,7 +203,7 @@ proc newValidityMask*(
     duckdbVectorEnsureValidityWritable(vec)
 
   let raw = cast[ptr UncheckedArray[uint64]](duckdb_vector_get_validity(vec))
-  return ValidityMask(mask: raw, size: numEntries)
+  return ValidityMask(handle: raw, size: numEntries)
 
 template toEnum*[T](x: int): T =
   if x in T.low.int .. T.high.int:
@@ -211,8 +211,15 @@ template toEnum*[T](x: int): T =
   else:
     raise newException(ValueError, "Value not convertible to enum")
 
+proc echoBitmask(mask: ptr UncheckedArray[uint64], count: int) =
+  for i in 0 ..< count:
+    let word = mask[i shr 6]
+    let bit = (word shr (i and 63)) and 1
+    stdout.write($bit) # write 0 or 1 without newline
+  echo "" # final newline
+
 proc isValid*(validity: ValidityMask, idx: int): bool {.inline.} =
-  if isNil(validity.mask):
+  if isNil(validity.handle):
     return true
 
   let
@@ -222,10 +229,10 @@ proc isValid*(validity: ValidityMask, idx: int): bool {.inline.} =
   if entryIdx >= validity.size:
     raise newException(ValueError, fmt"Idx {idx} not in 0 .. {validity.size}")
 
-  return (validity.mask[entryIdx] and (1'u64 shl indexInEntry)) != 0
+  return (validity.handle[entryIdx] and (1'u64 shl indexInEntry)) != 0
 
 proc setValidity*(validity: ValidityMask, rowIdx: int, isValid: bool) =
-  duckdb_validity_set_row_validity(validity.mask[0].addr, rowIdx.idx_t, isValid)
+  duckdb_validity_set_row_validity(validity.handle[0].addr, rowIdx.idx_t, isValid)
 
 proc newDuckType*(i: duckdb_logical_type): DuckType =
   let id = duckdbGetTypeId(i)

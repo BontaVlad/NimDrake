@@ -29,6 +29,8 @@ iterator columns(qresult: QueryResult): Column =
 
 iterator chunks(qresult: QueryResult): DataChunk {.inline.} =
   var chunk: duckdbDataChunk
+  # this evaluates chunk types to many times, could
+  # be a performance improvement
   while true:
     if qresult.isStreaming:
       chunk = duckdbStreamFetchChunk(qresult)
@@ -47,6 +49,13 @@ proc fetchOne*(qresult: QueryResult): seq[Value] {.inline.} =
     break
   return theOne
 
+# TODO: api not definitive
+proc fetchOneNamed*(qresult: QueryResult): Table[string, Value] =
+  result = Table[string, Value]()
+  let values = fetchOne((qresult))
+  for col in qresult.columns:
+    result[col.name] = values[col.idx]
+
 iterator rows*(qresult: QueryResult): seq[Value] =
   for chunk in qresult.chunks:
     let
@@ -60,32 +69,25 @@ iterator rows*(qresult: QueryResult): seq[Value] =
       yield row
 
 # TODO: api not definitive
-proc fetchOneNamed*(qresult: QueryResult): Table[string, Value] =
-  result = Table[string, Value]()
-  let values = fetchOne((qresult))
-  for col in qresult.columns:
-    result[col.name] = values[col.idx]
-
-# # TODO: api not definitive
 proc fetchAll*(qresult: QueryResult): seq[Vector] =
   let columns = qresult.columns.toSeq()
 
   var all = newSeq[Vector](len(columns))
-  for column in columns:
-    all[column.idx] = newVector(column.kind)
 
   for chunk in qresult.chunks:
     for column in columns:
-      all[column.idx] &= chunk[column.idx]
+      if isNil(all[column.idx]):
+        all[column.idx] = chunk[column.idx]
+      else:
+        all[column.idx] &= chunk[column.idx]
   return all
 
 # TODO: api not definitive
-proc fetchAllNamed*(qresult: QueryResult): Table[string, Vector] =
+proc fetchAllNamed*(qresult: QueryResult): OrderedTable[string, Vector] =
   let
     columns = qresult.columns.toSeq()
     data = fetchAll(qresult)
 
-  result = initTable[string, Vector]()
   for i, column in columns:
     result[column.name] = data[i]
 

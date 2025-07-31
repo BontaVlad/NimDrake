@@ -6,7 +6,7 @@ type DataFrame* = ref object
   columns*: seq[Column]
   values*: seq[Vector]
 
-proc newDataFrame*(data: Table[string, Vector]): DataFrame =
+proc newDataFrame*(data: OrderedTable[string, Vector]): DataFrame =
   let
     values = data.values.toSeq
     firstLength = values[0].len

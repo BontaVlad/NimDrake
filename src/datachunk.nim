@@ -13,13 +13,13 @@ converter toC*(d: DataChunk): duckdbdatachunk =
   d.handle
 
 converter toBool*(d: DataChunk): bool =
-  not isNil(d) or duckdbdatachunkgetsize(d).int > 0
+  not isNil(d) or duckdbDatachunkGetSize(d).int > 0
 
 proc `=destroy`(d: DataChunkBase) =
   if d.handle != nil and d.shouldDestroy:
     # cleanup LogicalTypes and the duckdb pointer
     `=destroy`(d.types)
-    duckdb_destroy_datachunk(d.handle.addr)
+    duckdbDestroyDatachunk(d.handle.addr)
   elif d.handle != nil:
     # cleanup will be done by duckdb but the
     # logical types we need to cleanup ourselfs
@@ -48,8 +48,8 @@ proc newDataChunk*(types: seq[DuckType], shouldDestroy: bool = true): DataChunk 
     logicalTypes[i] = newLogicalType(tp)
     duckLogicalTypes[i] = logicalTypes[i].handle
 
-  let chunk = duckdb_create_data_chunk(
-    cast[ptr duckdb_logical_type](duckLogicalTypes[0].addr), len(types).idx_t
+  let chunk = duckdbCreateDataChunk(
+    cast[ptr duckdbLogicalType](duckLogicalTypes[0].addr), len(types).idx_t
   )
 
   if chunk == nil:
@@ -68,13 +68,16 @@ proc newDataChunk*(handle: duckdb_data_chunk, shouldDestroy: bool = true): DataC
 
   return DataChunk(handle: handle, types: types, shouldDestroy: shouldDestroy)
 
+proc newDataChunk*(handle: duckdb_data_chunk, types: seq[LogicalType], shouldDestroy: bool = true): DataChunk =
+  return DataChunk(handle: handle, types: types, shouldDestroy: shouldDestroy)
+
 proc len*(chunk: DataChunk): int =
   result = duckdbDataChunkGetSize(chunk.handle).int
 
 proc setLen*(chunk: DataChunk, sz: int) =
   duckdbDataChunkSetSize(chunk.handle, sz.idx_t)
 
-proc `[]=`*[T](chunk: var DataChunk, colIdx: int, values: seq[T]) =
+proc `[]=`*[T](chunk: var DataChunk, colIdx: int, values: sink seq[T]) =
   if chunk.len != 0 and chunk.len != len(values):
     raise newException(
       ValueError,
@@ -91,7 +94,7 @@ proc `[]=`*[T](chunk: var DataChunk, colIdx: int, values: seq[T]) =
 
   chunk.setLen(len(values))
 
-proc `[]=`*[T](chunk: var DataChunk, colIdx: int, values: seq[Option[T]]) =
+proc `[]=`*[T](chunk: var DataChunk, colIdx: int, values: sink seq[Option[T]]) =
   if chunk.len != 0 and chunk.len != len(values):
     raise newException(
       ValueError,
@@ -104,13 +107,13 @@ proc `[]=`*[T](chunk: var DataChunk, colIdx: int, values: seq[Option[T]]) =
 
   var
     vec = duckdbDataChunkGetVector(chunk, colIdx.idx_t)
-    validityMask = newValidityMask(vec, len(values), isWritable=true)
+    validityMask = newValidityMask(vec, len(values), isWritable = true)
+
   for i, e in values:
     if e.isSome():
       vec[i] = e.get()
       validityMask.setValidity(i, true)
     else:
-      # vec[i] = nil
       validityMask.setValidity(i, false)
 
   chunk.setLen(len(values))
