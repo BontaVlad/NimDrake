@@ -1,14 +1,17 @@
 name: Documentation
 
 on:
-  push:
-    branches: [ main ]  # or master, depending on your default branch
+  workflow_run:
+    workflows: ["Tests"]
+    types:
+      - completed
 
 env:
   GH_TOKEN: ${{ secrets.GH_TOKEN }} # Use the fine-grained PAT here
 
 jobs:
-  docs:
+  generate-docs:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
