@@ -770,3 +770,37 @@ suite "Test pending statement queries":
 
     let outcome = pending.execute().fetchall()
     check outcome[0].valueHugeInt[0] == i128("499999500000")
+
+  test "Testing streaming results":
+    let
+      conn = newDatabase().connect()
+      prepared = conn.newStatement("SELECT i::UINT32 FROM range(1000000) tbl(i)")
+      pending = newPendingStreamingResult(prepared)
+
+    while true:
+      let state = pending.executeTask()
+      case state:
+      of DUCKDB_PENDING_RESULT_READY:
+        break
+      of DUCKDB_PENDING_RESULT_NOT_READY:
+        continue
+      of DUCKDB_PENDING_ERROR:
+        break
+        # echo pending.error
+      of DUCKDB_PENDING_NO_TASKS_AVAILABLE:
+        continue
+        # echo "no tasks"
+
+    # res is still unevaluated
+    let res = pending.execute()
+    check res.columnCount == 1
+    check res.rowCount == 0
+    check res.chunkCount == 0
+
+    # this succeeds because the result is materialized if a stream-result method hasn't being used yet
+    let outcome = res.fetchall()
+    check len(outcome[0].valueUInteger) == 1000000
+
+    # we exausted the streaming result
+    let emptyOutcome = res.fetchall()
+    check len(emptyOutcome[0].valueUInteger) == 0

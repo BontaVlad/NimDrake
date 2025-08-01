@@ -12,5 +12,5 @@ benchmark cfg:
   proc benchmarkFetchAll() {.measure.} =
     let conn = newDatabase().connect()
 
-    let outcome = conn.execute("SELECT * from range(1000000)").fetchAll()
+    let outcome = conn.execute("SELECT * from range(100000000)").fetchAll()
     # let outcome = conn.execute("SELECT * from range(10000)").fetchAll()

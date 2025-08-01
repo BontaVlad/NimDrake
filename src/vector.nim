@@ -486,17 +486,17 @@ proc newVector*(
   of DuckType.BigInt:
     handleVectorCase(result.valueBigint, handle, size, int64)
   of DuckType.UTinyInt:
-    handleVectorCase(result.valueUtinyint, handle, size, uint8, uint8)
+    handleVectorCase(result.valueUtinyint, handle, size, uint8)
   of DuckType.USmallInt:
-    handleVectorCase(result.valueUSmallint, handle, size, uint16, uint16)
+    handleVectorCase(result.valueUSmallint, handle, size, uint16)
   of DuckType.UInteger:
-    handleVectorCase(result.valueUInteger, handle, size, uint32, uint32)
+    handleVectorCase(result.valueUInteger, handle, size, uint32)
   of DuckType.UBigInt:
-    handleVectorCase(result.valueUBigint, handle, size, uint64, uint64)
+    handleVectorCase(result.valueUBigint, handle, size, uint64)
   of DuckType.Float:
-    handleVectorCase(result.valueFloat, handle, size, float32, float32)
+    handleVectorCase(result.valueFloat, handle, size, float32)
   of DuckType.Double:
-    handleVectorCase(result.valueDouble, handle, size, float64, float64)
+    handleVectorCase(result.valueDouble, handle, size, float64)
   of DuckType.Timestamp:
     handleVectorCase(result.valueTimeStamp, handle, size, int64, fromTimestamp)
   of DuckType.Date:

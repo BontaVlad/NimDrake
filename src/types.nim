@@ -211,13 +211,6 @@ template toEnum*[T](x: int): T =
   else:
     raise newException(ValueError, "Value not convertible to enum")
 
-proc echoBitmask(mask: ptr UncheckedArray[uint64], count: int) =
-  for i in 0 ..< count:
-    let word = mask[i shr 6]
-    let bit = (word shr (i and 63)) and 1
-    stdout.write($bit) # write 0 or 1 without newline
-  echo "" # final newline
-
 proc isValid*(validity: ValidityMask, idx: int): bool {.inline.} =
   if isNil(validity.handle):
     return true
