@@ -68,7 +68,9 @@ proc newDataChunk*(handle: duckdb_data_chunk, shouldDestroy: bool = true): DataC
 
   return DataChunk(handle: handle, types: types, shouldDestroy: shouldDestroy)
 
-proc newDataChunk*(handle: duckdb_data_chunk, types: seq[LogicalType], shouldDestroy: bool = true): DataChunk =
+proc newDataChunk*(
+    handle: duckdb_data_chunk, types: seq[LogicalType], shouldDestroy: bool = true
+): DataChunk =
   return DataChunk(handle: handle, types: types, shouldDestroy: shouldDestroy)
 
 proc len*(chunk: DataChunk): int =

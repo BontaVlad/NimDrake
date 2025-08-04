@@ -12,6 +12,8 @@ type
   Connection* = object
     handle*: duckdbConnection
 
+  QueryProgress* = object of duckdbQueryProgressType
+
 proc `=destroy`*(db: Database) =
   if not isNil(db.addr):
     duckdbClose(db.handle.addr)
@@ -112,3 +114,9 @@ proc connect*(db: Database): Connection =
 
   result = Connection(handle: nil)
   check(duckdbConnect(db.handle, result.handle.addr), "Failed to connect to database")
+
+proc queryProgress*(con: Connection): QueryProgress =
+  return cast[QueryProgress](duckdbQueryProgress(con.handle))
+
+proc interrupt*(con: Connection) =
+  duckdbInterrupt(con.handle)

@@ -41,10 +41,14 @@ proc newPendingResult*(statement: Statement): PendingQueryResult =
   check(
     duckdbPendingPrepared(statement, result.addr),
     "Failed to execute the pending prepared statement",
-    `=destroy`(result)
+    `=destroy`(result),
   )
 
-proc newPendingStreamingResult*(statement: Statement): PendingQueryResult {.deprecated: "This method is scheduled for removal in a future release".}=
+proc newPendingStreamingResult*(
+    statement: Statement
+): PendingQueryResult {.
+    deprecated: "This method is scheduled for removal in a future release"
+.} =
   ## Executes the prepared statement with the given bound parameters, and returns a pending result.
   ##
   ## This pending result will create a streaming result when executed.
@@ -53,18 +57,30 @@ proc newPendingStreamingResult*(statement: Statement): PendingQueryResult {.depr
   check(
     duckdbPendingPreparedStreaming(statement, result.addr),
     "Failed to execute the pending prepared streaming statement",
-    `=destroy`(result)
+    `=destroy`(result),
   )
 
-proc columnCount*(qresult: QueryResult): int {.inline, deprecated: "This method is scheduled for removal in a future release".} =
+proc columnCount*(
+    qresult: QueryResult
+): int {.
+    inline, deprecated: "This method is scheduled for removal in a future release"
+.} =
   ## Returns the number of columns present in a the result object
   return duckdbColumnCount(qresult.addr).int
 
-proc rowCount*(qresult: QueryResult): int {.inline, deprecated: "This method is scheduled for removal in a future release".} =
+proc rowCount*(
+    qresult: QueryResult
+): int {.
+    inline, deprecated: "This method is scheduled for removal in a future release"
+.} =
   ## Returns the number of rows present in a the result object
   return duckdbRowCount(qresult.addr).int
 
-proc chunkCount*(qresult: QueryResult): int {.inline, deprecated: "This method is scheduled for removal in a future release" .} =
+proc chunkCount*(
+    qresult: QueryResult
+): int {.
+    inline, deprecated: "This method is scheduled for removal in a future release"
+.} =
   ## Returns the number of chunks present in a the result object
   return duckdbResultChunkCount(qresult).int
 

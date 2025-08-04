@@ -1,8 +1,8 @@
-import std/[sequtils, times, options]
+import std/[sequtils, times, options, tables]
 import unittest2
 import nint128
 import utils
-import ../src/[api, database, datachunk, vector, types, query, query_result, transaction, exceptions]
+import ../src/[api, database, datachunk, vector, types, query, query_result, transaction, exceptions, config]
 import ../src/compatibility/decimal_compat
 
 suite "Basic queries":
@@ -804,3 +804,39 @@ suite "Test pending statement queries":
     # we exausted the streaming result
     let emptyOutcome = res.fetchall()
     check len(emptyOutcome[0].valueUInteger) == 0
+
+  test "Testing streaming interrupt and progress":
+    let config = newConfig({"threads": "1",}.toTable)
+    let conn = newDatabase(config).connect()
+
+    conn.execute("CREATE TABLE tbl AS SELECT RANGE a, MOD(RANGE,10) b FROM RANGE(10000);")
+    conn.execute("CREATE TABLE tbl_2 AS SELECT RANGE a FROM RANGE(10000);")
+    conn.execute("SET enable_progress_bar=true;")
+    conn.execute("SET enable_progress_bar_print=false;")
+
+    # nothing running
+    check conn.queryProgress.percentage == -1
+
+    let
+      prepared = conn.newStatement("SELECT COUNT(*) FROM tbl WHERE a = (SELECT MIN(a) FROM tbl_2);")
+      pending = newPendingStreamingResult(prepared)
+
+    check conn.queryProgress.percentage == 0.0
+
+    # task not started yet
+    while conn.queryProgress.percentage == 0.0:
+      let state = pending.executeTask()
+      check state == DUCKDB_PENDING_RESULT_NOT_READY
+
+    # task has begun
+    check conn.queryProgress.rows_processed == 10000
+    check conn.queryProgress.percentage >= 0.0
+
+    # task was intrerrupted, should be pending error
+    conn.interrupt()
+    while true:
+      let state = pending.executeTask()
+      check state != DUCKDB_PENDING_RESULT_READY
+
+      if state == DUCKDB_PENDING_ERROR:
+         break
