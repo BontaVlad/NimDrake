@@ -1,0 +1,21 @@
+nimTitle	database	database.html	module src/database		0
+nim	Database	database.html#Database	object Database		9
+nim	Connection	database.html#Connection	object Connection		12
+nim	QueryProgress	database.html#QueryProgress	object QueryProgress		15
+nim	`=destroy`	database.html#=destroy,Database	proc `=destroy`(db: Database)		17
+nim	`=sink`	database.html#=sink,Database,Database	proc `=sink`(dest: var Database; source: Database)		21
+nim	`=copy`	database.html#=copy,Database,Database	proc `=copy`(dest: var Database; source: Database)		26
+nim	`=destroy`	database.html#=destroy,Connection	proc `=destroy`(con: Connection)		30
+nim	`=sink`	database.html#=sink,Connection,Connection	proc `=sink`(dest: var Connection; source: Connection)		34
+nim	`=copy`	database.html#=copy,Connection,Connection	proc `=copy`(dest: var Connection; source: Connection)		39
+nim	newDatabase	database.html#newDatabase,string,Config	proc newDatabase(path: string; config: Config): Database		43
+nim	newDatabase	database.html#newDatabase,string	proc newDatabase(path: string): Database		65
+nim	newDatabase	database.html#newDatabase,Config	proc newDatabase(config: Config): Database		76
+nim	newDatabase	database.html#newDatabase	proc newDatabase(): Database		88
+nim	connect	database.html#connect,Database	proc connect(db: Database): Connection		98
+nim	queryProgress	database.html#queryProgress,Connection	proc queryProgress(con: Connection): QueryProgress		118
+nim	interrupt	database.html#interrupt,Connection	proc interrupt(con: Connection)		121
+nimgrp	newdatabase	database.html#newDatabase-procs-all	proc		43
+nimgrp	=destroy	database.html#=destroy-procs-all	proc		17
+nimgrp	=copy	database.html#=copy-procs-all	proc		26
+nimgrp	=sink	database.html#=sink-procs-all	proc		21

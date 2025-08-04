@@ -1,0 +1,6 @@
+nimTitle	wrench	tools/wrench.html	module src/tools/wrench		0
+nim	generateTypeToField	tools/wrench.html#generateTypeToField.m,static[string],typed	macro generateTypeToField(registryName: static[string]; vectorType: typed): untyped		5
+nim	getField	tools/wrench.html#getField.m,,staticstring	macro getField(obj: object; fieldName: static string): untyped		84
+nim	echoBitmask	tools/wrench.html#echoBitmask,ptr.UncheckedArray[uint64],int	proc echoBitmask(mask: ptr UncheckedArray[uint64]; count: int)		87
+nim	echoBitmask	tools/wrench.html#echoBitmask,seq[uint64],int	proc echoBitmask(mask: seq[uint64]; count: int)		94
+nimgrp	echobitmask	tools/wrench.html#echoBitmask-procs-all	proc		87

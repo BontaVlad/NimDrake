@@ -1,0 +1,16 @@
+nimTitle	datachunk	datachunk.html	module src/datachunk		0
+nim	DataChunk	datachunk.html#DataChunk	type DataChunk		10
+nim	toC	datachunk.html#toC.c,DataChunk	converter toC(d: DataChunk): duckdb_data_chunk		12
+nim	toBool	datachunk.html#toBool.c,DataChunk	converter toBool(d: DataChunk): bool		15
+nim	columnCount	datachunk.html#columnCount,DataChunk	proc columnCount(chunk: DataChunk): int		28
+nim	newDataChunk	datachunk.html#newDataChunk,duckdb_data_chunk,seq[DuckType],bool	proc newDataChunk(handle: duckdb_data_chunk; types: seq[DuckType];\n             shouldDestroy: bool = true): DataChunk		31
+nim	newDataChunk	datachunk.html#newDataChunk,seq[DuckType],bool	proc newDataChunk(types: seq[DuckType]; shouldDestroy: bool = true): DataChunk		42
+nim	newDataChunk	datachunk.html#newDataChunk,duckdb_data_chunk,bool	proc newDataChunk(handle: duckdb_data_chunk; shouldDestroy: bool = true): DataChunk		60
+nim	newDataChunk	datachunk.html#newDataChunk,duckdb_data_chunk,seq[LogicalType],bool	proc newDataChunk(handle: duckdb_data_chunk; types: seq[LogicalType];\n             shouldDestroy: bool = true): DataChunk		71
+nim	len	datachunk.html#len,DataChunk	proc len(chunk: DataChunk): int		76
+nim	setLen	datachunk.html#setLen,DataChunk,int	proc setLen(chunk: DataChunk; sz: int)		79
+nim	`[]=`	datachunk.html#[]=,DataChunk,int,sinkseq[T]	proc `[]=`[T](chunk: var DataChunk; colIdx: int; values: sink seq[T])		82
+nim	`[]=`	datachunk.html#[]=,DataChunk,int,sinkseq[Option[T]]	proc `[]=`[T](chunk: var DataChunk; colIdx: int; values: sink seq[Option[T]])		99
+nim	`[]`	datachunk.html#[],DataChunk,int	proc `[]`(chunk: DataChunk; colIdx: int): Vector		123
+nimgrp	newdatachunk	datachunk.html#newDataChunk-procs-all	proc		31
+nimgrp	[]=	datachunk.html#[]=-procs-all	proc		82

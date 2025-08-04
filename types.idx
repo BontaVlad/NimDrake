@@ -1,0 +1,47 @@
+nimTitle	types	types.html	module src/types		0
+nim	BITS_PER_VALUE	types.html#BITS_PER_VALUE	const BITS_PER_VALUE		10
+nim	STRING_INLINE_LENGTH	types.html#STRING_INLINE_LENGTH	const STRING_INLINE_LENGTH		11
+nim	SECONDS_PER_DAY	types.html#SECONDS_PER_DAY	const SECONDS_PER_DAY		12
+nim	Timestamp	types.html#Timestamp	type Timestamp		15
+nim	ValidityMask	types.html#ValidityMask	object ValidityMask		16
+nim	Statement	types.html#Statement	type Statement		20
+nim	PendingQueryResult	types.html#PendingQueryResult	type PendingQueryResult		21
+nim	QueryResult	types.html#QueryResult	object QueryResult		22
+nim	DuckType	types.html#DuckType	enum DuckType		24
+nim	Value	types.html#Value	type Value		101
+nim	Vector	types.html#Vector	type Vector		103
+nim	LogicalType	types.html#LogicalType	object LogicalType		141
+nim	Column	types.html#Column	type Column		144
+nim	toBase	types.html#toBase.c,ptr.Statement	converter toBase(s: ptr Statement): ptr duckdb_prepared_statement		149
+nim	toBase	types.html#toBase.c,Statement	converter toBase(s: Statement): duckdb_prepared_statement		152
+nim	toBase	types.html#toBase.c,ptr.PendingQueryResult	converter toBase(p: ptr PendingQueryResult): ptr duckdb_pending_result		155
+nim	toBase	types.html#toBase.c,PendingQueryResult	converter toBase(p: PendingQueryResult): duckdb_pending_result		158
+nim	`=destroy`	types.html#=destroy,Statement	proc `=destroy`(statement: Statement)		161
+nim	`=dup`	types.html#=dup,Statement	proc `=dup`(statement: Statement): Statement		166
+nim	`=copy`	types.html#=copy,Statement,Statement	proc `=copy`(dest: var Statement; source: Statement)		170
+nim	`=destroy`	types.html#=destroy,LogicalType	proc `=destroy`(ltp: LogicalType)		174
+nim	`=destroy`	types.html#=destroy,QueryResult	proc `=destroy`(qresult: QueryResult)		178
+nim	`=destroy`	types.html#=destroy,PendingQueryResult	proc `=destroy`(pqresult: PendingQueryResult)		182
+nim	`$`	types.html#$,Timestamp	proc `$`(x: Timestamp): string		186
+nim	toTime	types.html#toTime,Timestamp	proc toTime(x: Timestamp): Time		189
+nim	`==`	types.html#==,Timestamp,Timestamp	proc `==`(x, y: Timestamp): bool		190
+nim	format	types.html#format,Timestamp,string	proc format(dt: Timestamp; f: string): string		191
+nim	newValidityMask	types.html#newValidityMask	proc newValidityMask(): ValidityMask		194
+nim	newValidityMask	types.html#newValidityMask,duckdb_vector,int,bool	proc newValidityMask(vec: duckdb_vector; size: int; isWritable: bool = false): ValidityMask		197
+nim	toEnum	types.html#toEnum.t,int	template toEnum[T](x: int): T		208
+nim	isValid	types.html#isValid,ValidityMask,int	proc isValid(validity: ValidityMask; idx: int): bool		214
+nim	setValidity	types.html#setValidity,ValidityMask,int,bool	proc setValidity(validity: ValidityMask; rowIdx: int; isValid: bool)		227
+nim	newDuckType	types.html#newDuckType,duckdb_logical_type	proc newDuckType(i: duckdb_logical_type): DuckType		230
+nim	newDuckType	types.html#newDuckType,LogicalType	proc newDuckType(i: LogicalType): DuckType		234
+nim	newDuckType	types.html#newDuckType,enum_DUCKDB_TYPE_2181038529	proc newDuckType(i: enum_DUCKDB_TYPE): DuckType		237
+nim	newDuckType	types.html#newDuckType,typedesc[T]	proc newDuckType[T](t: typedesc[T]): DuckType		240
+nim	newDuckType	types.html#newDuckType,NimNode	proc newDuckType(node: NimNode): DuckType		280
+nim	newLogicalType	types.html#newLogicalType,duckdb_logical_type	proc newLogicalType(i: duckdb_logical_type): LogicalType		322
+nim	newLogicalType	types.html#newLogicalType,DuckType	proc newLogicalType(pt: DuckType): LogicalType		325
+nim	`$`	types.html#$,LogicalType	proc `$`(ltp: LogicalType): string		332
+nimgrp	$	types.html#$-procs-all	proc		186
+nimgrp	newvaliditymask	types.html#newValidityMask-procs-all	proc		194
+nimgrp	newlogicaltype	types.html#newLogicalType-procs-all	proc		322
+nimgrp	=destroy	types.html#=destroy-procs-all	proc		161
+nimgrp	newducktype	types.html#newDuckType-procs-all	proc		230
+nimgrp	tobase	types.html#toBase-converters-all	converter		149
