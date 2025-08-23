@@ -1,0 +1,41 @@
+nimTitle	vector	vector.html	module src/vector		0
+nim	`[]=`	vector.html#[]=.t,duckdb_vector,int,T	template `[]=`[T: SomeNumber](vec: duckdb_vector; i: int; val: T)		11
+nim	`[]=`	vector.html#[]=.t,duckdb_vector,int,bool	template `[]=`(vec: duckdb_vector; i: int; val: bool)		18
+nim	`[]=`	vector.html#[]=.t,duckdb_vector,int,string	template `[]=`(vec: duckdb_vector; i: int; val: string)		22
+nim	`$`	vector.html#$,Vector	proc `$`(vector: Vector): string		25
+nim	len	vector.html#len,Vector	proc len(vec: Vector): int		94
+nim	isValid	vector.html#isValid,Vector,int	proc isValid(vec: Vector; idx: int): bool		163
+nim	vecToValue	vector.html#vecToValue,Vector,int	proc vecToValue(vec: Vector; idx: int): Value		195
+nim	items	vector.html#items.i,Vector	iterator items(vec: Vector): Value		265
+nim	newVector	vector.html#newVector,DuckType,int	proc newVector(kind: DuckType; size: int): Vector		269
+nim	newVector	vector.html#newVector,seq[bool]	proc newVector(data: seq[bool]): Vector		338
+nim	newVector	vector.html#newVector,seq[int8]	proc newVector(data: seq[int8]): Vector		341
+nim	newVector	vector.html#newVector,seq[int16]	proc newVector(data: seq[int16]): Vector		344
+nim	newVector	vector.html#newVector,seq[int32]	proc newVector(data: seq[int32]): Vector		347
+nim	newVector	vector.html#newVector,seq[int64]	proc newVector(data: seq[int64]): Vector		350
+nim	newVector	vector.html#newVector,seq[uint8]	proc newVector(data: seq[uint8]): Vector		353
+nim	newVector	vector.html#newVector,seq[uint16]	proc newVector(data: seq[uint16]): Vector		356
+nim	newVector	vector.html#newVector,seq[uint32]	proc newVector(data: seq[uint32]): Vector		359
+nim	newVector	vector.html#newVector,seq[uint64]	proc newVector(data: seq[uint64]): Vector		362
+nim	newVector	vector.html#newVector,seq[float32]	proc newVector(data: seq[float32]): Vector		365
+nim	newVector	vector.html#newVector,seq[float64]	proc newVector(data: seq[float64]): Vector		368
+nim	newVector	vector.html#newVector,seq[Timestamp]	proc newVector(data: seq[Timestamp]): Vector		371
+nim	newVector	vector.html#newVector,seq[Time]	proc newVector(data: seq[Time]): Vector		374
+nim	newVector	vector.html#newVector,seq[TimeInterval]	proc newVector(data: seq[TimeInterval]): Vector		377
+nim	newVector	vector.html#newVector,seq[Int128]	proc newVector(data: seq[Int128]): Vector		380
+nim	newVector	vector.html#newVector,seq[string]	proc newVector(data: seq[string]): Vector		383
+nim	newVector	vector.html#newVector,seq[seq[byte]]	proc newVector(data: seq[seq[byte]]): Vector		386
+nim	newVector	vector.html#newVector,seq[DecimalType]	proc newVector(data: seq[DecimalType]): Vector		389
+nim	newVector	vector.html#newVector,seq[uint]	proc newVector(data: seq[uint]): Vector		392
+nim	newVector	vector.html#newVector,seq[seq[Value]]	proc newVector(data: seq[seq[Value]]): Vector		395
+nim	newVector	vector.html#newVector,seq[Table[string,Value]]	proc newVector(data: seq[Table[string, Value]]): Vector		398
+nim	newVector	vector.html#newVector,seq[Uuid]	proc newVector(data: seq[Uuid]): Vector		401
+nim	newVector	vector.html#newVector,seq[ZonedTime]	proc newVector(data: seq[ZonedTime]): Vector		407
+nim	newVector	vector.html#newVector,seq[]	proc newVector(data: seq[int | int64]): Vector		410
+nim	newVector	vector.html#newVector,duckdb_vector,int,int,DuckType,LogicalType	proc newVector(duckVector: duckdb_vector; size: int; offset: int; kind: DuckType;\n          logicalType: LogicalType): Vector		458
+nim	newVector	vector.html#newVector,duckdb_vector,int,int	proc newVector(duckVector: duckdb_vector; size: int; offset: int = 0): Vector		698
+nim	`[]`	vector.html#[],Vector,int	proc `[]`(v: Vector; idx: int): Value		704
+nim	values	vector.html#values,Vector,typedesc	proc values(vec: Vector; T: typedesc): lent seq[T:type]		707
+nim	`&=`	vector.html#&=,Vector,sinkVector	proc `&=`(left: var Vector; right: sink Vector): void		926
+nimgrp	newvector	vector.html#newVector-procs-all	proc		269
+nimgrp	[]=	vector.html#[]=-templates-all	template		11

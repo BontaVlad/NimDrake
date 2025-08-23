@@ -1,0 +1,8 @@
+nimTitle	exceptions	exceptions.html	module src/exceptions		0
+nim	BaseError	exceptions.html#BaseError	object BaseError		4
+nim	OperationError	exceptions.html#OperationError	object OperationError		5
+nim	Error	exceptions.html#Error	type Error		6
+nim	toBool	exceptions.html#toBool.c,enum_duckdb_state_2181038534	converter toBool(e: Error): bool		8
+nim	check	exceptions.html#check.t,enum_duckdb_state_2181038534,string	template check(error: Error; message: string): untyped		11
+nim	check	exceptions.html#check.t,enum_duckdb_state_2181038534,string,untyped	template check(error: Error; message: string; finalizer: untyped): untyped		15
+nimgrp	check	exceptions.html#check-templates-all	template		11

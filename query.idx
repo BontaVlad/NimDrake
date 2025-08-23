@@ -1,0 +1,79 @@
+nimTitle	query	query.html	module src/query		0
+nim	Query	query.html#Query	type Query		6
+nim	Appender	query.html#Appender	type Appender		8
+nim	AppenderColumn	query.html#AppenderColumn	object AppenderColumn		9
+nim	Parameter	query.html#Parameter	object Parameter		13
+nim	toBase	query.html#toBase.c,ptr.Appender	converter toBase(a: ptr Appender): ptr duckdb_appender		18
+nim	toBase	query.html#toBase.c,Appender	converter toBase(a: Appender): duckdb_appender		21
+nim	toBase	query.html#toBase.c,Query	converter toBase(q: Query): cstring		24
+nim	toBase	query.html#toBase.c,string	converter toBase(s: string): Query		27
+nim	`=dup`	query.html#=dup,Appender	proc `=dup`(appender: Appender): Appender		30
+nim	`=copy`	query.html#=copy,Appender,Appender	proc `=copy`(dest: var Appender; source: Appender)		32
+nim	`=destroy`	query.html#=destroy,Appender	proc `=destroy`(appender: Appender)		36
+nim	newStatement	query.html#newStatement,Connection,Query	proc newStatement(con: Connection; query: Query): Statement		41
+nim	parameters	query.html#parameters.i,Statement	iterator parameters(statement: Statement): Parameter		49
+nim	bindParameter	query.html#bindParameter,Statement,string	proc bindParameter(statement: Statement; name: string): int		79
+nim	bindVal	query.html#bindVal.t,Statement,int,bool	template bindVal(statement: Statement; i: int; val: bool): Error		101
+nim	bindVal	query.html#bindVal.t,Statement,int,seq[byte]	template bindVal(statement: Statement; i: int; val: seq[byte]): Error		105
+nim	bindVal	query.html#bindVal.t,Statement,int,void	template bindVal(statement: Statement; i: int; val: void): Error		109
+nim	bindVal	query.html#bindVal.t,Statement,int,int8	template bindVal(statement: Statement; i: int; val: int8): Error		113
+nim	bindVal	query.html#bindVal.t,Statement,int,int16	template bindVal(statement: Statement; i: int; val: int16): Error		117
+nim	bindVal	query.html#bindVal.t,Statement,int,int32	template bindVal(statement: Statement; i: int; val: int32): Error		121
+nim	bindVal	query.html#bindVal.t,Statement,int,int64	template bindVal(statement: Statement; i: int; val: int64): Error		125
+nim	bindVal	query.html#bindVal.t,Statement,int,int	template bindVal(statement: Statement; i: int; val: int): Error		130
+nim	bindVal	query.html#bindVal.t,Statement,int,uint8	template bindVal(statement: Statement; i: int; val: uint8): Error		134
+nim	bindVal	query.html#bindVal.t,Statement,int,uint16	template bindVal(statement: Statement; i: int; val: uint16): Error		138
+nim	bindVal	query.html#bindVal.t,Statement,int,uint32	template bindVal(statement: Statement; i: int; val: uint32): Error		142
+nim	bindVal	query.html#bindVal.t,Statement,int,uint64	template bindVal(statement: Statement; i: int; val: uint64): Error		146
+nim	bindVal	query.html#bindVal.t,Statement,int,float32	template bindVal(statement: Statement; i: int; val: float32): Error		150
+nim	bindVal	query.html#bindVal.t,Statement,int,float64	template bindVal(statement: Statement; i: int; val: float64): Error		154
+nim	bindVal	query.html#bindVal.t,Statement,int,string	template bindVal(statement: Statement; i: int; val: string): Error		158
+nim	bindVal	query.html#bindVal.t,Statement,int,Value	template bindVal(statement: Statement; i: int; val: Value): Error		162
+nim	bindVal	query.html#bindVal.t,Statement,int,Int128	template bindVal(statement: Statement; i: int; val: Int128): Error		166
+nim	bindVal	query.html#bindVal.t,Statement,int,UInt128	template bindVal(statement: Statement; i: int; val: UInt128): Error		170
+nim	bindVal	query.html#bindVal.t,Statement,int,Timestamp	template bindVal(statement: Statement; i: int; val: Timestamp): Error		174
+nim	bindVal	query.html#bindVal.t,Statement,int,DateTime	template bindVal(statement: Statement; i: int; val: DateTime): Error		178
+nim	bindVal	query.html#bindVal.t,Statement,int,Time	template bindVal(statement: Statement; i: int; val: Time): Error		182
+nim	bindVal	query.html#bindVal.t,Statement,int,TimeInterval	template bindVal(statement: Statement; i: int; val: TimeInterval): Error		186
+nim	append	query.html#append.t,Appender,bool	template append(appender: Appender; val: bool): untyped		198
+nim	append	query.html#append.t,Appender,seq[byte]	template append(appender: Appender; val: seq[byte]): untyped		202
+nim	append	query.html#append.t,Appender	template append(appender: Appender): untyped		209
+nim	append	query.html#append.t,Appender,int8	template append(appender: Appender; val: int8): untyped		213
+nim	append	query.html#append.t,Appender,int16	template append(appender: Appender; val: int16): untyped		217
+nim	append	query.html#append.t,Appender,int32	template append(appender: Appender; val: int32): untyped		221
+nim	append	query.html#append.t,Appender,int64	template append(appender: Appender; val: int64): untyped		225
+nim	append	query.html#append.t,Appender,int	template append(appender: Appender; val: int): untyped		229
+nim	append	query.html#append.t,Appender,uint8	template append(appender: Appender; val: uint8): untyped		235
+nim	append	query.html#append.t,Appender,uint16	template append(appender: Appender; val: uint16): untyped		239
+nim	append	query.html#append.t,Appender,uint32	template append(appender: Appender; val: uint32): untyped		243
+nim	append	query.html#append.t,Appender,uint64	template append(appender: Appender; val: uint64): untyped		247
+nim	append	query.html#append.t,Appender,float32	template append(appender: Appender; val: float32): untyped		251
+nim	append	query.html#append.t,Appender,float64	template append(appender: Appender; val: float64): untyped		255
+nim	append	query.html#append.t,Appender,string	template append(appender: Appender; val: string): untyped		259
+nim	append	query.html#append.t,Appender,Value	template append(appender: Appender; val: Value): untyped		270
+nim	append	query.html#append.t,Appender,Int128	template append(appender: Appender; val: Int128): untyped		276
+nim	append	query.html#append.t,Appender,UInt128	template append(appender: Appender; val: UInt128): untyped		283
+nim	append	query.html#append.t,Appender,Timestamp	template append(appender: Appender; val: Timestamp): untyped		290
+nim	append	query.html#append.t,Appender,DateTime	template append(appender: Appender; val: DateTime): untyped		297
+nim	append	query.html#append.t,Appender,Time	template append(appender: Appender; val: Time): untyped		304
+nim	append	query.html#append.t,Appender,TimeInterval	template append(appender: Appender; val: TimeInterval): untyped		310
+nim	append	query.html#append.t,Appender,DataChunk	template append(appender: Appender; val: DataChunk): untyped		317
+nim	append	query.html#append.t,Appender,Option[T]	template append[T](appender: var Appender; val: Option[T])		351
+nim	execute	query.html#execute,Connection,Statement,T	proc execute[T: Values](con: Connection; statement: Statement; args: T): QueryResult		357
+nim	execute	query.html#execute,Connection,Statement	proc execute(con: Connection; statement: Statement): QueryResult		369
+nim	execute	query.html#execute,Connection,Query	proc execute(con: Connection; query: Query): QueryResult		374
+nim	execute	query.html#execute,Connection,Query,T	proc execute[T: Values](con: Connection; query: Query; args: T): QueryResult		379
+nim	execute	query.html#execute,PendingQueryResult	proc execute(pending: PendingQueryResult): QueryResult		386
+nim	executeTask	query.html#executeTask,PendingQueryResult	proc executeTask(pending: PendingQueryResult): duckdb_pending_state		390
+nim	flush	query.html#flush,Appender	proc flush(appender: Appender)		393
+nim	close	query.html#close,Appender	proc close(appender: Appender)		399
+nim	endRow	query.html#endRow,Appender	proc endRow(appender: Appender)		405
+nim	columns	query.html#columns.i,Appender	iterator columns(appender: Appender): AppenderColumn		412
+nim	newAppender	query.html#newAppender,Connection,string	proc newAppender(con: Connection; table: string): Appender		420
+nim	newAppender	query.html#newAppender,Connection,string,seq[seq[T]]	proc newAppender[T](con: Connection; table: string; ent: seq[seq[T]])		429
+nim	newAppender	query.html#newAppender,Connection,string,seq[seq[Option[T]]]	proc newAppender[T](con: Connection; table: string; ent: seq[seq[Option[T]]])		438
+nimgrp	execute	query.html#execute-procs-all	proc		357
+nimgrp	newappender	query.html#newAppender-procs-all	proc		420
+nimgrp	tobase	query.html#toBase-converters-all	converter		18
+nimgrp	bindval	query.html#bindVal-templates-all	template		101
+nimgrp	append	query.html#append-templates-all	template		198

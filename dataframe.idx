@@ -1,0 +1,10 @@
+nimTitle	dataframe	dataframe.html	module src/dataframe		0
+nim	DataFrame	dataframe.html#DataFrame	type DataFrame		5
+nim	newDataFrame	dataframe.html#newDataFrame,OrderedTable[string,Vector]	proc newDataFrame(data: OrderedTable[string, Vector]): DataFrame		9
+nim	len	dataframe.html#len,DataFrame	proc len(df: DataFrame): int		23
+nim	columnNames	dataframe.html#columnNames,DataFrame	proc columnNames(df: DataFrame): seq[string]		26
+nim	rows	dataframe.html#rows.i,DataFrame	iterator rows(df: DataFrame): seq[Value]		30
+nim	`[]`	dataframe.html#[],DataFrame,int	proc `[]`(df: DataFrame; colIdx: int): Vector		47
+nim	`[]`	dataframe.html#[],DataFrame,string	proc `[]`(df: DataFrame; colName: string): Vector		50
+nim	`$`	dataframe.html#$,DataFrame	proc `$`(df: DataFrame): string		60
+nimgrp	[]	dataframe.html#[]-procs-all	proc		47

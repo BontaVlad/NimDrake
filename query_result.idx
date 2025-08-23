@@ -1,0 +1,20 @@
+nimTitle	query_result	query_result.html	module src/query_result		0
+nim	isStreaming	query_result.html#isStreaming,QueryResult	proc isStreaming(qresult: QueryResult): bool		5
+nim	newColumn	query_result.html#newColumn,int,string,DuckType	proc newColumn(idx: int; name: string; kind: DuckType): Column		12
+nim	newPendingResult	query_result.html#newPendingResult,Statement	proc newPendingResult(statement: Statement): PendingQueryResult		35
+nim	newPendingStreamingResult	query_result.html#newPendingStreamingResult,Statement	proc newPendingStreamingResult(statement: Statement): PendingQueryResult		47
+nim	columnCount	query_result.html#columnCount,QueryResult	proc columnCount(qresult: QueryResult): int		63
+nim	rowCount	query_result.html#rowCount,QueryResult	proc rowCount(qresult: QueryResult): int		71
+nim	chunkCount	query_result.html#chunkCount,QueryResult	proc chunkCount(qresult: QueryResult): int		79
+nim	columns	query_result.html#columns.i,QueryResult	iterator columns(qresult: QueryResult): Column		87
+nim	chunks	query_result.html#chunks.i,QueryResult	iterator chunks(qresult: QueryResult): DataChunk		92
+nim	fetchOne	query_result.html#fetchOne,QueryResult	proc fetchOne(qresult: QueryResult): seq[Value]		110
+nim	fetchOneNamed	query_result.html#fetchOneNamed,QueryResult	proc fetchOneNamed(qresult: QueryResult): Table[string, Value]		122
+nim	rows	query_result.html#rows.i,QueryResult	iterator rows(qresult: QueryResult): seq[Value]		131
+nim	fetchAll	query_result.html#fetchAll,QueryResult	proc fetchAll(qresult: QueryResult): seq[Vector]		146
+nim	fetchAllNamed	query_result.html#fetchAllNamed,QueryResult	proc fetchAllNamed(qresult: QueryResult): OrderedTable[string, Vector]		173
+nim	df	query_result.html#df,QueryResult	proc df(qresult: QueryResult): DataFrame		194
+nim	error	query_result.html#error,QueryResult	proc error(qresult: QueryResult): string		204
+nim	error	query_result.html#error,PendingQueryResult	proc error(pqresult: PendingQueryResult): string		211
+nim	`$`	query_result.html#$,QueryResult	proc `$`(qresult: QueryResult): string		218
+nimgrp	error	query_result.html#error-procs-all	proc		204

@@ -1,0 +1,57 @@
+nimTitle	value	value.html	module src/value		0
+nim	DuckValue	value.html#DuckValue	type DuckValue		12
+nim	DuckStringBase	value.html#DuckStringBase	object DuckStringBase		13
+nim	DuckString	value.html#DuckString	type DuckString		16
+nim	newDuckValue	value.html#newDuckValue,duckdb_value	proc newDuckValue(handle: duckdb_value): DuckValue		22
+nim	`$`	value.html#$,DuckString	proc `$`(dstr: DuckString): string		29
+nim	newDuckString	value.html#newDuckString,cstring	proc newDuckString(str: cstring): DuckString		35
+nim	toHugeInt	value.html#toHugeInt,Int128	proc toHugeInt(val: Int128): duckdb_hugeint		38
+nim	fromHugeInt	value.html#fromHugeInt,duckdb_hugeint	proc fromHugeInt(val: duckdb_hugeint): Int128		41
+nim	toUHugeInt	value.html#toUHugeInt,UInt128	proc toUHugeInt(val: UInt128): duckdb_uhugeint		44
+nim	fromUHugeInt	value.html#fromUHugeInt,duckdb_uhugeint	proc fromUHugeInt(val: duckdb_uhugeint): UInt128		47
+nim	fromTimestamp	value.html#fromTimestamp,int64	proc fromTimestamp(val: int64): Timestamp		50
+nim	fromTimestamp	value.html#fromTimestamp,duckdb_timestamp	proc fromTimestamp(val: duckdb_timestamp): Timestamp		56
+nim	toTimestamp	value.html#toTimestamp,Timestamp	proc toTimestamp(val: Timestamp): duckdb_timestamp		59
+nim	toDatetime	value.html#toDatetime,DateTime	proc toDatetime(val: DateTime): duckdb_date		63
+nim	fromDatetime	value.html#fromDatetime,int32	proc fromDatetime(val: int32): DateTime		70
+nim	fromDatetime	value.html#fromDatetime,duckdb_date	proc fromDatetime(val: duckdb_date): DateTime		75
+nim	toTime	value.html#toTime,Time	proc toTime(val: Time): duckdb_time		78
+nim	fromTime	value.html#fromTime,int64	proc fromTime(val: int64): Time		82
+nim	fromTime	value.html#fromTime,duckdb_time	proc fromTime(val: duckdb_time): Time		85
+nim	toInterval	value.html#toInterval,TimeInterval	proc toInterval(val: TimeInterval): duckdb_interval		88
+nim	fromInterval	value.html#fromInterval,duckdb_interval	proc fromInterval(val: duckdb_interval): TimeInterval		100
+nim	`$`	value.html#$,Value	proc `$`(v: Value): string		119
+nim	newValue	value.html#newValue,bool	proc newValue(val: bool; isValid = true): Value		190
+nim	newValue	value.html#newValue,int8	proc newValue(val: int8; isValid = true): Value		193
+nim	newValue	value.html#newValue,int16	proc newValue(val: int16; isValid = true): Value		196
+nim	newValue	value.html#newValue,int32	proc newValue(val: int32; isValid = true): Value		199
+nim	newValue	value.html#newValue,int64	proc newValue(val: int64; isValid = true): Value		202
+nim	newValue	value.html#newValue,Int128	proc newValue(val: Int128; isValid = true): Value		205
+nim	newValue	value.html#newValue,UInt128	proc newValue(val: UInt128; isValid = true): Value		208
+nim	newValue	value.html#newValue,uint8	proc newValue(val: uint8; isValid = true): Value		211
+nim	newValue	value.html#newValue,uint16	proc newValue(val: uint16; isValid = true): Value		214
+nim	newValue	value.html#newValue,uint32	proc newValue(val: uint32; isValid = true): Value		217
+nim	newValue	value.html#newValue,uint64	proc newValue(val: uint64; isValid = true): Value		220
+nim	newValue	value.html#newValue,float32	proc newValue(val: float32; isValid = true): Value		223
+nim	newValue	value.html#newValue,float64	proc newValue(val: float64; isValid = true): Value		226
+nim	newValue	value.html#newValue,Timestamp,DuckType	proc newValue(val: Timestamp; kind: DuckType; isValid = true): Value		229
+nim	newValue	value.html#newValue,DateTime,DuckType	proc newValue(val: DateTime; kind: DuckType; isValid = true): Value		233
+nim	newValue	value.html#newValue,Time	proc newValue(val: Time; isValid = true): Value		249
+nim	newValue	value.html#newValue,ZonedTime	proc newValue(val: ZonedTime; isValid = true): Value		252
+nim	newValue	value.html#newValue,TimeInterval	proc newValue(val: TimeInterval; isValid = true): Value		255
+nim	newValue	value.html#newValue,string	proc newValue(val: string; isValid = true): Value		258
+nim	newValue	value.html#newValue,string,DuckType	proc newValue(val: string; kind: DuckType; isValid = true): Value		261
+nim	newValue	value.html#newValue,seq[byte]	proc newValue(val: seq[byte]; isValid = true): Value		270
+nim	newValue	value.html#newValue,DecimalType	proc newValue(val: DecimalType; isValid = true): Value		273
+nim	newValue	value.html#newValue,uint,DuckType	proc newValue(val: uint; kind: DuckType; isValid = true): Value		276
+nim	newValue	value.html#newValue,seq[Value]	proc newValue(val: seq[Value]; isValid = true): Value		279
+nim	newValue	value.html#newValue,Table[string,Value],DuckType	proc newValue(val: Table[string, Value]; kind: DuckType; isValid = true): Value		282
+nim	newValue	value.html#newValue,Uuid	proc newValue(val: Uuid; isValid = true): Value		296
+nim	newValue	value.html#newValue,DuckType,bool	proc newValue(kind: DuckType; isValid: bool): Value		300
+nim	newValue	value.html#newValue,DuckValue	proc newValue(val: DuckValue): Value		307
+nim	toNativeValue	value.html#toNativeValue,Value	proc toNativeValue(val: Value): DuckValue		416
+nimgrp	fromtimestamp	value.html#fromTimestamp-procs-all	proc		50
+nimgrp	$	value.html#$-procs-all	proc		29
+nimgrp	fromtime	value.html#fromTime-procs-all	proc		82
+nimgrp	fromdatetime	value.html#fromDatetime-procs-all	proc		70
+nimgrp	newvalue	value.html#newValue-procs-all	proc		190

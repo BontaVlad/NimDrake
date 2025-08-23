@@ -1,0 +1,13 @@
+nimTitle	config	config.html	module src/config		0
+nim	Config	config.html#Config	type Config		10
+nim	ConfigValues	config.html#ConfigValues	type ConfigValues		11
+nim	`=copy`	config.html#=copy,Config,Config	proc `=copy`(a: var Config; b: Config)		13
+nim	`=dup`	config.html#=dup,Config	proc `=dup`(cf: Config): Config		14
+nim	toBase	config.html#toBase.c,ptr.Config	converter toBase(c: ptr Config): ptr duckdb_config		16
+nim	toBase	config.html#toBase.c,Config	converter toBase(c: Config): duckdb_config		19
+nim	`=destroy`	config.html#=destroy,Config	proc `=destroy`(conf: Config)		22
+nim	setConfig	config.html#setConfig,Config,string,string	proc setConfig(config: Config; name: string; option: string)		26
+nim	newConfig	config.html#newConfig	proc newConfig(): Config		54
+nim	newConfig	config.html#newConfig,ConfigValues	proc newConfig(values: ConfigValues): Config		65
+nimgrp	newconfig	config.html#newConfig-procs-all	proc		54
+nimgrp	tobase	config.html#toBase-converters-all	converter		16
