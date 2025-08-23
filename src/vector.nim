@@ -704,6 +704,225 @@ proc newVector*(duckVector: duckdbVector, size: int, offset: int = 0): Vector =
 proc `[]`*(v: Vector, idx: int): Value =
   return vecToValue(v, idx)
 
+proc values*(vec: Vector, T: typedesc): lent seq[T] =
+  when T is bool:
+    case vec.kind
+    of DuckType.Boolean:
+      result = vec.valueBoolean
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested bool but vector is " & $vec.kind
+      )
+  elif T is int8:
+    case vec.kind
+    of DuckType.TinyInt:
+      result = vec.valueTinyint
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested int8 but vector is " & $vec.kind
+      )
+  elif T is int16:
+    case vec.kind
+    of DuckType.SmallInt:
+      result = vec.valueSmallint
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested int16 but vector is " & $vec.kind
+      )
+  elif T is int32:
+    case vec.kind
+    of DuckType.Integer:
+      result = vec.valueInteger
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested int32 but vector is " & $vec.kind
+      )
+  elif T is int64:
+    case vec.kind
+    of DuckType.BigInt:
+      result = vec.valueBigint
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested int64 but vector is " & $vec.kind
+      )
+  elif T is uint8:
+    case vec.kind
+    of DuckType.UTinyInt:
+      result = vec.valueUTinyint
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested uint8 but vector is " & $vec.kind
+      )
+  elif T is uint16:
+    case vec.kind
+    of DuckType.USmallInt:
+      result = vec.valueUSmallint
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested uint16 but vector is " & $vec.kind
+      )
+  elif T is uint32:
+    case vec.kind
+    of DuckType.UInteger:
+      result = vec.valueUInteger
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested uint32 but vector is " & $vec.kind
+      )
+  elif T is uint64:
+    case vec.kind
+    of DuckType.UBigInt:
+      result = vec.valueUBigint
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested uint64 but vector is " & $vec.kind
+      )
+  elif T is uint:
+    case vec.kind
+    of DuckType.Enum:
+      result = vec.valueEnum
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested uint but vector is " & $vec.kind
+      )
+  elif T is float32:
+    case vec.kind
+    of DuckType.Float:
+      result = vec.valueFloat
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested float32 but vector is " & $vec.kind
+      )
+  elif T is float64:
+    case vec.kind
+    of DuckType.Double:
+      result = vec.valueDouble
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested float64 but vector is " & $vec.kind
+      )
+  elif T is string:
+    case vec.kind
+    of DuckType.Varchar:
+      result = vec.valueVarchar
+    of DuckType.Bit:
+      result = vec.valueBit
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested string but vector is " & $vec.kind
+      )
+  elif T is seq[byte]:
+    case vec.kind
+    of DuckType.Blob:
+      result = vec.valueBlob
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested seq[byte] but vector is " & $vec.kind
+      )
+  elif T is Timestamp:
+    case vec.kind
+    of DuckType.Timestamp:
+      result = vec.valueTimestamp
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested Timestamp but vector is " & $vec.kind
+      )
+  elif T is DateTime:
+    case vec.kind
+    of DuckType.Date:
+      result = vec.valueDate
+    of DuckType.TimestampS:
+      result = vec.valueTimestampS
+    of DuckType.TimestampMs:
+      result = vec.valueTimestampMs
+    of DuckType.TimestampNs:
+      result = vec.valueTimestampNs
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested DateTime but vector is " & $vec.kind
+      )
+  elif T is Time:
+    case vec.kind
+    of DuckType.Time:
+      result = vec.valueTime
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested Time but vector is " & $vec.kind
+      )
+  elif T is TimeInterval:
+    case vec.kind
+    of DuckType.Interval:
+      result = vec.valueInterval
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested TimeInterval but vector is " & $vec.kind
+      )
+  elif T is Int128:
+    case vec.kind
+    of DuckType.HugeInt:
+      result = vec.valueHugeint
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested Int128 but vector is " & $vec.kind
+      )
+  elif T is UInt128:
+    case vec.kind
+    of DuckType.UHugeInt:
+      result = vec.valueUHugeint
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested UInt128 but vector is " & $vec.kind
+      )
+  elif T is DecimalType:
+    case vec.kind
+    of DuckType.Decimal:
+      result = vec.valueDecimal
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested DecimalType but vector is " & $vec.kind
+      )
+  elif T is seq[Value]:
+    case vec.kind
+    of DuckType.List, DuckType.Array:
+      result = vec.valueList
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested seq[Value] but vector is " & $vec.kind
+      )
+  elif T is Table[string, Value]:
+    case vec.kind
+    of DuckType.Struct:
+      result = vec.valueStruct
+    of DuckType.Map:
+      result = vec.valueMap
+    of DuckType.Union:
+      result = vec.valueUnion
+    else:
+      raise newException(
+        ValueError,
+        "Type mismatch: requested Table[string, Value] but vector is " & $vec.kind,
+      )
+  elif T is Uuid:
+    case vec.kind
+    of DuckType.UUID:
+      result = vec.valueUUID
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested Uuid but vector is " & $vec.kind
+      )
+  elif T is ZonedTime:
+    case vec.kind
+    of DuckType.TimeTz:
+      result = vec.valueTimeTz
+    of DuckType.TimestampTz:
+      result = vec.valueTimestampTz
+    else:
+      raise newException(
+        ValueError, "Type mismatch: requested ZonedTime but vector is " & $vec.kind
+      )
+  else:
+    {.error: "Unsupported type for Vector.values: " & $T.}
+
 proc `&=`*(left: var Vector, right: sink Vector): void =
   if left.kind != right.kind:
     raise newException(
