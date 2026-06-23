@@ -18,6 +18,14 @@ when not defined(nimsuggest) and not defined(useFuthark):
   when defined(macosx):
     switch("passL", "-Wl,-rpath,/usr/local/lib")
 
+  when defined(windows):
+    # Nim's generated C uses MSVCRT helpers (_isatty, _get_osfhandle, _setmode)
+    # without including <io.h>. MSYS2's mingw gcc 14+ treats implicit function
+    # declarations as hard errors under C99+ default mode. Downgrade the
+    # diagnostic so the code compiles; the linker still resolves the symbols
+    # from the UCRT/MSVCRT runtime.
+    switch("passC", "-Wno-implicit-function-declaration")
+
 # --- Sanitizers (opt-in via -d:useSanitizers) ---
 when defined(useSanitizers):
   switch("passL", "-fsanitize=address")
