@@ -1,6 +1,6 @@
 import std/[macros, tables, sequtils, sugar]
 import fusion/[matching, astdsl]
-import /[api, datachunk, database, types, exceptions, value]
+import /[ffi, datachunk, database, types, exceptions, value]
 import tools/wrench
 
 type
@@ -164,9 +164,11 @@ proc createBindFunctionStmt(
       bindDataCreateStmt.add(node)
       paramCount += 1
 
+  let producerReturnTypeNode = newDotExpr(ident("DuckType"), ident($producerReturnType))
+
   result = quote:
     proc `bindFunctionName`(info: BindInfo) =
-      info.add_result_column(`returnColumnName`, `producerReturnType`)
+      info.add_result_column(`returnColumnName`, `producerReturnTypeNode`)
       let
         `paramSeqName` = info.parameters.toSeq
         data = `bindDataCreateStmt`
@@ -281,7 +283,7 @@ macro producer*(body: typed): untyped =
     let tp = param[^2]
     for p in param[0 ..^ 3]:
       tableFunctionParameters.add(
-        newCall(bindSym"newLogicalType", newLit newDuckType(tp))
+        newCall(bindSym"newLogicalType", newDotExpr(ident("DuckType"), ident($newDuckType(tp))))
       )
 
   let tblFuncParams = buildAst(stmtList):

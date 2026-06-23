@@ -1,6 +1,6 @@
 import
   /[
-    types, config, api, database, datachunk, query, query_result, table_functions,
+    types, config, ffi, database, datachunk, query, query_result, table_functions,
     scalar_functions, vector, value,
   ]
 
@@ -28,5 +28,5 @@ runnableExamples:
   assert @["Value_1", "Value_2", "Value_3"] == outcome[1].values(string)
 
 export
-  types, config, api, database, datachunk, query, query_result, table_functions,
+  types, config, ffi, database, datachunk, query, query_result, table_functions,
   scalar_functions, vector, value

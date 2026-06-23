@@ -81,12 +81,11 @@ test isParallel="false" cores="4":
             -d:nimDebugDlOpen \
             --verbosity:0 \
             --hints:off \
-            --cc:clang \
             --opt:none \
             --debugger:native \
+            --stacktrace:on \
             --passc:-fsanitize=address \
             --passl:-fsanitize=address \
-            --stacktrace:on \
             -d:useMalloc \
             --mm:orc \
             --passC:-O0 \
@@ -106,8 +105,8 @@ test isParallel="false" cores="4":
     export -f run_test
     export NIMCACHE_DIR
 
-    # Find test files
-    TEST_FILES=$(find ./tests -name 'test_*.nim' | head)
+    # Find test files (exclude narrow tests — they require -d:features.nimdrake.arrow)
+    TEST_FILES=$(find ./tests -name 'test_*.nim' -not -path './tests/narrow/*' | sort)
 
     if {{isParallel}} =~ truthy_regex; then
         echo "Running tests in parallel..."
@@ -138,6 +137,7 @@ debug-run nim_file="src/duckdb" name="":
         -d:nimDebugDlOpen \
         --cc:clang \
         --opt:none \
+        --panics:on \
         --debugger:native \
         --passc:-fsanitize=address \
         --passl:-fsanitize=address \
@@ -176,46 +176,46 @@ debug nim_file="tests/results/test_result_type.nim":
         --mm:orc \
         --passC:-O0 \
         --passC:-g3 \
+        --passC:-fno-omit-frame-pointer \
         --passC:-gdwarf-4 \
         --linedir:on \
         --debuginfo:on \
         --threads:off \
         --excessiveStackTrace:on \
         "{{nim_file}}"
+    # # Step 2: Record using rr
+    # rr record -M "${OUTPUT_PATH}"
 
-    # Step 2: Record using rr
-    rr record -M "${OUTPUT_PATH}"
+    # # Step 3: Start rr replay and connect lldb
+    # # Start rr in the background
+    # # rr replay -s 9999 &
+    # # rr replay -s 9999 --debugger=nim-gdb
+    # # RR_PID=$!
+    # ./gf2 --rr-replay
 
-    # Step 3: Start rr replay and connect lldb
-    # Start rr in the background
-    # rr replay -s 9999 &
-    # rr replay -s 9999 --debugger=nim-gdb
-    # RR_PID=$!
-    ./gf2 --rr-replay
+    # # Wait a moment for rr to start
+    # # sleep 2
 
-    # Wait a moment for rr to start
-    # sleep 2
+    # # ddd --debugger "nim-gdb -ex 'target remote localhost:9999'" "${OUTPUT_PATH}" &
 
-    # ddd --debugger "nim-gdb -ex 'target remote localhost:9999'" "${OUTPUT_PATH}" &
+    # # # Create a source map file for lldb
+    # # PROJECT_ROOT=$(pwd)
+    # # LLDB_SETTINGS=$(mktemp)
+    # # echo "settings set target.source-map /proc/self/cwd ${PROJECT_ROOT}" > "$LLDB_SETTINGS"
+    # # echo "command script import nimlldb.py" >> "$LLDB_SETTINGS"
 
-    # # Create a source map file for lldb
-    # PROJECT_ROOT=$(pwd)
-    # LLDB_SETTINGS=$(mktemp)
-    # echo "settings set target.source-map /proc/self/cwd ${PROJECT_ROOT}" > "$LLDB_SETTINGS"
-    # echo "command script import nimlldb.py" >> "$LLDB_SETTINGS"
+    # # # Launch lldb with enhanced debug settings
+    # # lldb \
+    # #     -s "$LLDB_SETTINGS" \
+    # #     -o "platform select remote-gdb-server" \
+    # #     -o "target create /home/vlad/.local/share/rr/test_result_type-23/mmap_hardlink_4_test_result_type" \
+    # #     -o "gdb-remote 127.0.0.1:9999" \
+    # #     -o "settings set target.inline-breakpoint-strategy always" \
+    # #     -o "settings set target.skip-prologue false"
 
-    # # Launch lldb with enhanced debug settings
-    # lldb \
-    #     -s "$LLDB_SETTINGS" \
-    #     -o "platform select remote-gdb-server" \
-    #     -o "target create /home/vlad/.local/share/rr/test_result_type-23/mmap_hardlink_4_test_result_type" \
-    #     -o "gdb-remote 127.0.0.1:9999" \
-    #     -o "settings set target.inline-breakpoint-strategy always" \
-    #     -o "settings set target.skip-prologue false"
-
-    # # Cleanup
-    # rm "$LLDB_SETTINGS"
-    # kill $RR_PID 2>/dev/null || true
+    # # # Cleanup
+    # # rm "$LLDB_SETTINGS"
+    # # kill $RR_PID 2>/dev/null || true
 
 # Run Valgrind on a Nim file to analyze memory usage
 valgrind nim_file="tests/results/test_result_type.nim" name="":
@@ -297,7 +297,7 @@ generate:
     set -euo pipefail
     nim c \
         -r \
-        -d:useFuthark:true \
+        -d:useFuthark \
         -d:nodeclguards:true \
         -d:exportall:true \
         src/nimdrake.nim

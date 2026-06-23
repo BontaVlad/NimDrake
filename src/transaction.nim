@@ -12,6 +12,6 @@ template transaction*(con: Connection, statements: untyped) =
   try:
     statements
     con.execute("COMMIT TRANSACTION;")
-  except:
+  except Exception:
     con.execute("ROLLBACK TRANSACTION;")
     raise

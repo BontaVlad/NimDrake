@@ -1,4 +1,4 @@
-import /[api, config, exceptions]
+import /[ffi, config, exceptions]
 
 ## To use NimDrake, you must first initialize a Database obj using newDatabase.
 ## newDatabase takes as parameter the database file to read and write from, or it can be used to create an in-memory database if no parameters is provided.
@@ -15,7 +15,7 @@ type
   QueryProgress* = object of duckdbQueryProgressType
 
 proc `=destroy`*(db: Database) =
-  if not isNil(db.addr):
+  if db.handle != nil:
     duckdbClose(db.handle.addr)
 
 proc `=sink`*(dest: var Database, source: Database) =
@@ -28,7 +28,7 @@ proc `=copy`*(
 ) {.error: "Database copy is not supported".}
 
 proc `=destroy`*(con: Connection) =
-  if not isNil(con.addr):
+  if con.handle != nil:
     duckdbDisconnect(cast[ptr duckdbConnection](con.addr))
 
 proc `=sink`*(dest: var Connection, source: Connection) =

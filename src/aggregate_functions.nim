@@ -1,6 +1,6 @@
 import std/[macros, strformat, sequtils, tables, enumerate]
 import fusion/[matching, astdsl]
-import /[api, types, database, exceptions, query_result]
+import /[ffi, types, database, exceptions, query_result]
 
 type
   FunctionInfo* = object of duckdbFunctionInfo
@@ -185,16 +185,11 @@ macro newAggregateFunction*(
       )
       aggFun
 
-  dumpTree:
-    type Foo = ref object
-      bar: proc(foo: string): string
-
   result = newStmtList()
   result.add quote do:
     `callBackObjDefinition`
     `callbacksProcedures`
     `aggregationFunctionDefinition`
-  echo result.repr
 
 proc register*(con: Connection, fun: AggregateFunction) =
   check(

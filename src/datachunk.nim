@@ -1,5 +1,5 @@
 import std/[strformat, options]
-import /[api, types, vector, exceptions]
+import /[ffi, types, vector, exceptions]
 
 type
   DataChunkBase = object of RootObj
@@ -13,7 +13,7 @@ converter toC*(d: DataChunk): duckdbdatachunk =
   d.handle
 
 converter toBool*(d: DataChunk): bool =
-  not isNil(d) or duckdbDatachunkGetSize(d).int > 0
+  not isNil(d) and d.handle != nil and duckdbDatachunkGetSize(d).int > 0
 
 proc `=destroy`(d: DataChunkBase) =
   if d.handle != nil and d.shouldDestroy:
@@ -116,6 +116,7 @@ proc `[]=`*[T](chunk: var DataChunk, colIdx: int, values: sink seq[Option[T]]) =
       vec[i] = e.get()
       validityMask.setValidity(i, true)
     else:
+      vec[i] = default(T)
       validityMask.setValidity(i, false)
 
   chunk.setLen(len(values))

@@ -5,7 +5,7 @@ import
 import nint128
 import uuid4
 
-import /[api, value, types]
+import /[ffi, value, types]
 import /compatibility/decimal_compat
 
 template `[]=`*[T: SomeNumber](vec: duckdbVector, i: int, val: T) =
@@ -24,7 +24,7 @@ template `[]=`*(vec: duckdbVector, i: int, val: string) =
 
 proc `$`*(vector: Vector): string =
   case vector.kind
-  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
+  of DuckType.Invalid, DuckType.Any, DuckType.SqlNull:
     result = $vector.valueInvalid
   of DuckType.Boolean:
     result = $vector.valueBoolean
@@ -93,7 +93,7 @@ proc `$`*(vector: Vector): string =
 
 proc len*(vec: Vector): int =
   case vec.kind
-  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
+  of DuckType.Invalid, DuckType.Any, DuckType.SqlNull:
     result = 0
   of DuckType.Boolean:
     result = vec.valueBoolean.len
@@ -195,7 +195,7 @@ template parseDecimalHugeInt(data: var untyped, handle, size, scale: untyped) =
 proc vecToValue*(vec: Vector, idx: int): Value =
   let isValid = vec.isValid(idx)
   case vec.kind
-  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
+  of DuckType.Invalid, DuckType.Any, DuckType.SqlNull:
     raise newException(ValueError, fmt"got invalid enum type: {vec.kind}")
   of DuckType.Boolean:
     return newValue(vec.valueBoolean[idx], isValid)
@@ -269,7 +269,7 @@ iterator items*(vec: Vector): Value =
 proc newVector*(kind: DuckType, size: int): Vector =
   var vec = Vector(kind: kind)
   case kind
-  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
+  of DuckType.Invalid, DuckType.Any, DuckType.SqlNull:
     raise newException(ValueError, fmt"got invalid enum type: {kind}")
   of DuckType.Boolean:
     vec.valueBoolean = newSeq[bool](size)
@@ -410,33 +410,61 @@ proc newVector*(data: seq[ZonedTime]): Vector =
 proc newVector*(data: seq[int | int64]): Vector =
   return Vector(kind: DuckType.BigInt, valueBigint: data.map(e => int64(e)))
 
-template handleVectorCase(data: var untyped, handle, size, cType: untyped) =
+template handleVectorCase(
+    data: var untyped, handle: pointer, size: int, cType: typedesc
+) =
   data.setLen(size)
-  let raw = cast[ptr UncheckedArray[cType]](handle)
   if size > 0:
-    copyMem(data[0].addr, raw[offset].addr, size * sizeof(type(data[0])))
+    copyMem(addr data[0], handle, size * sizeof(cType))
 
 template handleVectorCase(data: var untyped, handle, size, cType, caster: untyped) =
   data.setLen(size)
+  if size <= 0:
+    return
   let raw = cast[ptr UncheckedArray[cType]](handle)
   for i in offset ..< size:
-    data[i] = caster(raw[i])
+    data[i] = if validityMask.isValid(i): caster(raw[i]) else: caster(default(cType))
 
-template handleVectorCaseString(data: var untyped, handle, size: untyped) =
+# TODO: this produces memory errors when appending nulls
+template handleVectorCaseString(
+    data: var seq[string], handle: pointer, size: int, offset: int = 0
+) =
+  ## Caller must ensure: offset >= 0 and offset + size <= underlying_length_of_handle
   data.setLen(size)
-  let raw = cast[ptr UncheckedArray[duckdbstringt]](handle)
-  for i in offset ..< size:
-    if duckdb_string_is_inlined(raw[i]):
-      let stringStruct = cast[struct_duckdb_string_t_value_t_inlined_t](raw[i])
-      var output = newString(stringStruct.length)
-      for e in 0 ..< stringStruct.length.int:
-        output[e] = char(stringStruct.inlined[e])
-      data[i] = output
+  if size <= 0:
+    return
+
+  if handle.isNil:
+    return
+
+  # raw is a pointer to an array of duckdb_string_t elements (adjust name if different)
+  let raw = cast[ptr UncheckedArray[duckdb_string_t]](handle)
+
+  for idx in 0 ..< size:
+    if validityMask.isValid(idx):
+      let srcIdx = offset + idx
+      ## --- INLINED CASE ---
+      if duckdb_string_is_inlined(raw[srcIdx]):
+        ## take the address of the element and cast to a ptr of the inlined struct
+        let sinl = cast[ptr struct_duckdb_string_t_value_t_inlined_t](addr raw[srcIdx])
+        let strLen = int(sinl.length)
+        var outStr = newString(strLen) # allocate Nim string of correct length
+        if strLen > 0:
+          # copy raw bytes from the inlined buffer into the Nim string
+          copyMem(addr outStr[0], cast[ptr cchar](sinl.inlined.addr), strLen)
+        data[idx] = outStr
+      else:
+        # cast the element address to ptr of the non-inlined struct
+        let sptr = cast[ptr struct_duckdb_string_t_value_t](addr raw[srcIdx])
+        # assume sptr.pointer.ptr_field points to char* and sptr.pointer.length is the length
+        let p = cast[ptr cchar](sptr.pointer.ptr_field)
+        let strLen = int(sptr.pointer.length)
+        var strOut = newString(strLen)
+        if strLen > 0:
+          copyMem(addr strOut[0], p, strLen)
+        data[idx] = strOut
     else:
-      let stringStruct = cast[struct_duckdb_string_t_value_t](raw[i])
-      var output = $cast[cstring](stringStruct.pointer.ptr_field)
-      output.setLen(stringStruct.pointer.length)
-      data[i] = output
+      data[idx] = ""
 
 # TODO: this is most likelly wrong
 template handleVectorCaseBlob(data: var untyped, handle, size: untyped) =
@@ -473,7 +501,7 @@ proc newVector*(
       result.mask.add(validityMask.handle[i])
 
   case kind
-  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
+  of DuckType.Invalid, DuckType.Any, DuckType.SqlNull:
     raise newException(ValueError, fmt"got invalid enum type: {kind}")
   of DuckType.Boolean:
     handleVectorCase(result.valueBoolean, handle, size, uint8)
@@ -932,7 +960,7 @@ proc `&=`*(left: var Vector, right: sink Vector): void =
 
   left.mask &= right.mask
   case left.kind
-  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
+  of DuckType.Invalid, DuckType.Any, DuckType.SqlNull:
     raise newException(ValueError, fmt"got invalid enum type: {left.kind}")
   of DuckType.Boolean:
     left.valueBoolean &= right.valueBoolean

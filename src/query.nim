@@ -1,6 +1,6 @@
 import std/[strformat, enumerate, times, options]
 import nint128
-import /[api, types, database, query_result, datachunk, value, exceptions]
+import /[ffi, types, database, query_result, datachunk, value, exceptions]
 
 type
   Query* = distinct string

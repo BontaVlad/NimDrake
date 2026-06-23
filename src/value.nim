@@ -2,7 +2,7 @@ import std/[tables, times, math]
 import nint128
 import uuid4
 
-import /[types, api]
+import /[types, ffi]
 import /compatibility/decimal_compat
 
 type
@@ -16,14 +16,14 @@ type
   DuckString* = ref object of DuckStringBase
 
 proc `=destroy`(v: DuckValueBase) =
-  if not isNil(v.addr) and not isNil(v.handle):
+  if v.handle != nil:
     duckdb_destroy_value(v.handle.addr)
 
 proc newDuckValue*(handle: duckdb_value): DuckValue =
   result = DuckValue(handle: handle)
 
 proc `=destroy`(dstr: DuckStringBase) =
-  if not isNil(dstr.addr):
+  if dstr.internal != nil:
     duckdbFree(dstr.internal)
 
 proc `$`*(dstr: DuckString): string =
@@ -120,7 +120,7 @@ proc `$`*(v: Value): string =
   if not v.isValid:
     return ""
   case v.kind
-  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
+  of DuckType.Invalid, DuckType.Any, DuckType.SqlNull:
     raise newException(ValueError, "got invalid type")
   of DuckType.Boolean:
     return $v.valueBoolean
@@ -315,7 +315,7 @@ proc newValue*(val: DuckValue): Value =
   # TODO: get the actual isValid value
   result = Value(kind: kind, isValid: true)
   case result.kind
-  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
+  of DuckType.Invalid, DuckType.Any, DuckType.SqlNull:
     raise newException(ValueError, "got invalid type")
   of DuckType.Boolean:
     result.valueBoolean = duckdb_get_bool(val.handle).bool
@@ -416,7 +416,7 @@ proc newValue*(val: DuckValue): Value =
 proc toNativeValue*(val: Value): DuckValue =
   result = DuckValue()
   case val.kind
-  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
+  of DuckType.Invalid, DuckType.Any, DuckType.SqlNull:
     raise newException(ValueError, "got invalid type")
   of DuckType.Boolean:
     return newDuckValue(duckdb_create_bool(val.valueBoolean))

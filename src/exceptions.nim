@@ -1,4 +1,4 @@
-import api
+import ffi
 
 type
   BaseError* = object of CatchableError

@@ -1,6 +1,114 @@
 import std/[math, tables, sequtils]
 
-import /[api, exceptions, datachunk, dataframe, types, vector]
+import /[ffi, exceptions, database, datachunk, dataframe, types, vector]
+
+when defined(features.nimdrake.arrow):
+  import std/macros
+  import narrow/column/metadata
+  import narrow/tabular/[table, batch]
+
+type
+  ArrowSchema* = object
+    format*: cstring
+    name*: cstring
+    metadata*: cstring
+    flags*: int64
+    n_children*: int64
+    children*: ptr ptr ArrowSchema
+    dictionary*: ptr ArrowSchema
+    release*: proc(schema: ptr ArrowSchema) {.cdecl.}
+    private_data*: pointer
+
+  ArrowArray* = object
+    length*: int64
+    null_count*: int64
+    offset*: int64
+    n_buffers*: int64
+    n_children*: int64
+    buffers*: ptr pointer
+    children*: ptr ptr ArrowArray
+    dictionary*: ptr ArrowArray
+    release*: proc(array: ptr ArrowArray) {.cdecl.}
+    private_data*: pointer
+
+  ArrowOptions* = object
+    handle: duckdb_arrow_options
+
+  DuckError* = object
+    handle: duckdb_error_data
+
+proc `=destroy`(opt: ArrowOptions) =
+  if opt.handle != nil:
+    duckdb_destroy_arrow_options(opt.handle.addr)
+
+proc `=destroy`(arr: ArrowArray) {.raises: [].} =
+  if not isNil(arr.release):
+    try:
+      arr.release(arr.addr)
+    except Exception:
+      discard
+
+proc `=destroy`(err: DuckError) =
+  if not isNil(err.handle):
+    duckdb_destroy_error_data(err.handle.addr)
+
+proc `=destroy`(schema: ArrowSchema) {.raises: [].} =
+  if not isNil(schema.release):
+    try:
+      schema.release(schema.addr)
+    except Exception:
+      discard
+
+converter toBool*(e: DuckError): bool =
+  duckdb_error_data_has_error(e.handle).bool
+
+proc message(e: DuckError): string =
+  return $duckdb_error_data_message(e.handle)
+
+proc `$`(e: DuckError): string =
+  return e.message
+
+proc newDuckError(err: duckdb_error_data): DuckError =
+  DuckError(handle: err)
+
+proc newArrowOptions(conn: Connection): ArrowOptions =
+  duckdb_connection_get_arrow_options(conn.handle, result.handle.addr)
+
+proc newArrowArray(opt: ArrowOptions, chunk: DataChunk): ArrowArray {.raises: [OperationError]} =
+  let err = newDuckError(
+    duckdb_data_chunk_to_arrow(
+      opt.handle, chunk.handle, cast[ptr struct_ArrowArray](result.addr)
+    )
+  )
+  if err:
+    raise newException(OperationError, $err)
+
+proc newArrowSchema(opt: ArrowOptions, cols: sink seq[Column]): ArrowSchema {.raises: [OperationError]} =
+  var
+    tps = newSeq[LogicalType](len(cols))
+    tpsHandels = newSeq[duckdbLogicalType](len(cols))
+    names = newSeq[cstring](len(cols))
+
+  for i, col in cols:
+    let lT = newLogicalType(col.kind)
+    GC_ref(lT)
+    tps[i] = lT
+    tpsHandels[i] = lT.handle
+    names[i] = col.name.cstring
+
+  let err = duckdb_to_arrow_schema(
+    opt.handle,
+    cast[ptr duckdbLogicalType](tpsHandels[0].addr),
+    cast[ptr cstring](names[0].addr),
+    len(cols).idx_t,
+    cast[ptr struct_ArrowSchema](result.addr),
+  )
+
+  for t in tps:
+    GC_unref(t)
+
+  if not isNil(err):
+    raise newException(OperationError, $duckdb_error_data_message(err))
 
 proc isStreaming*(qresult: QueryResult): bool =
   ## Checks if a query result is in streaming mode.
@@ -95,14 +203,10 @@ iterator chunks*(qresult: QueryResult): DataChunk {.inline.} =
   ## The iterator fetches chunks sequentially, handling both streaming
   ## and materialized results.
   ## Each chunk contains a portion of the result set with all columns.
+  let streaming = qresult.isStreaming
   var chunk: duckdbDataChunk
-  # this evaluates chunk types to many times, could
-  # be a performance improvement
   while true:
-    if qresult.isStreaming:
-      chunk = duckdbStreamFetchChunk(qresult)
-    else:
-      chunk = duckdbFetchChunk(qresult)
+    chunk = if streaming: duckdbStreamFetchChunk(qresult) else: duckdbFetchChunk(qresult)
     if chunk == nil:
       break
     yield newDataChunk(chunk)
@@ -111,13 +215,11 @@ proc fetchOne*(qresult: QueryResult): seq[Value] {.inline.} =
   ## Fetches the first row from a query result.
   ## **Note:**
   ## API is not yet finalized and may change in future versions
-  var theOne = newSeq[Value]()
   for chunk in qresult.chunks:
-    if chunk:
-      for i in 0 .. len(chunk):
-        theOne.add(chunk[i][0])
-    break
-  return theOne
+    if chunk and chunk.len > 0:
+      for i in 0 ..< len(chunk):
+        result.add(chunk[i][0])
+      break
 
 proc fetchOneNamed*(qresult: QueryResult): Table[string, Value] =
   ## Fetches the first row from a query result as a named table.
@@ -145,6 +247,7 @@ iterator rows*(qresult: QueryResult): seq[Value] =
 
 proc fetchAll*(qresult: QueryResult): seq[Vector] =
   ## Fetches all data from a query result as column vectors.
+  ##
   ## **Warning:**
   ## This materializes the entire result set in memory. Use with caution for large datasets.
   ##
@@ -153,25 +256,69 @@ proc fetchAll*(qresult: QueryResult): seq[Vector] =
   let columns = qresult.columns.toSeq()
 
   var
-    all = newSeq[Vector](len(columns))
+    chunkVectors: seq[seq[Vector]] = @[]
     emptyQresult = true
 
   for chunk in qresult.chunks:
     emptyQresult = false
+    var colVectors = newSeq[Vector](len(columns))
     for column in columns:
-      if isNil(all[column.idx]):
-        all[column.idx] = chunk[column.idx]
-      else:
-        all[column.idx] &= chunk[column.idx]
+      colVectors[column.idx] = chunk[column.idx]
+    chunkVectors.add(colVectors)
 
   if emptyQresult:
+    result = newSeq[Vector](len(columns))
     for column in columns:
-      all[column.idx] = newVector(column.kind, 0)
+      result[column.idx] = newVector(column.kind, 0)
+    return
 
-  return all
+  result = newSeq[Vector](len(columns))
+  for column in columns:
+    if chunkVectors.len == 1:
+      result[column.idx] = chunkVectors[0][column.idx]
+    else:
+      result[column.idx] = chunkVectors[0][column.idx]
+      for i in 1 ..< chunkVectors.len:
+        result[column.idx] &= chunkVectors[i][column.idx]
+
+when defined(features.nimdrake.arrow):
+  proc fetchAsArrow*(conn: Connection, qresult: QueryResult): ArrowTable =
+    let columns = qresult.columns.toSeq()
+
+    let
+      options = newArrowOptions(conn)
+      schema = newArrowSchema(options, columns)
+      gSchema = newSchema(cast[pointer](schema.addr))
+
+    var recordBatches = newSeq[RecordBatch]()
+    for chunk in qresult.chunks:
+      let aArray = newArrowArray(options, chunk)
+      recordBatches.add(newRecordBatch(aArray.addr, gSchema))
+    result = newArrowTable(gSchema, recordBatches)
+
+  macro fetchAsArrow*(call: untyped): untyped =
+    # Expect the call to be in the form: conn.execute(...).fetchAsArrow()
+    # We need to extract 'conn' from the execute call
+
+    expectKind(call, nnkCall)
+
+    let executeCall = call[0]
+    expectKind(executeCall, nnkSym)
+
+    let conn = call[1]
+
+    let qresultSym = genSym(nskLet, "qresult")
+
+    # Generate:
+    # let qresult = conn.execute(...)
+    # fetchAsArrow(conn, qresult)
+    result = newStmtList(
+      newLetStmt(qresultSym, call), newCall(ident("fetchAsArrow"), conn, qresultSym)
+    )
 
 proc fetchAllNamed*(qresult: QueryResult): OrderedTable[string, Vector] =
   ## Fetches all data from a query result as named column vectors.
+  ##
   ## **Example:**
   ## ```nim
   ## let data = qresult.fetchAllNamed()

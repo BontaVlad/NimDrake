@@ -1,5 +1,5 @@
 import std/[strformat, tables]
-import /[api, exceptions]
+import /[ffi, exceptions]
 
 ## DuckDB has a number of configuration options that can be used to change the behavior of the system.
 ## The configuration options can be set using either the SET statement or the PRAGMA statement.
@@ -20,7 +20,7 @@ converter toBase*(c: Config): duckdbConfig =
   cast[duckdbConfig](c)
 
 proc `=destroy`*(conf: Config) =
-  if not isNil(conf.addr):
+  if conf != Config(nil):
     duckdbDestroyConfig(conf.addr)
 
 proc setConfig*(config: Config, name: string, option: string) =

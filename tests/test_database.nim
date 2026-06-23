@@ -1,7 +1,7 @@
 import unittest2
-import std/[cpuinfo, tables]
+import std/[tables]
 import utils
-import ../src/[api, database, config, query, query_result, exceptions]
+import ../src/[ffi, database, config, query, query_result, exceptions]
 
 suite "Database settings":
 

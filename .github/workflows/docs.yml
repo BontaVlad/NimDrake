@@ -1,49 +1,69 @@
-name: Documentation
+name: Docs
 
 on:
-  workflow_run:
-    workflows: ["Tests"]
-    types:
-      - completed
+  push:
+    branches: [main]
+  pull_request:
 
-env:
-  GH_TOKEN: ${{ secrets.GH_TOKEN }} # Use the fine-grained PAT here
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
 
 jobs:
-  generate-docs:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+  docs:
     runs-on: ubuntu-latest
-
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-    - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
-    - name: Set up Nim
-      uses: iffy/install-nim@v5
+      - name: Install DuckDB
+        run: |
+          wget -q https://github.com/duckdb/duckdb/releases/download/v1.3.2/libduckdb-linux-amd64.zip
+          unzip -o libduckdb-linux-amd64.zip -d duckdb-install
+          sudo cp duckdb-install/libduckdb.so /usr/lib/
+          sudo cp duckdb-install/duckdb.h /usr/include/
+          sudo ldconfig
 
-    - name: Install clang dependencies
-      run: |
-        sudo apt install clang libclang-dev
+      - name: Cache Nim
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/nimdir
+            ~/.nimble
+            ~/.cache/nim
+          key: ${{ runner.os }}-nim-docs-${{ hashFiles('*.nimble') }}
+          restore-keys: |
+            ${{ runner.os }}-nim-docs-
 
-    - name: Install DuckDB
-      run: |
-        wget https://github.com/duckdb/duckdb/releases/download/v1.1.2/libduckdb-linux-amd64.zip
-        unzip libduckdb-linux-amd64.zip
-        sudo mv libduckdb.so /usr/lib/
-        sudo ldconfig
+      - uses: iffy/install-nim@v5
+        with:
+          version: binary:stable
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Install dependencies
-      run: nimble install -Y
+      - name: Install Nim dependencies
+        run: nimble install -y
 
-    - name: Generate documentation
-      run: |
-        # Or if using direct nimble command
-        nimble doc --useSystemNim --verbose --docCmd:\"--passL:\"-lduckdb\"\" --project --out:docs src/nimdrake.nim
-        mv docs/nimdrake.html docs/index.html
-        touch docs/.nojekyll
+      - name: Generate API docs
+        run: |
+          nimble doc --project --outdir:docs src/nimdrake.nim
+          mv docs/theindex.html docs/index.html
+          touch docs/.nojekyll
 
-    - name: Deploy to GitHub Pages
-      uses: peaceiris/actions-gh-pages@v3
-      with:
-        github_token: ${{ secrets.GH_TOKEN }}
-        publish_dir: ./docs
-        force_orphan: true
+      - uses: actions/configure-pages@v4
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/deploy-pages@v4

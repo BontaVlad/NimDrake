@@ -1,6 +1,6 @@
 import std/[macros, sequtils, tables, strformat, enumerate]
 import fusion/[matching, astdsl]
-import /[api, database, types, datachunk, exceptions]
+import /[ffi, database, types, datachunk, exceptions]
 import tools/wrench
 
 type
@@ -85,7 +85,7 @@ macro scalar*(body: typed): untyped =
       for param in params[1 ..^ 1]:
         let duckTp = newDuckType(param[^2])
         for idx, p in param[0 ..< ^2]:
-          newCall(bindSym "add", typesNode, newLit duckTp)
+          newCall(bindSym "add", typesNode, newDotExpr(ident("DuckType"), ident($duckTp)))
           arguments[genSym(nskLet, p.strVal).strVal] = duckTp
 
       newCall(bindSym "duckdbVectorEnsureValidityWritable", output)

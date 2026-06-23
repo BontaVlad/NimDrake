@@ -1,3 +1,10 @@
 nimcache/
 nimblecache/
 htmldocs/
+docs/
+testresults/
+src/nimdrake
+benchmarks/benchmark_vector
+benchmarks/heaptrack.nim.1.gz
+benchmarks/nim-heaptrack/
+nimble/

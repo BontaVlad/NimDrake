@@ -3,7 +3,7 @@ import std/[macros, tables, times, typetraits, strformat]
 import nint128
 import uuid4
 
-import /[api]
+import /[ffi]
 import /compatibility/decimal_compat
 
 const
@@ -57,13 +57,12 @@ type
     UHugeInt = enum_DUCKDB_TYPE.DUCKDB_TYPE_UHUGEINT # Added
     Array = enum_DUCKDB_TYPE.DUCKDB_TYPE_ARRAY # Added
     Any = enumDuckdbType.DUCKDB_TYPE_ANY
-    VarInt = enumDuckdbType.DUCKDB_TYPE_VARINT
     SqlNull = enumDuckdbType.DUCKDB_TYPE_SQLNULL
 
   ValueBase = object of RootObj
     isValid*: bool
     case kind*: DuckType
-    of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
+    of DuckType.Invalid, DuckType.Any, DuckType.SqlNull:
       valueInvalid*: uint8
     of DuckType.Boolean: valueBoolean*: bool
     of DuckType.TinyInt: valueTinyint*: int8
@@ -103,7 +102,7 @@ type
   Vector* = ref object
     mask*: seq[uint64] = newSeq[uint64]()
     case kind*: DuckType
-    of DuckType.Invalid, DuckType.ANY, DuckType.VARINT, DuckType.SQLNULL:
+    of DuckType.Invalid, DuckType.ANY, DuckType.SQLNULL:
       valueInvalid*: uint8
     of DuckType.Boolean: valueBoolean*: seq[bool]
     of DuckType.TinyInt: valueTinyint*: seq[int8]
@@ -138,8 +137,10 @@ type
     of DuckType.TimestampTz: valueTimestampTz*: seq[ZonedTime]
     of DuckType.UHugeInt: valueUHugeint*: seq[UInt128]
 
-  LogicalType* = object
+  LogicalTypeBase* = object of RootObj
     handle*: duckdbLogicalType
+
+  LogicalType* = ref object of LogicalTypeBase
 
   Column* = ref object
     idx*: int
@@ -160,7 +161,7 @@ converter toBase*(p: PendingQueryResult): duckdbPendingResult =
 
 proc `=destroy`*(statement: Statement) =
   ## Destroys a prepared statement instance if it exists
-  if not isNil(statement.addr):
+  if cast[ptr duckdbPreparedStatement](statement) != nil:
     duckdbDestroyPrepare(statement.addr)
 
 proc `=dup`*(
@@ -171,16 +172,16 @@ proc `=copy`*(
   dest: var Statement, source: Statement
 ) {.error: "Statement cannot be copied".}
 
-proc `=destroy`*(ltp: LogicalType) =
-  if not isNil(ltp.addr) and not isNil(ltp.handle.addr):
+proc `=destroy`*(ltp: LogicalTypeBase) =
+  if ltp.handle != nil:
     duckdbDestroyLogicalType(ltp.handle.addr)
 
 proc `=destroy`*(qresult: QueryResult) =
-  if not isNil(qresult.addr):
+  if qresult.internal_data != nil:
     duckdbDestroyResult(qresult.addr)
 
 proc `=destroy`*(pqresult: PendingQueryResult) =
-  if not isNil(pqresult.addr):
+  if cast[ptr duckdbPendingResult](pqresult) != nil:
     duckdbDestroyPending(pqresult.addr)
 
 proc `$`*(x: Timestamp): string =
@@ -207,7 +208,7 @@ proc newValidityMask*(
 
 template toEnum*[T](x: int): T =
   if x in T.low.int .. T.high.int:
-    T(x)
+    cast[T](x)
   else:
     raise newException(ValueError, "Value not convertible to enum")
 

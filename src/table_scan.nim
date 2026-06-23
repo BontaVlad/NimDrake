@@ -1,6 +1,6 @@
 import std/[locks, sequtils, tables, strformat, math]
 import
-  /[api, database, dataframe, datachunk, query, table_functions, types, vector, value]
+  /[ffi, database, dataframe, datachunk, query, table_functions, types, vector, value]
 
 type
   ExtraData* = ref object of RootObj
@@ -44,7 +44,7 @@ proc scanColumn(
     validity = duckdb_vector_get_validity(vec)
 
   case values.kind
-  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
+  of DuckType.Invalid, DuckType.Any, DuckType.SqlNull:
     raise newException(ValueError, fmt"got invalid enum type: {values.kind}")
   of DuckType.Boolean:
     var resultArray = cast[ptr UncheckedArray[uint8]](raw)
@@ -73,7 +73,6 @@ proc scanColumn(
   of DuckType.BigInt:
     var resultArray = cast[ptr UncheckedArray[int64]](raw)
     for i, e in values.valueBigint[rowOffset ..< scanCount]:
-      duckdb_validity_set_row_valid(validity, i.idx_t)
       resultArray[i] = e
       if isValid(values, i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
@@ -205,9 +204,8 @@ proc initFunction(info: InitInfo) =
   let
     bindInfo = cast[BindData](duckdbInitGetBindData(info.handle))
     maxThreads = ceil(len(bindInfo.df) / ROW_GROUP_SIZE)
-  var rowLock: Lock
-  initLock rowLock
-  let data = GlobalData(pos: 0, lock: rowLock)
+  let data = GlobalData(pos: 0)
+  initLock(data.lock)
   duckdbInitSetMaxThreads(info.handle, maxThreads.idx_t)
   GC_ref(data)
   duckdbInitSetInitData(info.handle, cast[ptr GlobalData](data), destroyGlobalData)
