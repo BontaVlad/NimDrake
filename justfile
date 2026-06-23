@@ -92,6 +92,7 @@ test isParallel="false" cores="4":
             --passC:-g3 \
             --passC:-ggdb3 \
             --passC:-gdwarf-4 \
+            --passC:-Wno-implicit-function-declaration \
             --lineDir:on \
             --debuginfo:on \
             --excessiveStackTrace:on \
@@ -115,6 +116,68 @@ test isParallel="false" cores="4":
     else
         echo "Running tests sequentially..."
         # Run tests sequentially
+        while read -r file; do
+            run_test "$file"
+        done <<< "$TEST_FILES"
+    fi
+
+# Run narrow/Arrow tests (requires -d:features.nimdrake.arrow)
+test-arrow isParallel="false" cores="4":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    NIMCACHE_DIR="nimcache"
+
+    mkdir -p "${NIMCACHE_DIR}/tests"
+
+    run_test() {
+        local file="$1"
+        echo "Processing file: $file"
+        filename=$(basename "$file")
+        filename_no_ext="${filename%.nim}"
+
+        nim c \
+            -d:debug \
+            -d:nimDebugDlOpen \
+            -d:features.nimdrake.arrow \
+            --verbosity:0 \
+            --hints:off \
+            --opt:none \
+            --debugger:native \
+            --stacktrace:on \
+            --passc:-fsanitize=address \
+            --passl:-fsanitize=address \
+            -d:useMalloc \
+            --mm:orc \
+            --passC:-O0 \
+            --passC:-g3 \
+            --passC:-ggdb3 \
+            --passC:-gdwarf-4 \
+            --passC:-Wno-implicit-function-declaration \
+            --lineDir:on \
+            --debuginfo:on \
+            --excessiveStackTrace:on \
+            -o:"${NIMCACHE_DIR}/tests/${filename_no_ext}" \
+            "$file"
+
+        "${NIMCACHE_DIR}/tests/${filename_no_ext}"
+    }
+
+    export -f run_test
+    export NIMCACHE_DIR
+
+    TEST_FILES=$(find ./tests/narrow -name 'test_*.nim' | sort)
+
+    if [ -z "$TEST_FILES" ]; then
+        echo "No Arrow tests found in tests/narrow/"
+        exit 0
+    fi
+
+    if {{isParallel}} =~ truthy_regex; then
+        echo "Running Arrow tests in parallel..."
+        echo "$TEST_FILES" | xargs -n 1 -P {{cores}} -I {} bash -c 'run_test "$@"' _ {}
+    else
+        echo "Running Arrow tests sequentially..."
         while read -r file; do
             run_test "$file"
         done <<< "$TEST_FILES"
@@ -147,8 +210,9 @@ debug-run nim_file="src/duckdb" name="":
         --passC:-O1 \
         --passC:-ggdb3 \
         --passC:-fno-omit-frame-pointer \
-        --passC:-gdwarf-4 \
-        --lineDir:on \
+            --passC:-gdwarf-4 \
+            --passC:-Wno-implicit-function-declaration \
+            --lineDir:on \
         --debuginfo:on \
         --threads:off \
         --excessiveStackTrace:on \
