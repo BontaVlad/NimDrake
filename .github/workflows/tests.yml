@@ -64,6 +64,7 @@ jobs:
           mingw-w64-x86_64-git
           mingw-w64-x86_64-nim
           mingw-w64-x86_64-nimble
+          mingw-w64-x86_64-just
           unzip
 
     - name: Install DuckDB (Linux)

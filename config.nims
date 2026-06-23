@@ -16,7 +16,7 @@ when not defined(nimsuggest) and not defined(useFuthark):
   switch("passL", "-lduckdb")
 
   when defined(macosx):
-    switch("passL", "-rpath,/usr/local/lib")
+    switch("passL", "-Wl,-rpath,/usr/local/lib")
 
 # --- Sanitizers (opt-in via -d:useSanitizers) ---
 when defined(useSanitizers):
