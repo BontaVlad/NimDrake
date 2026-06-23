@@ -25,7 +25,7 @@ jobs:
 
       - name: Install DuckDB
         run: |
-          wget -q https://github.com/duckdb/duckdb/releases/download/v1.3.2/libduckdb-linux-amd64.zip
+          wget -q https://github.com/duckdb/duckdb/releases/download/v1.5.4/libduckdb-linux-amd64.zip
           unzip -o libduckdb-linux-amd64.zip -d duckdb-install
           sudo cp duckdb-install/libduckdb.so /usr/lib/
           sudo cp duckdb-install/duckdb.h /usr/include/

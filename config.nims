@@ -11,12 +11,9 @@ switch("define", "unittest2Compat=false")
 # Arrow/GLib linking is handled by the `narrow` package itself when the
 # `features.nimdrake.arrow` feature is enabled. Do not duplicate it here.
 when not defined(nimsuggest) and not defined(useFuthark):
-  # DuckDB ships no .pc file in most distributions; link directly against the
-  # vendored shared library so the project works out of the box.
+  # Link against system-installed libduckdb.
   # Skip during futhark binding generation — it only parses headers, no linking.
-  switch("passL", "-L" & thisDir() / "src" / "lib")
   switch("passL", "-lduckdb")
-  switch("passL", "-Wl,-rpath," & thisDir() / "src" / "lib")
 
 # --- Sanitizers (opt-in via -d:useSanitizers) ---
 when defined(useSanitizers):

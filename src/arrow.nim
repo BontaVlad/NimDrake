@@ -10,8 +10,6 @@
 ## from `nimdrake.nim`.
 
 when defined(features.nimdrake.arrow):
-  import ffi, query, database, query_result
-  import narrow/column/metadata
-  import narrow/tabular/[table, batch]
+  import query_result
 
   export query_result.fetchAsArrow

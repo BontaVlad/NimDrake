@@ -578,19 +578,16 @@ suite "Test appender dispatch":
       check outcome[0].valueInteger == @[42'i32]
       check outcome[1].valueInteger == @[5'i32]
 
-  test "Append DEFAULT to column without default":
-    conn.transient:
-      conn.execute("CREATE TABLE no_default_test (a INTEGER, b INTEGER);")
-      var appender = newAppender(conn, "no_default_test")
+  test "Append without all columns raises error":
+    let db = newDatabase()
+    let conn = db.connect()
+    conn.execute("CREATE TABLE no_default_test (a INTEGER, b INTEGER);")
 
+    doAssertRaises(OperationError):
+      var appender = newAppender(conn, "no_default_test")
       appender.append()
-      appender.append(42'i32)
       appender.endRow()
       appender.flush()
-
-      let outcome = conn.execute("SELECT * FROM no_default_test").fetchall()
-      check outcome[0].valueInteger == @[-1515870811'i32]
-      check outcome[1].valueInteger == @[42'i32]
 
   test "Append NULL values":
     conn.transient:
