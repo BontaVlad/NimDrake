@@ -58,13 +58,13 @@ jobs:
         msystem: MINGW64
         update: true
         cache: true
+        path-type: inherit
         install: >-
           mingw-w64-x86_64-gcc
           mingw-w64-x86_64-pkg-config
           mingw-w64-x86_64-git
           mingw-w64-x86_64-nim
           mingw-w64-x86_64-nimble
-          mingw-w64-x86_64-just
           unzip
 
     - name: Install DuckDB (Linux)
