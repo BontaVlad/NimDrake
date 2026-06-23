@@ -22,17 +22,46 @@ This dual-layer approach ensures that NimDrake caters to both beginners and adva
 
 ## Installation
 
-Here should be the nimble installtion when this code is ok to be published, but 
-it should contain also the manual way
+NimDrake is a [nimble](https://github.com/nim-lang/nimble) package. It uses
+nimble's **feature sets** to keep dev-only dependencies (`futhark`,
+`criterion`, `unittest2`) out of the default install. Those deps are grouped
+under the built-in `dev` feature and are pulled in only when you opt in.
 
-1. Clone this repository to your local machine:
+### From the package registry (production)
+
+```bash
+nimble install nimdrake
+```
+
+This installs only the production dependencies (`nint128`, `decimal`,
+`terminaltables`, `uuid4`, `fusion`).
+
+### With development dependencies
+
+Tests, benchmarks, and wrapper regeneration (via `-d:useFuthark`) need the
+extra dev dependencies. Activate them with the declarative parser and the
+`dev` feature set:
+
+```bash
+nimble install nimdrake --parser:declarative --features:dev
+```
+
+> **Note:** The `dev:` block is ignored by nimble's default `nimvm` parser, so
+> the `--parser:declarative` flag is required for `--features:dev` to take
+> effect. With the declarative parser active, source files can also gate on
+> `when defined(features.nimdrake.dev)`.
+
+### From source (manual)
+
+1. Clone the repository:
    ```bash
-   git clone https://github.com/foo/bar
+   git clone https://github.com/BontaVlad/NimDrake
+   cd NimDrake
    ```
 
-2. Navigate to the repository folder:
+2. Install with nimble (add `--parser:declarative --features:dev` for dev deps):
    ```bash
-   nimble install NimDrake
+   nimble install
    ```
 
 
