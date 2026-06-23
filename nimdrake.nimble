@@ -29,7 +29,7 @@ feature "arrow":
 # Code can gate on `when defined(features.nimdrake.dev)`.
 
 dev:
-  requires "futhark", "criterion >= 0.3.1", "unittest2 >= 0.2.3"
+  requires "criterion >= 0.3.1", "unittest2 >= 0.2.3"
 
 # Tasks
 

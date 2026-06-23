@@ -15,6 +15,9 @@ when not defined(nimsuggest) and not defined(useFuthark):
   # Skip during futhark binding generation — it only parses headers, no linking.
   switch("passL", "-lduckdb")
 
+  when defined(macosx):
+    switch("passL", "-rpath,/usr/local/lib")
+
 # --- Sanitizers (opt-in via -d:useSanitizers) ---
 when defined(useSanitizers):
   switch("passL", "-fsanitize=address")
