@@ -30,8 +30,7 @@ jobs:
 
     - uses: extractions/setup-just@v2
 
-    - name: Install Nim (non-Windows)
-      if: runner.os != 'Windows'
+    - name: Install Nim
       uses: iffy/install-nim@v5
       with:
         version: ${{ matrix.version }}
@@ -63,8 +62,6 @@ jobs:
           mingw-w64-x86_64-gcc
           mingw-w64-x86_64-pkg-config
           mingw-w64-x86_64-git
-          mingw-w64-x86_64-nim
-          mingw-w64-x86_64-nimble
           unzip
 
     - name: Install DuckDB (Linux)
