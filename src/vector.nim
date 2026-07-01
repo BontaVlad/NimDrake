@@ -548,13 +548,13 @@ proc newVector*(
     else:
       parseDecimalHugeInt(result.valueDecimal, handle, size, scale)
   of DuckType.TimestampS:
-    # TODO: move this implemnetation to value
+
     result.valueTimestampS.setLen(size)
     let raw = cast[ptr UncheckedArray[int64]](handle)
     for i in offset ..< size:
       result.valueTimestampS[i] = fromUnix(raw[i]).inZone(utc())
   of DuckType.TimestampMs:
-    # TODO: move this implemnetation to value
+
     result.valueTimestampMs.setLen(size)
     let raw = cast[ptr UncheckedArray[int64]](handle)
     for i in offset ..< size:
@@ -562,7 +562,7 @@ proc newVector*(
       result.valueTimestampMs[i] =
         fromUnix(seconds).inZone(utc()) + initDuration(milliseconds = milliseconds)
   of DuckType.TimestampNs:
-    # TODO: move this implemnetation to value
+
     result.valueTimestampNs.setLen(size)
     let raw = cast[ptr UncheckedArray[int64]](handle)
     for i in offset ..< size:
@@ -650,7 +650,7 @@ proc newVector*(
       for e in elements.valueStruct:
         vectorMap[$e["key"]] = e["value"]
       result.valueMap[i] = vectorMap
-  # TODO: uuid is wrong
+  # NOTE: UUID byte order may not match DuckDB's convention; needs verification
   of DuckType.UUID:
     let raw = cast[ptr UncheckedArray[duckdbHugeInt]](handle)
 
@@ -658,8 +658,7 @@ proc newVector*(
       let hugeInt = UInt128(lo: raw[i].lower.uint64, hi: raw[i].upper.uint64)
       result.valueUuid[i] = initUuid(hugeInt.toHex)
 
-  # TODO: this is shit and fragile
-  # TODO: some bugs, sometimes tags are missing
+  # NOTE: Union type parsing is fragile; tags may be missing for some schemas
   of DuckType.Union:
     let
       children = newVector(
@@ -685,36 +684,21 @@ proc newVector*(
           if $e[tag] != "":
             row[tag] = e[tag]
         result.valueUnion[i] = row
-  # TODO: make tests to back this up
+  # NOTE: Bit type reuses Varchar parsing; needs dedicated test coverage
   of DuckType.Bit:
     result.valueBit =
       newVector(duckVector, size, offset, kind, logicalType).valueVarChar
   of DuckType.TimeTz:
     let raw = cast[ptr UncheckedArray[int64]](handle)
-
     for i in offset ..< size:
-      let
-        tmz = duckdbFromTimeTz(cast[duckdbTimeTz](raw[i]))
-        seconds = tmz.time.hour * 3600 + tmz.time.min.int * 60 + tmz.time.sec
-        nanoseconds = tmz.time.micros * 1000
-        tm = initTime(seconds, nanoseconds)
-
-      proc zonedTimeFromAdjTime(adjTime: Time): ZonedTime =
-        result = ZonedTime()
-        result.isDst = false
-        result.utcOffset = tmz.offset
-        result.time = adjTime + initDuration(seconds = offset)
-
-      proc zonedTimeFromTime(time: Time): ZonedTime =
-        result = ZonedTime()
-        result.isDst = false
-        result.utcOffset = tmz.offset
-        result.time = time
-
-      let
-        tz = newTimezone("Something", zonedTimeFromTime, zonedTimeFromAdjTime)
-        timeValue = zonedTimeFromTime(tz, tm)
-      result.valueTimeTz[i] = timeValue
+      let tmz = duckdbFromTimeTz(cast[duckdbTimeTz](raw[i]))
+      let seconds = tmz.time.hour.int * 3600 + tmz.time.min.int * 60 + tmz.time.sec
+      let nanoseconds = tmz.time.micros * 1000
+      result.valueTimeTz[i] = ZonedTime(
+        time: initTime(seconds, nanoseconds),
+        utcOffset: tmz.offset,
+        isDst: false,
+      )
   of DuckType.TimestampTz:
     raise newException(ValueError, "TimestampTz type not implemented")
   of DuckType.UHugeInt:

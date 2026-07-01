@@ -1,6 +1,6 @@
 import std/[locks, sequtils, tables, strformat, math]
 import
-  /[ffi, database, dataframe, datachunk, query, table_functions, types, vector, value]
+  /[ffi, database, dataframe, datachunk, query, table_functions, types, vector, value, exceptions]
 
 type
   ExtraData* = ref object of RootObj
@@ -148,44 +148,33 @@ proc scanColumn(
       if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Blob:
-    discard
-    # result.valueBlob = newSeq[seq[byte]]()
+    raise newException(OperationError, "Blob scan not implemented")
   of DuckType.Decimal:
-    discard
-    # result.valueDecimal = newSeq[DecimalType]()
+    raise newException(OperationError, "Decimal scan not implemented")
   of DuckType.TimestampS:
-    discard
-    # result.valueTimestampS = newSeq[DateTime]()
+    raise newException(OperationError, "TimestampS scan not implemented")
   of DuckType.TimestampMs:
-    discard
-    # result.valueTimestampMs = newSeq[DateTime]()
+    raise newException(OperationError, "TimestampMs scan not implemented")
   of DuckType.TimestampNs:
-    discard
-    # result.valueTimestampNs = newSeq[DateTime]()
+    raise newException(OperationError, "TimestampNs scan not implemented")
   of DuckType.Enum:
-    discard
-    # result.valueEnum = newSeq[uint]()
+    raise newException(OperationError, "Enum scan not implemented")
   of DuckType.List, DuckType.Array:
-    discard
-    # result.valueList = newSeq[seq[Value]]()
+    raise newException(OperationError, "List/Array scan not implemented")
   of DuckType.Struct, DuckType.Map:
-    discard
-    # result.valueStruct = newSeq[Table[string, Value]]()
+    raise newException(OperationError, "Struct/Map scan not implemented")
   of DuckType.UUID:
-    discard
-    # result.valueUuid = newSeq[Uuid]()
+    raise newException(OperationError, "UUID scan not implemented")
   of DuckType.Union:
-    discard
-    # result.valueUnion = newSeq[Table[string, Value]]()
+    raise newException(OperationError, "Union scan not implemented")
   of DuckType.Bit:
-    discard
-    # result.valueBit = newSeq[string]()
+    raise newException(OperationError, "Bit scan not implemented")
   of DuckType.TimeTz:
-    discard
+    raise newException(OperationError, "TimeTz scan not implemented")
   of DuckType.TimestampTz:
-    discard
+    raise newException(OperationError, "TimestampTz scan not implemented")
   of DuckType.UHugeInt:
-    discard
+    raise newException(OperationError, "UHugeInt scan not implemented")
 
 proc bindFunction(info: BindInfo) =
   let

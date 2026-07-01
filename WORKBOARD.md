@@ -39,13 +39,13 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
 
 ## P2 — Type coverage completion
 
-- [ ] 17. Implement read+write for: Blob, Decimal (via int128, not float), UUID, Enum, List, Struct, Map, Union, Bit, TimeTz, TimestampTz, UHugeInt, TimestampS/Ms/Ns in `value.nim` and `vector.nim`. Remove `discard` stubs or raise `OperationError` explicitly.
-- [ ] 18. Fix `vector.nim:692-717` TimeTz per-row timezone allocation (construct once outside loop).
-- [ ] 19. Fix `value.nim:373` decimal precision (use `duckdb_get_decimal` / int128 path).
-- [ ] 20. Extend `table_scan.nim scanColumn` to complex types or raise on unsupported instead of silent NULL.
-- [ ] 21. Fix `types.nim:56-58` enum symbol inconsistency (`enum_DUCKDB_TYPE` vs `enumDuckdbType`).
+- [x] 17. Read+write paths for unimplemented types now raise `OperationError` explicitly instead of silent `discard` stubs. Implemented: Blob read via `duckdb_get_blob`, Decimal read via `duckdb_get_decimal` (int128 path), UUID read, UHugeInt read in `newValue(DuckValue)`; Varchar/HugeInt/UHugeInt/Blob write in `toNativeValue`. Remaining types (Enum, List, Struct, Map, Union, Bit, TimeTz, TimestampTz, TimestampS/Ms/Ns for DuckValue conversion) raise `OperationError` with clear messages. Full implementation deferred to future work.
+- [x] 18. Fixed `vector.nim` TimeTz per-row timezone allocation — simplified to direct `ZonedTime` construction without `newTimezone` (which was broken: proc signature mismatch).
+- [x] 19. Fixed `value.nim` decimal precision — replaced `duckdb_get_double / pow(10, scale)` (float division, loses precision) with `duckdb_get_decimal` + int128 div/mod path.
+- [x] 20. Extended `table_scan.nim scanColumn` — unsupported types (Blob, Decimal, TimestampS/Ms/Ns, Enum, List, Struct, Map, UUID, Union, Bit, TimeTz, TimestampTz, UHugeInt) now raise `OperationError` instead of silent `discard` (which emitted NULLs).
+- [x] 21. Fixed `types.nim` enum symbol inconsistency — normalized all `enumDuckdbType` to `enum_DUCKDB_TYPE`; fixed `DuckType.ANY`/`SQLNULL` → `DuckType.Any`/`DuckType.SqlNull` for consistency with the `{.pure.}` enum.
 
-**Commit + tests after P2.**
+**Commit + tests after P2.** ✅ All 147 tests pass with ASan.
 
 ---
 
@@ -106,3 +106,4 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
 
 - **P0 complete** — 11 correctness bugs fixed. All 147 tests pass with ASan. Files changed: `scalar_functions.nim`, `aggregate_functions.nim`, `value.nim`, `table_scan.nim`, `datachunk.nim`, `ffi.nim`, `database.nim`, `query.nim`.
 - **P1 complete** — Ownership hooks completed for all move-only types. `=wasMoved` added, `{.error.}` bare pragmas, hook declaration ordering fixed, DuckString ownership documented. All 147 tests pass with ASan. Files changed: `database.nim`, `config.nim`, `types.nim`, `query.nim`, `scalar_functions.nim`, `aggregate_functions.nim`, `query_result.nim`, `value.nim`.
+- **P2 complete** — Type coverage: silent `discard` stubs replaced with `OperationError` raises; Blob/Decimal/UUID/UHugeInt read implemented in `newValue(DuckValue)`; Varchar/HugeInt/UHugeInt/Blob write implemented in `toNativeValue`; decimal precision fixed via int128 path; TimeTz per-row timezone allocation fixed; enum symbol inconsistency normalized; `scanColumn` unsupported types raise instead of silent NULL. All 147 tests pass with ASan. Files changed: `types.nim`, `value.nim`, `vector.nim`, `table_scan.nim`.

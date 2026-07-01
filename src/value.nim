@@ -386,14 +386,16 @@ proc newValue*(val: DuckValue): Value =
       result.valueBlob = @[]
   of DuckType.Decimal:
     let
-      logicalType = duckdb_get_value_type(val.handle)
-      scale = duckdb_decimal_scale(logicalType).int
-      width = duckdb_decimal_width(logicalType).int
-    if width <= 18:
-      let value = duckdb_get_double(val.handle) / pow(10.float, scale.float)
-      result.valueDecimal = newDecimal($value)
-    else:
-      raise newException(OperationError, "Decimal width > 18 not implemented for DuckValue conversion")
+      dkDecimal = duckdb_get_decimal(val.handle)
+      scale = dkDecimal.scale.int
+      i128Value = fromHugeInt(dkDecimal.value)
+    var fracScale = i128(1)
+    for _ in 0 ..< scale:
+      fracScale = fracScale * i128(10)
+    let
+      whole = i128Value div fracScale
+      fractional = i128Value mod fracScale
+    result.valueDecimal = newDecimal($whole & "." & $fractional)
   of DuckType.Enum:
     raise newException(OperationError, "Enum not implemented for DuckValue conversion")
   of DuckType.List, DuckType.Array:

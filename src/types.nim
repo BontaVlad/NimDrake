@@ -22,42 +22,42 @@ type
   QueryResult* = object of duckdbResult
 
   DuckType* {.pure.} = enum
-    Invalid = enumDuckdbType.DUCKDB_TYPE_INVALID
-    Boolean = enumDuckdbType.DUCKDB_TYPE_BOOLEAN
-    TinyInt = enumDuckdbType.DUCKDB_TYPE_TINYINT
-    SmallInt = enumDuckdbType.DUCKDB_TYPE_SMALLINT
-    Integer = enumDuckdbType.DUCKDB_TYPE_INTEGER
-    BigInt = enumDuckdbType.DUCKDB_TYPE_BIGINT
-    UTinyInt = enumDuckdbType.DUCKDB_TYPE_UTINYINT
-    USmallInt = enumDuckdbType.DUCKDB_TYPE_USMALLINT
-    UInteger = enumDuckdbType.DUCKDB_TYPE_UINTEGER
-    UBigInt = enumDuckdbType.DUCKDB_TYPE_UBIGINT
-    Float = enumDuckdbType.DUCKDB_TYPE_FLOAT
-    Double = enumDuckdbType.DUCKDB_TYPE_DOUBLE
-    Timestamp = enumDuckdbType.DUCKDB_TYPE_TIMESTAMP
-    Date = enumDuckdbType.DUCKDB_TYPE_DATE
-    Time = enumDuckdbType.DUCKDB_TYPE_TIME
-    Interval = enumDuckdbType.DUCKDB_TYPE_INTERVAL
-    HugeInt = enumDuckdbType.DUCKDB_TYPE_HUGEINT
-    Varchar = enumDuckdbType.DUCKDB_TYPE_VARCHAR
-    Blob = enumDuckdbType.DUCKDB_TYPE_BLOB
-    Decimal = enumDuckdbType.DUCKDB_TYPE_DECIMAL
-    TimestampS = enumDuckdbType.DUCKDB_TYPE_TIMESTAMP_S
-    TimestampMs = enumDuckdbType.DUCKDB_TYPE_TIMESTAMP_MS
-    TimestampNs = enumDuckdbType.DUCKDB_TYPE_TIMESTAMP_NS
-    Enum = enumDuckdbType.DUCKDB_TYPE_ENUM
-    List = enumDuckdbType.DUCKDB_TYPE_LIST
-    Struct = enumDuckdbType.DUCKDB_TYPE_STRUCT
-    Map = enumDuckdbType.DUCKDB_TYPE_MAP
-    UUID = enumDuckdbType.DUCKDB_TYPE_UUID
-    Union = enumDuckdbType.DUCKDB_TYPE_UNION
-    Bit = enumDuckdbType.DUCKDB_TYPE_BIT
-    TimeTz = enumDuckdbType.DUCKDB_TYPE_TIME_TZ
+    Invalid = enum_DUCKDB_TYPE.DUCKDB_TYPE_INVALID
+    Boolean = enum_DUCKDB_TYPE.DUCKDB_TYPE_BOOLEAN
+    TinyInt = enum_DUCKDB_TYPE.DUCKDB_TYPE_TINYINT
+    SmallInt = enum_DUCKDB_TYPE.DUCKDB_TYPE_SMALLINT
+    Integer = enum_DUCKDB_TYPE.DUCKDB_TYPE_INTEGER
+    BigInt = enum_DUCKDB_TYPE.DUCKDB_TYPE_BIGINT
+    UTinyInt = enum_DUCKDB_TYPE.DUCKDB_TYPE_UTINYINT
+    USmallInt = enum_DUCKDB_TYPE.DUCKDB_TYPE_USMALLINT
+    UInteger = enum_DUCKDB_TYPE.DUCKDB_TYPE_UINTEGER
+    UBigInt = enum_DUCKDB_TYPE.DUCKDB_TYPE_UBIGINT
+    Float = enum_DUCKDB_TYPE.DUCKDB_TYPE_FLOAT
+    Double = enum_DUCKDB_TYPE.DUCKDB_TYPE_DOUBLE
+    Timestamp = enum_DUCKDB_TYPE.DUCKDB_TYPE_TIMESTAMP
+    Date = enum_DUCKDB_TYPE.DUCKDB_TYPE_DATE
+    Time = enum_DUCKDB_TYPE.DUCKDB_TYPE_TIME
+    Interval = enum_DUCKDB_TYPE.DUCKDB_TYPE_INTERVAL
+    HugeInt = enum_DUCKDB_TYPE.DUCKDB_TYPE_HUGEINT
+    Varchar = enum_DUCKDB_TYPE.DUCKDB_TYPE_VARCHAR
+    Blob = enum_DUCKDB_TYPE.DUCKDB_TYPE_BLOB
+    Decimal = enum_DUCKDB_TYPE.DUCKDB_TYPE_DECIMAL
+    TimestampS = enum_DUCKDB_TYPE.DUCKDB_TYPE_TIMESTAMP_S
+    TimestampMs = enum_DUCKDB_TYPE.DUCKDB_TYPE_TIMESTAMP_MS
+    TimestampNs = enum_DUCKDB_TYPE.DUCKDB_TYPE_TIMESTAMP_NS
+    Enum = enum_DUCKDB_TYPE.DUCKDB_TYPE_ENUM
+    List = enum_DUCKDB_TYPE.DUCKDB_TYPE_LIST
+    Struct = enum_DUCKDB_TYPE.DUCKDB_TYPE_STRUCT
+    Map = enum_DUCKDB_TYPE.DUCKDB_TYPE_MAP
+    UUID = enum_DUCKDB_TYPE.DUCKDB_TYPE_UUID
+    Union = enum_DUCKDB_TYPE.DUCKDB_TYPE_UNION
+    Bit = enum_DUCKDB_TYPE.DUCKDB_TYPE_BIT
+    TimeTz = enum_DUCKDB_TYPE.DUCKDB_TYPE_TIME_TZ
     TimestampTz = enum_DUCKDB_TYPE.DUCKDB_TYPE_TIMESTAMP_TZ # Added
     UHugeInt = enum_DUCKDB_TYPE.DUCKDB_TYPE_UHUGEINT # Added
     Array = enum_DUCKDB_TYPE.DUCKDB_TYPE_ARRAY # Added
-    Any = enumDuckdbType.DUCKDB_TYPE_ANY
-    SqlNull = enumDuckdbType.DUCKDB_TYPE_SQLNULL
+    Any = enum_DUCKDB_TYPE.DUCKDB_TYPE_ANY
+    SqlNull = enum_DUCKDB_TYPE.DUCKDB_TYPE_SQLNULL
 
   ValueBase = object of RootObj
     isValid*: bool
@@ -102,7 +102,7 @@ type
   Vector* = ref object
     mask*: seq[uint64] = newSeq[uint64]()
     case kind*: DuckType
-    of DuckType.Invalid, DuckType.ANY, DuckType.SQLNULL:
+    of DuckType.Invalid, DuckType.Any, DuckType.SqlNull:
       valueInvalid*: uint8
     of DuckType.Boolean: valueBoolean*: seq[bool]
     of DuckType.TinyInt: valueTinyint*: seq[int8]
