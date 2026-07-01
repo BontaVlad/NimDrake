@@ -87,13 +87,21 @@ suite "Connections":
     joinThreads(threads)
 
     let results = mainConn.execute("SELECT calculation_result, value_a, value_b, thread_id FROM results ORDER BY thread_id").fetchAll()
-    check results[0].valueInteger[0] == 0'i64
-    check results[0].valueInteger[1] == 30'i64
-    check results[0].valueInteger[2] == 60'i64
+    # results is column-major: results[0]=calculation_result, results[1]=value_a,
+    # results[2]=value_b, results[3]=thread_id
+    # Thread 0: a=0, b=0, res=0; Thread 1: a=10, b=20, res=30; Thread 2: a=20, b=40, res=60
+    check results[0].valueInteger[0] == 0'i64  # calculation_result for thread 0
+    check results[0].valueInteger[1] == 30'i64 # calculation_result for thread 1
+    check results[0].valueInteger[2] == 60'i64 # calculation_result for thread 2
 
-    check results[3].valueInteger[0] == 0'i64
-    check results[3].valueInteger[1] == 1'i64
-    check results[3].valueInteger[2] == 2'i64
+    check results[3].valueInteger[0] == 0'i64  # thread_id for thread 0
+    check results[3].valueInteger[1] == 1'i64  # thread_id for thread 1
+    check results[3].valueInteger[2] == 2'i64  # thread_id for thread 2
+
+    # Verify all 5 threads produced correct results
+    check results[0].valueInteger.len == 5
+    check results[1].valueInteger == @[0'i32, 10, 20, 30, 40]  # value_a
+    check results[2].valueInteger == @[0'i32, 20, 40, 60, 80]  # value_b
 
   test "Multiple In-Memory DB Start Up and Shutdown":
     var
@@ -102,5 +110,13 @@ suite "Connections":
 
     for i in 0..<10:
       databases[i] = newDatabase()
+      check databases[i].handle != nil
       for j in 0..<10:
         connections[i * 10 + j] = databases[i].connect()
+        check connections[i * 10 + j].handle != nil
+
+    # Verify each connection can execute a query
+    for i in 0..<100:
+      let outcome = connections[i].execute("SELECT 1").fetchAll()
+      check outcome.len == 1
+      check outcome[0].valueInteger == @[1'i32]

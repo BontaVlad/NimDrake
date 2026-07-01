@@ -334,23 +334,26 @@ suite "Test bind val dispatch":
       let outcome = conn.execute("SELECT interval_val FROM prepared_table;").fetchall()
       check outcome[0].valueInterval == @[valInterval]
 
-  # test "Bind blob val":
-  #   conn.transient:
-  #     conn.execute("CREATE TABLE prepared_table (blob_val BLOB);")
-  #     let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
-  #     let blobData = @[byte(1), byte(2), byte(3)]
-  #     conn.execute(prepared, (blobData, ))
-  #     # let outcome = conn.execute("SELECT blob_val FROM prepared_table;").fetchall()
-  #     # check outcome[0].valueBlob == @[blobData]
+  test "Bind blob val":
+    let conn = newDatabase().connect()
+    conn.execute("CREATE TABLE blob_table (blob_val BLOB);")
+    let prepared = newStatement(conn, "INSERT INTO blob_table VALUES (?);")
+    let blobData: seq[byte] = @[byte(1), byte(2), byte(3), byte(255)]
+    check not duckdb_bind_blob(prepared, 1.idx_t, addr blobData[0], blobData.len.idx_t)
+    conn.execute(prepared)
+    let outcome = conn.execute("SELECT blob_val FROM blob_table;").fetchAll()
+    check outcome[0].valueBlob == @[blobData]
 
-  # test "Bind null val":
-  #   conn.transient:
-  #     conn.execute("CREATE TABLE prepared_table (nullable_val INTEGER);")
-  #     let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
-  #     conn.execute(prepared, (nil, ))
-  #     echo conn.execute("SELECT nullable_val FROM prepared_table;")
-  #     # let outcome = conn.execute("SELECT nullable_val FROM prepared_table;").fetchall()
-  #     # check outcome[0].isNull == true
+  test "Bind null val":
+    let conn = newDatabase().connect()
+    conn.execute("CREATE TABLE nullable_table (int_val INTEGER, str_val VARCHAR);")
+    let prepared = newStatement(conn, "INSERT INTO nullable_table VALUES (?, ?);")
+    check not duckdb_bind_null(prepared, 1.idx_t)
+    check not duckdb_bind_null(prepared, 2.idx_t)
+    conn.execute(prepared)
+    let outcome = conn.execute("SELECT int_val, str_val FROM nullable_table;").fetchAll()
+    check outcome[0].isValid(0) == false
+    check outcome[1].isValid(0) == false
 
 suite "Test appender dispatch":
 
@@ -734,6 +737,10 @@ suite "Test appender dispatch":
       from
         range(5000) tbl(i);
     """
+    let outcome = conn.execute(query).fetchAll()
+    check outcome.len == 1
+    check outcome[0].kind == DuckType.Varchar
+    check outcome[0].len == 5000
 
 suite "Test pending statement queries":
 

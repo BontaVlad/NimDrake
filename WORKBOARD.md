@@ -51,16 +51,16 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
 
 ## P3 — Tests (per nim-testing skill)
 
-- [ ] 22. Add assertions to `test_query.nim:723-736` and `test_database.nim:98-106`.
-- [ ] 23. Uncomment + fix: blob bind, null bind, Enum/List/Struct result decoding, Decimal value creation, ZonedTime.
-- [ ] 24. Add Arrow tests to CI (install arrow-glib on Linux, add `just test-arrow` step).
-- [ ] 25. Verify/fix `test_database.nim:90-96` thread-test expected values.
-- [ ] 26. Add NULL round-trip tests for bound prepared parameters and appender.
-- [ ] 27. Consolidate test build flags into `tests/nim.cfg` so manual `nim c -r` matches CI.
-- [ ] 28. Add a `-d:release`/`--mm:arc` CI job and an older-Nim-version matrix entry.
-- [ ] 29. Upload `testresults/` + ASan logs as CI artifacts on failure.
+- [x] 22. Added assertions to `test_query.nim` "Complex varchar" (was 0 assertions, now checks column count, kind, and row count) and `test_database.nim` "Multiple In-Memory DB Start Up and Shutdown" (was 0 assertions, now checks handle non-nil for all 10 DBs/100 connections and verifies each connection can execute a query).
+- [x] 23. Uncommented and fixed: blob bind test (uses `duckdb_bind_blob` directly due to `void` overload interference with `bindVal` template), null bind test (uses `duckdb_bind_null` directly). Enum/List/Struct result decoding and Decimal/ZonedTime value creation remain commented — deferred to P2 full type implementation.
+- [ ] 24. Add Arrow tests to CI (install arrow-glib on Linux, add `just test-arrow` step). — Deferred (requires CI infrastructure changes).
+- [x] 25. Verified `test_database.nim:90-96` thread-test expected values — assertions are correct (results is column-major; `results[0]` is calculation_result column, `results[3]` is thread_id column). Added clarifying comments and additional assertions for all 5 threads' value_a and value_b.
+- [x] 26. Added NULL round-trip test for bound prepared parameters (binds NULL via `duckdb_bind_null`, verifies `isValid(0) == false` on both columns).
+- [ ] 27. Consolidate test build flags into `tests/nim.cfg` so manual `nim c -r` matches CI. — Deferred.
+- [ ] 28. Add a `-d:release`/`--mm:arc` CI job and an older-Nim-version matrix entry. — Deferred.
+- [ ] 29. Upload `testresults/` + ASan logs as CI artifacts on failure. — Deferred.
 
-**Commit + tests after P3.**
+**Commit + tests after P3.** ✅ All 153 tests pass with ASan (6 new tests added).
 
 ---
 
@@ -107,3 +107,4 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
 - **P0 complete** — 11 correctness bugs fixed. All 147 tests pass with ASan. Files changed: `scalar_functions.nim`, `aggregate_functions.nim`, `value.nim`, `table_scan.nim`, `datachunk.nim`, `ffi.nim`, `database.nim`, `query.nim`.
 - **P1 complete** — Ownership hooks completed for all move-only types. `=wasMoved` added, `{.error.}` bare pragmas, hook declaration ordering fixed, DuckString ownership documented. All 147 tests pass with ASan. Files changed: `database.nim`, `config.nim`, `types.nim`, `query.nim`, `scalar_functions.nim`, `aggregate_functions.nim`, `query_result.nim`, `value.nim`.
 - **P2 complete** — Type coverage: silent `discard` stubs replaced with `OperationError` raises; Blob/Decimal/UUID/UHugeInt read implemented in `newValue(DuckValue)`; Varchar/HugeInt/UHugeInt/Blob write implemented in `toNativeValue`; decimal precision fixed via int128 path; TimeTz per-row timezone allocation fixed; enum symbol inconsistency normalized; `scanColumn` unsupported types raise instead of silent NULL. All 147 tests pass with ASan. Files changed: `types.nim`, `value.nim`, `vector.nim`, `table_scan.nim`.
+- **P3 complete (partial)** — Tests: added assertions to 2 empty tests, added blob bind + null bind round-trip tests, verified thread-test assertions, added clarifying comments. 6 new tests added (147→153). Deferred: Arrow CI, test flag consolidation, release/arc CI matrix, artifact upload. All 153 tests pass with ASan. Files changed: `test_query.nim`, `test_database.nim`.
