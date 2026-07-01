@@ -318,7 +318,24 @@ echo duck.execute("SELECT * FROM floatCounter() LIMIT 5;")
 
 ## Contribution
 
-Talk about justfiles and the commands
+NimDrake uses [just](https://github.com/casey/just) for build orchestration.
+Key commands:
+
+- `just test` — compile and run all tests with AddressSanitizer (sequential)
+- `just test isParallel=true cores=4` — run tests in parallel
+- `just test-arrow` — run Arrow/narrow tests (requires `-d:features.nimdrake.arrow`)
+- `just coverage` — generate lcov coverage report
+- `just benchmark` — run performance benchmarks
+- `just format src` — format all Nim files in `src/` with `nph`
+- `just generate` — regenerate FFI bindings from `duckdb.h` using futhark
+- `just debug nim_file="tests/test_query.nim"` — compile with full debug info
+- `just valgrind nim_file="..."` — run under Valgrind
+
+The project uses `config.nims` for compiler switches (linker flags, sanitizer
+options, Int128 support detection). Tests use `unittest2` and run with
+`--mm:orc -d:useMalloc -fsanitize=address`.
+
+See [WORKBOARD.md](WORKBOARD.md) for the current project status and TODO list.
 
 ---
 

@@ -9,3 +9,6 @@ benchmarks/heaptrack.nim.1.gz
 benchmarks/nim-heaptrack/
 nimble/
 src/lib/
+# Stray compiled test binaries (no file extension)
+tests/test_data_chunk
+tests/test_logical_type

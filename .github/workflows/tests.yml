@@ -4,9 +4,6 @@ on:
   pull_request:
   push:
 
-env:
-  GH_TOKEN: ${{ secrets.GH_TOKEN }}
-
 jobs:
   tests:
     runs-on: ${{ matrix.os }}
