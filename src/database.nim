@@ -18,11 +18,6 @@ proc `=destroy`*(db: Database) =
   if db.handle != nil:
     duckdbClose(db.handle.addr)
 
-proc `=sink`*(dest: var Database, source: Database) =
-  `=destroy`(dest)
-  wasMoved(dest)
-  dest.handle = source.handle
-
 proc `=copy`*(
   dest: var Database, source: Database
 ) {.error: "Database copy is not supported".}
@@ -30,11 +25,6 @@ proc `=copy`*(
 proc `=destroy`*(con: Connection) =
   if con.handle != nil:
     duckdbDisconnect(cast[ptr duckdbConnection](con.addr))
-
-proc `=sink`*(dest: var Connection, source: Connection) =
-  `=destroy`(dest)
-  wasMoved(dest)
-  dest.handle = source.handle
 
 proc `=copy`*(
   dest: var Connection, source: Connection

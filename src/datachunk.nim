@@ -41,6 +41,9 @@ proc newDataChunk*(
 
 proc newDataChunk*(types: seq[DuckType], shouldDestroy: bool = true): DataChunk =
   let columnCount = len(types)
+  if columnCount == 0:
+    raise newException(ValueError, "Cannot create a DataChunk with zero columns")
+
   var logicalTypes = newSeq[LogicalType](columnCount)
   var duckLogicalTypes = newSeq[duckdbLogicalType](columnCount)
 

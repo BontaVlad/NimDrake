@@ -1,11 +1,12 @@
-import std/strformat
-
-# 2048 is duckdb_vector_size(), but we can't do this at compile time
-const
-  VECTOR_SIZE* = 2048
-  ROW_GROUP_SIZE* = VECTOR_SIZE * 100
+# duckdb_vector_size() is a runtime API call, so VECTOR_SIZE cannot be a const.
+# It is initialized once at module load from the linked DuckDB library.
+# ROW_GROUP_SIZE follows from VECTOR_SIZE.
 
 when defined(useFuthark):
+  const
+    VECTOR_SIZE* = 2048
+    ROW_GROUP_SIZE* = VECTOR_SIZE * 100
+
   import os
   import futhark
 
@@ -24,9 +25,5 @@ when defined(useFuthark):
 else:
   include "generated.nim"
 
-  let runtimeVectorSize = duckdbVectorSize().int
-  if runtimeVectorSize != VECTOR_SIZE:
-    raise newException(
-      ValueError,
-      fmt"Duckdb was compiled for a size of {VECTOR_SIZE}, this configuration of DUCKDB was set at {runtimeVectorSize}",
-    )
+  let VECTOR_SIZE* = duckdbVectorSize().int
+  let ROW_GROUP_SIZE* = VECTOR_SIZE * 100

@@ -2,7 +2,7 @@ import std/[tables, times, math]
 import nint128
 import uuid4
 
-import /[types, ffi]
+import /[types, ffi, exceptions]
 import /compatibility/decimal_compat
 
 type
@@ -305,15 +305,13 @@ proc newValue*(kind: DuckType, isValid: bool): Value =
     raise newException(ValueError, "Expected DuckType.Invalid for default value")
 
 proc newValue*(val: DuckValue): Value =
-  # we avoid creating a LogicalType because this
-  # one should not be garbadge collected
   let
     logicalTp = duckdb_get_value_type(val.handle)
     logicalId = duckdb_get_type_id(logicalTp)
     kind = toEnum[DuckType](logicalId.int)
+    isNull = duckdb_is_null_value(val.handle)
 
-  # TODO: get the actual isValid value
-  result = Value(kind: kind, isValid: true)
+  result = Value(kind: kind, isValid: not isNull)
   case result.kind
   of DuckType.Invalid, DuckType.Any, DuckType.SqlNull:
     raise newException(ValueError, "got invalid type")
@@ -343,11 +341,11 @@ proc newValue*(val: DuckValue): Value =
     let dkTimestamp = cast[duckdb_timestamp](duckdb_get_timestamp(val.handle))
     result.valueTimestamp = fromTimestamp(dkTimestamp)
   of DuckType.TimestampS:
-    raise newException(ValueError, "TimestampS not implemented")
+    raise newException(OperationError, "TimestampS not implemented for DuckValue conversion")
   of DuckType.TimestampMs:
-    raise newException(ValueError, "TimestampMS not implemented")
+    raise newException(OperationError, "TimestampMs not implemented for DuckValue conversion")
   of DuckType.TimestampNs:
-    raise newException(ValueError, "TimestampNS not implemented")
+    raise newException(OperationError, "TimestampNs not implemented for DuckValue conversion")
   of DuckType.Date:
     let dkDate = cast[duckdb_date](duckdb_get_date(val.handle))
     result.valueDate = fromDatetime(dkDate)
@@ -363,7 +361,13 @@ proc newValue*(val: DuckValue): Value =
   of DuckType.Varchar:
     result.valueVarchar = $newDuckString(duckdbGetVarchar(val.handle))
   of DuckType.Blob:
-    result.valueBlob = cast[seq[byte]](val.handle)
+    let blob = duckdb_get_blob(val.handle)
+    if blob.data != nil and blob.size > 0:
+      result.valueBlob = newSeq[byte](blob.size.int)
+      copyMem(addr result.valueBlob[0], blob.data, blob.size.int)
+      duckdbFree(blob.data)
+    else:
+      result.valueBlob = @[]
   of DuckType.Decimal:
     let
       logicalType = duckdb_get_value_type(val.handle)
@@ -373,45 +377,36 @@ proc newValue*(val: DuckValue): Value =
       let value = duckdb_get_double(val.handle) / pow(10.float, scale.float)
       result.valueDecimal = newDecimal($value)
     else:
-      raise newException(ValueError, "I don't like implementing this atm")
-    # result.valueDecimal = duckdb_get_double(val.handle)
+      raise newException(OperationError, "Decimal width > 18 not implemented for DuckValue conversion")
   of DuckType.Enum:
-    discard
-    # result.valueEnum = parseEnum[EnumType](v)
+    raise newException(OperationError, "Enum not implemented for DuckValue conversion")
   of DuckType.List, DuckType.Array:
-    discard
-    # result.valueList = parseJson(v).to(seq[Value])
+    raise newException(OperationError, "List/Array not implemented for DuckValue conversion")
   of DuckType.Struct:
-    discard
-    # result.valueStruct = parseJson(v).to(StructType)
+    raise newException(OperationError, "Struct not implemented for DuckValue conversion")
   of DuckType.Map:
     result.valueMap = initTable[string, Value]()
     let mapSize = duckdb_get_map_size(val.handle)
-    for i in 0 .. mapSize:
+    for i in 0 ..< mapSize:
       let
         key = newValue(newDuckValue(duckdb_get_map_key(val.handle, i.idx_t)))
         value = newValue(newDuckValue(duckdb_get_map_value(val.handle, i.idx_t)))
       result.valueMap[key.valueVarchar] = value
-
-    # result.valueMap = parseJson(v).to(Table[string, Value])
   of DuckType.UUID:
-    discard
-    # result.valueUuid = parseUUID(v)
+    let dkHugeInt = cast[duckdb_hugeint](duckdb_get_hugeint(val.handle))
+    let hugeInt = UInt128(lo: dkHugeInt.lower.uint64, hi: dkHugeInt.upper.uint64)
+    result.valueUuid = initUuid(hugeInt.toHex)
   of DuckType.Union:
-    discard
-    # result.valueUnion = parseJson(v).to(UnionType)
+    raise newException(OperationError, "Union not implemented for DuckValue conversion")
   of DuckType.Bit:
-    discard
-    # result.valueBit = v.parseBinaryInt.uint8
+    raise newException(OperationError, "Bit not implemented for DuckValue conversion")
   of DuckType.TimeTz:
-    discard
-    # result.valueTimeTz = parseTimeTz(v)
+    raise newException(OperationError, "TimeTz not implemented for DuckValue conversion")
   of DuckType.TimestampTz:
-    discard
-    # result.valueTimeTz = parseTimeTz(v)
+    raise newException(OperationError, "TimestampTz not implemented for DuckValue conversion")
   of DuckType.UHugeInt:
-    discard
-    # result.valueTimeTz = parseTimeTz(v)
+    let dkUHugeInt = cast[duckdb_uhugeint](duckdb_get_uhugeint(val.handle))
+    result.valueUHugeint = fromUHugeInt(dkUHugeInt)
 
 proc toNativeValue*(val: Value): DuckValue =
   result = DuckValue()
@@ -443,53 +438,46 @@ proc toNativeValue*(val: Value): DuckValue =
   of DuckType.Timestamp:
     return newDuckValue(duckdb_create_timestamp(toTimestamp(val.valueTimestamp)))
   of DuckType.TimestampS:
-    discard
-  #   # result.valueTimestampS = fromUnix(v.parseInt)
+    raise newException(OperationError, "TimestampS not implemented for toNativeValue")
   of DuckType.TimestampMs:
-    discard
-  #   # result.valueTimestampMs = fromUnixMilli(v.parseInt)
+    raise newException(OperationError, "TimestampMs not implemented for toNativeValue")
   of DuckType.TimestampNs:
-    discard
-  #   # result.valueTimestampNs = fromUnixNano(v.parseInt)
+    raise newException(OperationError, "TimestampNs not implemented for toNativeValue")
   of DuckType.Date:
     return newDuckValue(duckdb_create_date(val.valueDate.toDatetime))
   of DuckType.Time:
     return newDuckValue(duckdb_create_time(val.valueTime.toTime))
   of DuckType.Interval:
     return newDuckValue(duckdb_create_interval(val.valueInterval.toInterval))
-  else:
-    discard
-  # of DuckType.HugeInt:
-  #   discard
-  #   # result.valueHugeint = parseHugeInt(v)
-  # of DuckType.Varchar:
-  #   result.valueVarchar = $newDuckString(duckdbGetVarchar(val.handle))
-  # of DuckType.Blob:
-  #   result.valueBlob = cast[seq[byte]](val.handle)
-  # of DuckType.Decimal:
-  #   discard
-  #   # result.valueDecimal = parseDecimal(v)
-  # of DuckType.Enum:
-  #   discard
-  #   # result.valueEnum = parseEnum[EnumType](v)
-  # of DuckType.List:
-  #   discard
-  #   # result.valueList = parseJson(v).to(seq[Value])
-  # of DuckType.Struct:
-  #   discard
-  #   # result.valueStruct = parseJson(v).to(StructType)
-  # of DuckType.Map:
-  #   discard
-  #   # result.valueMap = parseJson(v).to(Table[string, Value])
-  # of DuckType.UUID:
-  #   discard
-  #   # result.valueUuid = parseUUID(v)
-  # of DuckType.Union:
-  #   discard
-  #   # result.valueUnion = parseJson(v).to(UnionType)
-  # of DuckType.Bit:
-  #   discard
-  #   # result.valueBit = v.parseBinaryInt.uint8
-  # of DuckType.TimeTz:
-  #   discard
-  #   # result.valueTimeTz = parseTimeTz(v)
+  of DuckType.HugeInt:
+    return newDuckValue(duckdb_create_hugeint(val.valueHugeint.toHugeInt))
+  of DuckType.UHugeInt:
+    return newDuckValue(duckdb_create_uhugeint(val.valueUHugeint.toUHugeInt))
+  of DuckType.Varchar:
+    return newDuckValue(duckdb_create_varchar(val.valueVarchar.cstring))
+  of DuckType.Blob:
+    if val.valueBlob.len == 0:
+      return newDuckValue(duckdb_create_blob(nil, 0.idx_t))
+    return newDuckValue(
+      duckdb_create_blob(cast[ptr uint8](addr val.valueBlob[0]), val.valueBlob.len.idx_t)
+    )
+  of DuckType.Decimal:
+    raise newException(OperationError, "Decimal not implemented for toNativeValue (width/scale unknown)")
+  of DuckType.UUID:
+    raise newException(OperationError, "UUID not implemented for toNativeValue (byte-order round-trip unverified)")
+  of DuckType.Enum:
+    raise newException(OperationError, "Enum not implemented for toNativeValue")
+  of DuckType.List, DuckType.Array:
+    raise newException(OperationError, "List/Array not implemented for toNativeValue")
+  of DuckType.Struct:
+    raise newException(OperationError, "Struct not implemented for toNativeValue")
+  of DuckType.Map:
+    raise newException(OperationError, "Map not implemented for toNativeValue")
+  of DuckType.Union:
+    raise newException(OperationError, "Union not implemented for toNativeValue")
+  of DuckType.Bit:
+    raise newException(OperationError, "Bit not implemented for toNativeValue")
+  of DuckType.TimeTz:
+    raise newException(OperationError, "TimeTz not implemented for toNativeValue")
+  of DuckType.TimestampTz:
+    raise newException(OperationError, "TimestampTz not implemented for toNativeValue")

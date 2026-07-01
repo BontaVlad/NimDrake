@@ -48,104 +48,104 @@ proc scanColumn(
     raise newException(ValueError, fmt"got invalid enum type: {values.kind}")
   of DuckType.Boolean:
     var resultArray = cast[ptr UncheckedArray[uint8]](raw)
-    for i, e in values.valueBoolean[rowOffset ..< scanCount]:
+    for i, e in values.valueBoolean[rowOffset ..< rowOffset + scanCount]:
       resultArray[i] = e.uint8
-      if isValid(values, i):
+      if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.TinyInt:
     var resultArray = cast[ptr UncheckedArray[int8]](raw)
-    for i, e in values.valueTinyint[rowOffset ..< scanCount]:
+    for i, e in values.valueTinyint[rowOffset ..< rowOffset + scanCount]:
       resultArray[i] = e
-      if isValid(values, i):
+      if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.SmallInt:
     var resultArray = cast[ptr UncheckedArray[int16]](raw)
-    for i, e in values.valueSmallint[rowOffset ..< scanCount]:
+    for i, e in values.valueSmallint[rowOffset ..< rowOffset + scanCount]:
       resultArray[i] = e
-      if isValid(values, i):
+      if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Integer:
     var resultArray = cast[ptr UncheckedArray[int32]](raw)
-    for i, e in values.valueInteger[rowOffset ..< scanCount]:
+    for i, e in values.valueInteger[rowOffset ..< rowOffset + scanCount]:
       resultArray[i] = e
-      if isValid(values, i):
+      if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.BigInt:
     var resultArray = cast[ptr UncheckedArray[int64]](raw)
-    for i, e in values.valueBigint[rowOffset ..< scanCount]:
+    for i, e in values.valueBigint[rowOffset ..< rowOffset + scanCount]:
       resultArray[i] = e
-      if isValid(values, i):
+      if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.UTinyInt:
     var resultArray = cast[ptr UncheckedArray[uint8]](raw)
-    for i, e in values.valueUTinyint[rowOffset ..< scanCount]:
+    for i, e in values.valueUTinyint[rowOffset ..< rowOffset + scanCount]:
       resultArray[i] = e
-      if isValid(values, i):
+      if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.USmallInt:
     var resultArray = cast[ptr UncheckedArray[uint16]](raw)
-    for i, e in values.valueUSmallint[rowOffset ..< scanCount]:
+    for i, e in values.valueUSmallint[rowOffset ..< rowOffset + scanCount]:
       resultArray[i] = e
-      if isValid(values, i):
+      if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.UInteger:
     var resultArray = cast[ptr UncheckedArray[uint32]](raw)
-    for i, e in values.valueUInteger[rowOffset ..< scanCount]:
+    for i, e in values.valueUInteger[rowOffset ..< rowOffset + scanCount]:
       resultArray[i] = e
-      if isValid(values, i):
+      if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.UBigInt:
     var resultArray = cast[ptr UncheckedArray[uint64]](raw)
-    for i, e in values.valueUBigint[rowOffset ..< scanCount]:
+    for i, e in values.valueUBigint[rowOffset ..< rowOffset + scanCount]:
       resultArray[i] = e
-      if isValid(values, i):
+      if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Float:
     var resultArray = cast[ptr UncheckedArray[float32]](raw)
-    for i, e in values.valueFloat[rowOffset ..< scanCount]:
+    for i, e in values.valueFloat[rowOffset ..< rowOffset + scanCount]:
       resultArray[i] = e
-      if isValid(values, i):
+      if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Double:
     var resultArray = cast[ptr UncheckedArray[float64]](raw)
-    for i, e in values.valueDouble[rowOffset ..< scanCount]:
+    for i, e in values.valueDouble[rowOffset ..< rowOffset + scanCount]:
       resultArray[i] = e
-      if isValid(values, i):
+      if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Timestamp:
     var resultArray = cast[ptr UncheckedArray[int64]](raw)
-    for i, e in values.valueTimestamp[rowOffset ..< scanCount]:
+    for i, e in values.valueTimestamp[rowOffset ..< rowOffset + scanCount]:
       resultArray[i] = e.toTimestamp.micros
-      if isValid(values, i):
+      if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Date:
     var resultArray = cast[ptr UncheckedArray[int32]](raw)
-    for i, e in values.valueDate[rowOffset ..< scanCount]:
+    for i, e in values.valueDate[rowOffset ..< rowOffset + scanCount]:
       resultArray[i] = e.toDatetime.days
-      if isValid(values, i):
+      if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Time:
     var resultArray = cast[ptr UncheckedArray[int64]](raw)
-    for i, e in values.valueTime[rowOffset ..< scanCount]:
+    for i, e in values.valueTime[rowOffset ..< rowOffset + scanCount]:
       resultArray[i] = e.toTime.micros
-      if isValid(values, i):
+      if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Interval:
     var resultArray = cast[ptr UncheckedArray[duckdbInterval]](raw)
-    for i, e in values.valueInterval[rowOffset ..< scanCount]:
+    for i, e in values.valueInterval[rowOffset ..< rowOffset + scanCount]:
       resultArray[i] = e.toInterval
-      if isValid(values, i):
+      if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.HugeInt:
     var resultArray = cast[ptr UncheckedArray[duckdbHugeInt]](raw)
-    for i, e in values.valueHugeInt[rowOffset ..< scanCount]:
+    for i, e in values.valueHugeInt[rowOffset ..< rowOffset + scanCount]:
       resultArray[i] = e.toHugeInt
-      if isValid(values, i):
+      if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Varchar:
-    for i, e in values.valueVarChar[rowOffset ..< scanCount]:
+    for i, e in values.valueVarChar[rowOffset ..< rowOffset + scanCount]:
       duckdb_vector_assign_string_element(vec, i.idx_t, e.cstring)
-      if isValid(values, i):
+      if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.Blob:
     discard

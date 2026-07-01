@@ -11,7 +11,7 @@ type
   ScalarFunction* = ref object of ScalarFunctionBase
 
 proc `=destroy`(s: ScalarFunctionBase) =
-  if not isNil(s.addr) and not isNil(s.handle.addr):
+  if s.handle != nil:
     duckdb_destroy_scalar_function(s.handle.addr)
 
 proc newScalarFunction*(name: string): ScalarFunction =

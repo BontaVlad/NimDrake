@@ -35,7 +35,7 @@ proc `=copy`*(
 
 proc `=destroy`*(appender: Appender) =
   ## Destroys an appender instance if it exists
-  if not isNil(appender.addr):
+  if cast[ptr duckdbAppender](appender) != nil:
     discard duckdbAppenderDestroy(appender.addr)
 
 proc newStatement*(con: Connection, query: Query): Statement =

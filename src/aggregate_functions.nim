@@ -13,7 +13,7 @@ type
   ValidityMaskRegistry* = Table[string, ValidityMask]
 
 proc `=destroy`(agg: AggregateFunctionBase) =
-  if not isNil(agg.addr):
+  if agg.handle != nil:
     duckdb_destroy_aggregate_function(agg.handle.addr)
 
 proc isAggregateStateType(node: NimNode): bool =
@@ -111,7 +111,6 @@ macro newAggregateFunction*(
     proc `stateSizeWrapperName`(info: duckdb_function_info): idx_t {.cdecl.} =
       let callback =
         cast[`callbackObjName`](duckdb_aggregate_function_get_extra_info(info))
-      echo callback.repr
       return callback.sizeFun(cast[FunctionInfo](info)).idx_t
 
     proc `stateInitWrapperName`(
