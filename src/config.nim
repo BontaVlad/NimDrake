@@ -10,18 +10,21 @@ type
   Config* = distinct ptr duckdbConfig
   ConfigValues* = Table[string, string]
 
-proc `=copy`*(a: var Config, b: Config) {.error: "Config cannot be copied".}
-proc `=dup`*(cf: Config): Config {.error: "Config cannot be duplicated".}
+proc `=destroy`*(conf: Config) =
+  if cast[ptr duckdbConfig](conf) != nil:
+    duckdbDestroyConfig(cast[ptr duckdbConfig](conf.addr))
+
+proc `=copy`*(a: var Config, b: Config) {.error.}
+proc `=dup`*(cf: Config): Config {.error.}
+
+proc `=wasMoved`*(conf: var Config) =
+  conf = Config(nil)
 
 converter toBase*(c: ptr Config): ptr duckdbConfig =
   cast[ptr duckdbConfig](c)
 
 converter toBase*(c: Config): duckdbConfig =
   cast[duckdbConfig](c)
-
-proc `=destroy`*(conf: Config) =
-  if conf != Config(nil):
-    duckdbDestroyConfig(conf.addr)
 
 proc setConfig*(config: Config, name: string, option: string) =
   ## Sets the specified option for the specified configuration. The configuration option is indicated by name. To obtain a list of config options, see duckdb_get_config_flag.

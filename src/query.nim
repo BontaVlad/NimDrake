@@ -27,16 +27,17 @@ converter toBase*(q: Query): cstring =
 converter toBase*(s: string): Query =
   Query(s)
 
-proc `=dup`*(appender: Appender): Appender {.error: "Appender cannot be duplicated".}
-
-proc `=copy`*(
-  dest: var Appender, source: Appender
-) {.error: "Appender cannot be copied".}
-
 proc `=destroy`*(appender: Appender) =
   ## Destroys an appender instance if it exists
   if cast[ptr duckdbAppender](appender) != nil:
     discard duckdbAppenderDestroy(appender.addr)
+
+proc `=dup`*(appender: Appender): Appender {.error.}
+
+proc `=copy`*(dest: var Appender, source: Appender) {.error.}
+
+proc `=wasMoved`*(appender: var Appender) =
+  appender = Appender(nil)
 
 proc newStatement*(con: Connection, query: Query): Statement =
   ## Creates a new prepared statement from a connection and query

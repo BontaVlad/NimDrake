@@ -41,6 +41,12 @@ proc `=destroy`(opt: ArrowOptions) =
   if opt.handle != nil:
     duckdb_destroy_arrow_options(opt.handle.addr)
 
+proc `=wasMoved`(opt: var ArrowOptions) =
+  opt.handle = nil
+
+proc `=copy`(dest: var ArrowOptions, source: ArrowOptions) {.error.}
+proc `=dup`(opt: ArrowOptions): ArrowOptions {.error.}
+
 proc `=destroy`(arr: ArrowArray) {.raises: [].} =
   if not isNil(arr.release):
     try:
@@ -51,6 +57,9 @@ proc `=destroy`(arr: ArrowArray) {.raises: [].} =
 proc `=destroy`(err: DuckError) =
   if not isNil(err.handle):
     duckdb_destroy_error_data(err.handle.addr)
+
+proc `=wasMoved`(err: var DuckError) =
+  err.handle = nil
 
 proc `=destroy`(schema: ArrowSchema) {.raises: [].} =
   if not isNil(schema.release):

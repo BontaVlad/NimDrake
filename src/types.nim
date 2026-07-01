@@ -147,6 +147,44 @@ type
     name*: string
     kind*: DuckType
 
+proc `=destroy`*(statement: Statement) =
+  ## Destroys a prepared statement instance if it exists
+  if cast[ptr duckdbPreparedStatement](statement) != nil:
+    duckdbDestroyPrepare(cast[ptr duckdbPreparedStatement](statement.addr))
+
+proc `=copy`*(dest: var Statement, source: Statement) {.error.}
+proc `=dup`*(statement: Statement): Statement {.error.}
+
+proc `=wasMoved`*(statement: var Statement) =
+  statement = Statement(nil)
+
+proc `=destroy`*(ltp: LogicalTypeBase) =
+  if ltp.handle != nil:
+    duckdbDestroyLogicalType(ltp.handle.addr)
+
+proc `=wasMoved`*(ltp: var LogicalTypeBase) =
+  ltp.handle = nil
+
+proc `=destroy`*(qresult: QueryResult) =
+  if qresult.internal_data != nil:
+    duckdbDestroyResult(qresult.addr)
+
+proc `=wasMoved`*(qresult: var QueryResult) =
+  qresult.internal_data = nil
+
+proc `=copy`*(dest: var QueryResult, source: QueryResult) {.error.}
+proc `=dup`*(qresult: QueryResult): QueryResult {.error.}
+
+proc `=destroy`*(pqresult: PendingQueryResult) =
+  if cast[ptr duckdbPendingResult](pqresult) != nil:
+    duckdbDestroyPending(cast[ptr duckdbPendingResult](pqresult.addr))
+
+proc `=copy`*(dest: var PendingQueryResult, source: PendingQueryResult) {.error.}
+proc `=dup`*(pqresult: PendingQueryResult): PendingQueryResult {.error.}
+
+proc `=wasMoved`*(pqresult: var PendingQueryResult) =
+  pqresult = PendingQueryResult(nil)
+
 converter toBase*(s: ptr Statement): ptr duckdbPreparedStatement =
   cast[ptr duckdbPreparedStatement](s)
 
@@ -158,31 +196,6 @@ converter toBase*(p: ptr PendingQueryResult): ptr duckdbPendingResult =
 
 converter toBase*(p: PendingQueryResult): duckdbPendingResult =
   cast[duckdbPendingResult](p)
-
-proc `=destroy`*(statement: Statement) =
-  ## Destroys a prepared statement instance if it exists
-  if cast[ptr duckdbPreparedStatement](statement) != nil:
-    duckdbDestroyPrepare(statement.addr)
-
-proc `=dup`*(
-  statement: Statement
-): Statement {.error: "Statement cannot be duplicated".}
-
-proc `=copy`*(
-  dest: var Statement, source: Statement
-) {.error: "Statement cannot be copied".}
-
-proc `=destroy`*(ltp: LogicalTypeBase) =
-  if ltp.handle != nil:
-    duckdbDestroyLogicalType(ltp.handle.addr)
-
-proc `=destroy`*(qresult: QueryResult) =
-  if qresult.internal_data != nil:
-    duckdbDestroyResult(qresult.addr)
-
-proc `=destroy`*(pqresult: PendingQueryResult) =
-  if cast[ptr duckdbPendingResult](pqresult) != nil:
-    duckdbDestroyPending(pqresult.addr)
 
 proc `$`*(x: Timestamp): string =
   $DateTime(x)

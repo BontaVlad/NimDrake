@@ -14,6 +14,13 @@ proc `=destroy`(s: ScalarFunctionBase) =
   if s.handle != nil:
     duckdb_destroy_scalar_function(s.handle.addr)
 
+proc `=wasMoved`(s: var ScalarFunctionBase) =
+  s.handle = nil
+  s.name = ""
+
+proc `=copy`(dest: var ScalarFunctionBase, source: ScalarFunctionBase) {.error.}
+proc `=dup`(s: ScalarFunctionBase): ScalarFunctionBase {.error.}
+
 proc newScalarFunction*(name: string): ScalarFunction =
   result = ScalarFunction(name: name, handle: duckdb_create_scalar_function())
 

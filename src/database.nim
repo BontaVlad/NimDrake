@@ -18,17 +18,23 @@ proc `=destroy`*(db: Database) =
   if db.handle != nil:
     duckdbClose(db.handle.addr)
 
+proc `=wasMoved`*(db: var Database) =
+  db.handle = nil
+
 proc `=copy`*(
   dest: var Database, source: Database
-) {.error: "Database copy is not supported".}
+) {.error.}
 
 proc `=destroy`*(con: Connection) =
   if con.handle != nil:
     duckdbDisconnect(cast[ptr duckdbConnection](con.addr))
 
+proc `=wasMoved`*(con: var Connection) =
+  con.handle = nil
+
 proc `=copy`*(
   dest: var Connection, source: Connection
-) {.error: "Connection copy is not supported".}
+) {.error.}
 
 proc newDatabase*(path: string, config: Config): Database =
   ## Creates a new preconfigured database or opens an existing database file stored at the given path.

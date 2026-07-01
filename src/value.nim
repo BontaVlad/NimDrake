@@ -19,6 +19,12 @@ proc `=destroy`(v: DuckValueBase) =
   if v.handle != nil:
     duckdb_destroy_value(v.handle.addr)
 
+proc `=wasMoved`(v: var DuckValueBase) =
+  v.handle = nil
+
+proc `=copy`(dest: var DuckValueBase, source: DuckValueBase) {.error.}
+proc `=dup`(v: DuckValueBase): DuckValueBase {.error.}
+
 proc newDuckValue*(handle: duckdb_value): DuckValue =
   result = DuckValue(handle: handle)
 
@@ -26,13 +32,23 @@ proc `=destroy`(dstr: DuckStringBase) =
   if dstr.internal != nil:
     duckdbFree(dstr.internal)
 
+proc `=wasMoved`(dstr: var DuckStringBase) =
+  dstr.internal = nil
+
+proc `=copy`(dest: var DuckStringBase, source: DuckStringBase) {.error.}
+proc `=dup`(dstr: DuckStringBase): DuckStringBase {.error.}
+
 proc `$`*(dstr: DuckString): string =
   if isNil(dstr.internal):
-    # TODO: maybe "" instead of Nill?
-    return "Nill"
+    return ""
   result = $dstr.internal
 
 proc newDuckString*(str: cstring): DuckString =
+  ## Creates a DuckString that takes ownership of the given cstring.
+  ## The cstring **must** have been allocated by DuckDB (e.g. via
+  ## `duckdb_get_varchar`); it will be freed with `duckdbFree` on destruction.
+  ## Passing a non-DuckDB-allocated cstring (e.g. a Nim string literal) will
+  ## cause a double-free or heap corruption.
   result = DuckString(internal: str)
 
 proc toHugeInt*(val: Int128): duckdbHugeInt {.inline.} =

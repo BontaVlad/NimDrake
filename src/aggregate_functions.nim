@@ -16,6 +16,13 @@ proc `=destroy`(agg: AggregateFunctionBase) =
   if agg.handle != nil:
     duckdb_destroy_aggregate_function(agg.handle.addr)
 
+proc `=wasMoved`(agg: var AggregateFunctionBase) =
+  agg.handle = nil
+  agg.name = ""
+
+proc `=copy`(dest: var AggregateFunctionBase, source: AggregateFunctionBase) {.error.}
+proc `=dup`(agg: AggregateFunctionBase): AggregateFunctionBase {.error.}
+
 proc isAggregateStateType(node: NimNode): bool =
   case node.kind
   of nnkRefTy:
