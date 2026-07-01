@@ -69,7 +69,7 @@ suite "Tests value creations":
 
   test "Create DateTime value as Timestamp":
     let inThisMoment = Timestamp(now())
-    let val = newValue(inThisMoment, DuckType.Timestamp)
+    let val = newValue(inThisMoment)
     check val.kind == DuckType.Timestamp
 
   test "Create Time value":
@@ -110,7 +110,7 @@ suite "Tests value creations":
   #   check $val.valueDecimal == "3.14"
 
   test "Create Enum value":
-    let val = newValue(uint(42), DuckType.Enum)
+    let val = newValue(uint(42))
     check val.kind == DuckType.Enum
     check val.valueEnum == 42
 

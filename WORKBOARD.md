@@ -77,13 +77,13 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
 
 ## P5 — API design (per nim-api-design skill)
 
-- [ ] 34. Narrow `nimdrake.nim` exports — stop re-exporting `ffi`/`generated` symbols to high-level users; expose a deliberate low-level submodule instead.
-- [ ] 35. Fix misleading `newValue(val: Timestamp, kind: DuckType, ...)` / `newValue(val: uint, kind: ...)` that ignore `kind`.
-- [ ] 36. Consolidate `newDuckType(NimNode)` onto `newDuckType(typedesc)`.
-- [ ] 37. Define a proper error taxonomy (ConnectionError, PrepareError, BindError, ExecError) instead of a single `OperationError`.
-- [ ] 38. Fix `transaction.transient` to not ROLLBACK if BEGIN failed.
+- [ ] 34. Narrow `nimdrake.nim` exports — stop re-exporting `ffi`/`generated` symbols to high-level users; expose a deliberate low-level submodule instead. — Deferred (breaking API change, needs major version bump).
+- [x] 35. Fixed misleading `newValue(Timestamp, kind: DuckType, ...)` (ignored `kind`, hardcoded `DuckType.Timestamp`) → `newValue(Timestamp, isValid = true)`. Fixed `newValue(uint, kind: DuckType, ...)` (ignored `kind`, hardcoded `DuckType.Enum`) → `newValue(uint, isValid = true)`. Updated callers in `vector.nim`, `test_value.nim`.
+- [ ] 36. Consolidate `newDuckType(NimNode)` onto `newDuckType(typedesc)`. — Deferred (macro refactoring).
+- [ ] 37. Define a proper error taxonomy (ConnectionError, PrepareError, BindError, ExecError) instead of a single `OperationError`. — Deferred (breaking API change).
+- [x] 38. Verified `transaction.transient` and `transaction` templates — both are correct (BEGIN is before `try`, so if BEGIN fails, ROLLBACK is not attempted). Added doc comments to clarify behavior.
 
-**Commit + tests after P5.**
+**Commit + tests after P5.** ✅ All 153 tests pass with ASan.
 
 ---
 
@@ -109,3 +109,4 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
 - **P2 complete** — Type coverage: silent `discard` stubs replaced with `OperationError` raises; Blob/Decimal/UUID/UHugeInt read implemented in `newValue(DuckValue)`; Varchar/HugeInt/UHugeInt/Blob write implemented in `toNativeValue`; decimal precision fixed via int128 path; TimeTz per-row timezone allocation fixed; enum symbol inconsistency normalized; `scanColumn` unsupported types raise instead of silent NULL. All 147 tests pass with ASan. Files changed: `types.nim`, `value.nim`, `vector.nim`, `table_scan.nim`.
 - **P3 complete (partial)** — Tests: added assertions to 2 empty tests, added blob bind + null bind round-trip tests, verified thread-test assertions, added clarifying comments. 6 new tests added (147→153). Deferred: Arrow CI, test flag consolidation, release/arc CI matrix, artifact upload. All 153 tests pass with ASan. Files changed: `test_query.nim`, `test_database.nim`.
 - **P4 complete (partial)** — Code organization: field-name casing normalized across `vector.nim`, `value.nim`, `table_scan.nim`. Deferred: macro-generated boilerplate elimination (P4-30) and shared macro extraction (P4-32) as large refactorings. All 153 tests pass with ASan. Files changed: `vector.nim`, `value.nim`, `table_scan.nim`.
+- **P5 complete (partial)** — API design: fixed misleading `newValue` overloads that ignored `kind` parameter, added doc comments to `transaction`/`transient` templates. Deferred: narrow exports (P5-34, breaking), error taxonomy (P5-37, breaking), `newDuckType` consolidation (P5-36, macro refactoring). All 153 tests pass with ASan. Files changed: `value.nim`, `vector.nim`, `transaction.nim`, `test_value.nim`.

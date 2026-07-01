@@ -220,7 +220,7 @@ proc vecToValue*(vec: Vector, idx: int): Value =
   of DuckType.Double:
     return newValue(vec.valueDouble[idx], isValid)
   of DuckType.Timestamp:
-    return newValue(vec.valueTimestamp[idx], vec.kind, isValid)
+    return newValue(vec.valueTimestamp[idx], isValid)
   of DuckType.TimestampS:
     return newValue(vec.valueTimestampS[idx], vec.kind, isValid)
   of DuckType.TimestampMs:

@@ -242,10 +242,9 @@ proc newValue*(val: float32, isValid = true): Value =
 proc newValue*(val: float64, isValid = true): Value =
   return Value(kind: DuckType.Double, isValid: isValid, valueDouble: val)
 
-proc newValue*(val: Timestamp, kind: DuckType, isValid = true): Value =
+proc newValue*(val: Timestamp, isValid = true): Value =
   return Value(kind: DuckType.Timestamp, isValid: isValid, valueTimestamp: val)
 
-# TODO: this should be refactored
 proc newValue*(val: DateTime, kind: DuckType, isValid = true): Value =
   result = Value(kind: kind, isValid: isValid)
   case kind
@@ -289,7 +288,7 @@ proc newValue*(val: seq[byte], isValid = true): Value =
 proc newValue*(val: DecimalType, isValid = true): Value =
   return Value(kind: DuckType.Decimal, isValid: isValid, valueDecimal: val)
 
-proc newValue*(val: uint, kind: DuckType, isValid = true): Value =
+proc newValue*(val: uint, isValid = true): Value =
   return Value(kind: DuckType.Enum, isValid: isValid, valueEnum: val)
 
 proc newValue*(val: seq[Value], isValid = true): Value =
