@@ -66,12 +66,12 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
 
 ## P4 — Code organization / duplication
 
-- [ ] 30. Generate `$`, `len`, `&=`, `vecToValue`, `values(T)` in `vector.nim` via the `wrench` macro to eliminate ~700 lines of duplicated case branches.
-- [ ] 31. Refactor `table_scan.scanColumn` to reuse `datachunk.[]=` instead of re-implementing per-type writes.
-- [ ] 32. Extract shared macro scaffolding from `scalar_functions` and `table_functions` into `tools/wrench.nim`.
-- [ ] 33. Fix `value.nim` field-name casing inconsistency (`valueSmallint` vs `valueSmallInt`).
+- [ ] 30. Generate `$`, `len`, `&=`, `vecToValue`, `values(T)` in `vector.nim` via the `wrench` macro to eliminate ~700 lines of duplicated case branches. — Deferred (large refactoring, needs dedicated effort).
+- [x] 31. `table_scan.scanColumn` unsupported types now raise `OperationError` (done in P2). Reuse of `datachunk.[]=` deferred — the write paths have different semantics (direct C vector writes vs Nim seq assignment).
+- [ ] 32. Extract shared macro scaffolding from `scalar_functions` and `table_functions` into `tools/wrench.nim`. — Deferred (large refactoring).
+- [x] 33. Fixed field-name casing inconsistency: normalized `valueHugeInt` → `valueHugeint`, `valueUHugeInt` → `valueUHugeint`, `valueSmallInt` → `valueSmallint` in `vector.nim`, `value.nim`, `table_scan.nim` to match the canonical definitions in `types.nim`.
 
-**Commit + tests after P4.**
+**Commit + tests after P4.** ✅ All 153 tests pass with ASan. P4-30 and P4-32 deferred as large refactorings.
 
 ---
 
@@ -108,3 +108,4 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
 - **P1 complete** — Ownership hooks completed for all move-only types. `=wasMoved` added, `{.error.}` bare pragmas, hook declaration ordering fixed, DuckString ownership documented. All 147 tests pass with ASan. Files changed: `database.nim`, `config.nim`, `types.nim`, `query.nim`, `scalar_functions.nim`, `aggregate_functions.nim`, `query_result.nim`, `value.nim`.
 - **P2 complete** — Type coverage: silent `discard` stubs replaced with `OperationError` raises; Blob/Decimal/UUID/UHugeInt read implemented in `newValue(DuckValue)`; Varchar/HugeInt/UHugeInt/Blob write implemented in `toNativeValue`; decimal precision fixed via int128 path; TimeTz per-row timezone allocation fixed; enum symbol inconsistency normalized; `scanColumn` unsupported types raise instead of silent NULL. All 147 tests pass with ASan. Files changed: `types.nim`, `value.nim`, `vector.nim`, `table_scan.nim`.
 - **P3 complete (partial)** — Tests: added assertions to 2 empty tests, added blob bind + null bind round-trip tests, verified thread-test assertions, added clarifying comments. 6 new tests added (147→153). Deferred: Arrow CI, test flag consolidation, release/arc CI matrix, artifact upload. All 153 tests pass with ASan. Files changed: `test_query.nim`, `test_database.nim`.
+- **P4 complete (partial)** — Code organization: field-name casing normalized across `vector.nim`, `value.nim`, `table_scan.nim`. Deferred: macro-generated boilerplate elimination (P4-30) and shared macro extraction (P4-32) as large refactorings. All 153 tests pass with ASan. Files changed: `vector.nim`, `value.nim`, `table_scan.nim`.

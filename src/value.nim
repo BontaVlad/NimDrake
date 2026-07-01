@@ -219,10 +219,10 @@ proc newValue*(val: int64, isValid = true): Value =
   return Value(kind: DuckType.BigInt, isValid: isValid, valueBigint: val)
 
 proc newValue*(val: Int128, isValid = true): Value =
-  return Value(kind: DuckType.HugeInt, isValid: isValid, valueHugeInt: val)
+  return Value(kind: DuckType.HugeInt, isValid: isValid, valueHugeint: val)
 
 proc newValue*(val: UInt128, isValid = true): Value =
-  return Value(kind: DuckType.UHugeInt, isValid: isValid, valueUHugeInt: val)
+  return Value(kind: DuckType.UHugeInt, isValid: isValid, valueUHugeint: val)
 
 proc newValue*(val: uint8, isValid = true): Value =
   return Value(kind: DuckType.UTinyInt, isValid: isValid, valueUTinyint: val)
@@ -436,7 +436,7 @@ proc toNativeValue*(val: Value): DuckValue =
   of DuckType.TinyInt:
     return newDuckValue(duckdb_create_int8(val.valueTinyint))
   of DuckType.SmallInt:
-    return newDuckValue(duckdb_create_int16(val.valueSmallInt))
+    return newDuckValue(duckdb_create_int16(val.valueSmallint))
   of DuckType.Integer:
     return newDuckValue(duckdb_create_int32(val.valueInteger))
   of DuckType.BigInt:

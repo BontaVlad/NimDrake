@@ -138,7 +138,7 @@ proc scanColumn(
         duckdb_validity_set_row_valid(validity, i.idx_t)
   of DuckType.HugeInt:
     var resultArray = cast[ptr UncheckedArray[duckdbHugeInt]](raw)
-    for i, e in values.valueHugeInt[rowOffset ..< rowOffset + scanCount]:
+    for i, e in values.valueHugeint[rowOffset ..< rowOffset + scanCount]:
       resultArray[i] = e.toHugeInt
       if isValid(values, rowOffset + i):
         duckdb_validity_set_row_valid(validity, i.idx_t)

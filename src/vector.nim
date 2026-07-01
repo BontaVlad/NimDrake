@@ -57,7 +57,7 @@ proc `$`*(vector: Vector): string =
   of DuckType.Interval:
     result = $vector.valueInterval
   of DuckType.HugeInt:
-    result = $vector.valueHugeInt
+    result = $vector.valueHugeint
   of DuckType.VarChar:
     result = $vector.valueVarchar
   of DuckType.Blob:
@@ -89,7 +89,7 @@ proc `$`*(vector: Vector): string =
   of DuckType.TimestampTz:
     result = $vector.valueTimestampTz
   of DuckType.UHugeInt:
-    result = $vector.valueUHugeInt
+    result = $vector.valueUHugeint
 
 proc len*(vec: Vector): int =
   case vec.kind
@@ -534,7 +534,7 @@ proc newVector*(
   of DuckType.Interval:
     handleVectorCase(result.valueInterval, handle, size, duckdbInterval, fromInterval)
   of DuckType.HugeInt:
-    handleVectorCase(result.valueHugeInt, handle, size, duckdbHugeInt, fromHugeInt)
+    handleVectorCase(result.valueHugeint, handle, size, duckdbHugeInt, fromHugeInt)
   of DuckType.VarChar:
     handleVectorCaseString(result.valueVarchar, handle, size)
   of DuckType.Blob:
@@ -702,10 +702,10 @@ proc newVector*(
   of DuckType.TimestampTz:
     raise newException(ValueError, "TimestampTz type not implemented")
   of DuckType.UHugeInt:
-    result.valueUHugeInt.setLen(size)
+    result.valueUHugeint.setLen(size)
     let raw = cast[ptr UncheckedArray[duckdbUHugeInt]](handle)
     for i in offset ..< size:
-      result.valueUHugeInt[i] = fromUHugeInt(raw[i])
+      result.valueUHugeint[i] = fromUHugeInt(raw[i])
 
 proc newVector*(duckVector: duckdbVector, size: int, offset: int = 0): Vector =
   let
@@ -977,7 +977,7 @@ proc `&=`*(left: var Vector, right: sink Vector): void =
   of DuckType.Interval:
     left.valueInterval &= right.valueInterval
   of DuckType.HugeInt:
-    left.valueHugeInt &= right.valueHugeInt
+    left.valueHugeint &= right.valueHugeint
   of DuckType.VarChar:
     left.valueVarchar &= right.valueVarchar
   of DuckType.Blob:
@@ -1009,4 +1009,4 @@ proc `&=`*(left: var Vector, right: sink Vector): void =
   of DuckType.TimestampTz:
     left.valueTimestampTz &= right.valueTimestampTz
   of DuckType.UHugeInt:
-    left.valueUHugeInt &= right.valueUHugeInt
+    left.valueUHugeint &= right.valueUHugeint
