@@ -64,7 +64,6 @@ test isParallel="false" cores="4" asan="1":
     set -euo pipefail
 
     NIMCACHE_DIR="nimcache"
-    ASAN={{asan}}
 
     # Create nimcache/tests directory if it doesn't exist
     mkdir -p "${NIMCACHE_DIR}/tests"
@@ -76,11 +75,6 @@ test isParallel="false" cores="4" asan="1":
         filename=$(basename "$file")
         filename_no_ext="${filename%.nim}"
 
-        local asan_flags=()
-        if [ "${ASAN}" != "0" ]; then
-            asan_flags+=(--passc:-fsanitize=address --passl:-fsanitize=address)
-        fi
-
         # Step 1: Compile and run with debug flags
         nim c \
             -d:debug \
@@ -90,7 +84,7 @@ test isParallel="false" cores="4" asan="1":
             --opt:none \
             --debugger:native \
             --stacktrace:on \
-            "${asan_flags[@]}" \
+            {{if asan != "0" { "--passc:-fsanitize=address --passl:-fsanitize=address" } else { }}}
             -d:useMalloc \
             --mm:orc \
             --passC:-O0 \
@@ -117,7 +111,7 @@ test isParallel="false" cores="4" asan="1":
     if {{isParallel}} =~ truthy_regex; then
         echo "Running tests in parallel..."
         # Run tests in parallel using xargs
-        echo "$TEST_FILES" | xargs -n 1 -P {{cores}} -I {} bash -c 'ASAN={{asan}} run_test "$@"' _ {}
+        echo "$TEST_FILES" | xargs -n 1 -P {{cores}} -I {} bash -c 'run_test "$@"' _ {}
     else
         echo "Running tests sequentially..."
         # Run tests sequentially
@@ -132,7 +126,6 @@ test-arrow isParallel="false" cores="4" asan="1":
     set -euo pipefail
 
     NIMCACHE_DIR="nimcache"
-    ASAN={{asan}}
 
     mkdir -p "${NIMCACHE_DIR}/tests"
 
@@ -141,11 +134,6 @@ test-arrow isParallel="false" cores="4" asan="1":
         echo "Processing file: $file"
         filename=$(basename "$file")
         filename_no_ext="${filename%.nim}"
-
-        local asan_flags=()
-        if [ "${ASAN}" != "0" ]; then
-            asan_flags+=(--passc:-fsanitize=address --passl:-fsanitize=address)
-        fi
 
         nim c \
             -d:debug \
@@ -156,7 +144,7 @@ test-arrow isParallel="false" cores="4" asan="1":
             --opt:none \
             --debugger:native \
             --stacktrace:on \
-            "${asan_flags[@]}" \
+            {{if asan != "0" { "--passc:-fsanitize=address --passl:-fsanitize=address" } else { }}}
             -d:useMalloc \
             --mm:orc \
             --passC:-O0 \
@@ -185,7 +173,7 @@ test-arrow isParallel="false" cores="4" asan="1":
 
     if {{isParallel}} =~ truthy_regex; then
         echo "Running Arrow tests in parallel..."
-        echo "$TEST_FILES" | xargs -n 1 -P {{cores}} -I {} bash -c 'ASAN={{asan}} run_test "$@"' _ {}
+        echo "$TEST_FILES" | xargs -n 1 -P {{cores}} -I {} bash -c 'run_test "$@"' _ {}
     else
         echo "Running Arrow tests sequentially..."
         while read -r file; do

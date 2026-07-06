@@ -55,6 +55,8 @@ when not defined(nimsuggest) and not defined(useFuthark):
       sysOk = fileExists("C:/msys64/mingw64/lib/libduckdb.lib") or
               fileExists("C:/msys64/mingw64/lib/duckdb.lib")
     if pcOk or sysOk:
+      when defined(windows):
+        switch("passL", "-LC:/msys64/mingw64/lib")
       switch("passL", "-lduckdb")
       when defined(macosx):
         switch("passL", "-Wl,-rpath,/usr/local/lib")
