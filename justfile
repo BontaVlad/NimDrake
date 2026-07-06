@@ -84,7 +84,7 @@ test isParallel="false" cores="4" asan="1":
             --opt:none \
             --debugger:native \
             --stacktrace:on \
-            {{if asan != "0" { "--passc:-fsanitize=address --passl:-fsanitize=address" } else { }}}
+            {{if asan != "0" { "--passc:-fsanitize=address --passl:-fsanitize=address" } }}
             -d:useMalloc \
             --mm:orc \
             --passC:-O0 \
@@ -144,7 +144,7 @@ test-arrow isParallel="false" cores="4" asan="1":
             --opt:none \
             --debugger:native \
             --stacktrace:on \
-            {{if asan != "0" { "--passc:-fsanitize=address --passl:-fsanitize=address" } else { }}}
+            {{if asan != "0" { "--passc:-fsanitize=address --passl:-fsanitize=address" } }}
             -d:useMalloc \
             --mm:orc \
             --passC:-O0 \
