@@ -65,6 +65,26 @@ nimble install nimdrake --parser:declarative --features:dev
    ```
 
 
+### DuckDB dependency
+
+NimDrake requires DuckDB v1.5.4. The build resolves the library in three
+tiers, tried in order:
+
+1. **Vendored** under `src/include/` (`libduckdb.so` on Linux, `libduckdb.dylib`
+   on macOS, `duckdb.dll` on Windows). Populate it with:
+   ```bash
+   just fetch-lib        # linux amd64; other platforms: see justfile
+   ```
+2. **System-installed** libduckdb, discovered via `pkg-config --exists duckdb`
+   or `ldconfig -p`. Install via your distro's package manager or Homebrew.
+3. **Error** — if neither is present, `nim c` fails with a message listing both
+   options above.
+
+The vendored path is preferred for reproducible builds; the system path is the
+fallback for users who already have DuckDB installed. Futhark binding
+regeneration (`-d:useFuthark`) searches `src/include/duckdb.h` first, then
+`/usr/local/include` and `/usr/include`.
+
 ## Full Documentation
 For a full documentation and API index go [here](http://bontavlad.com/NimDrake/)
 

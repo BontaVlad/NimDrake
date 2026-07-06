@@ -4,27 +4,57 @@ import std/[cmdline, strutils, parseutils, os]
 switch("path", thisDir() / "src")
 switch("define", "unittest2Compat=false")
 
-# --- pkg-config flags (safe for LSP) ---
+# --- DuckDB link resolution (safe for LSP) ---
 # nimsuggest evaluates config.nims on every keystroke; guard shell calls so
 # the language server doesn't hang on `gorge("pkg-config ...")`.
 #
 # Arrow/GLib linking is handled by the `narrow` package itself when the
 # `features.nimdrake.arrow` feature is enabled. Do not duplicate it here.
+#
+# Lookup order (skipped entirely during futhark binding generation — it only
+# parses headers, no linking):
+#   1. Local:  src/include/libduckdb.{so|dylib|dll}  (vendored via `just fetch-lib`)
+#   2. System: pkg-config --exists duckdb, else ldconfig -p grep
+#   3. Error:  fail fast with a clear message
 when not defined(nimsuggest) and not defined(useFuthark):
-  # Link against system-installed libduckdb.
-  # Skip during futhark binding generation — it only parses headers, no linking.
-  switch("passL", "-lduckdb")
+  const duckdbIncDir = thisDir() / "src" / "include"
 
-  when defined(macosx):
-    switch("passL", "-Wl,-rpath,/usr/local/lib")
+  proc duckdbLocalLib(): string =
+    when defined(macosx):  result = duckdbIncDir / "libduckdb.dylib"
+    elif defined(windows): result = duckdbIncDir / "duckdb.dll"
+    else:                  result = duckdbIncDir / "libduckdb.so"
 
-  when defined(windows):
-    # Nim's generated C uses MSVCRT helpers (_isatty, _get_osfhandle, _setmode)
-    # without including <io.h>. MSYS2's mingw gcc 14+ treats implicit function
-    # declarations as hard errors under C99+ default mode. Downgrade the
-    # diagnostic so the code compiles; the linker still resolves the symbols
-    # from the UCRT/MSVCRT runtime.
-    switch("passC", "-Wno-implicit-function-declaration")
+  if fileExists(duckdbLocalLib()):
+    # Tier 1: vendored lib under src/include/.
+    # -L finds it at link time; -Wl,-rpath,<abs dir> lets the runtime loader
+    # find it without LD_LIBRARY_PATH or /etc/ld.so.conf.d edits.
+    switch("passL", "-L" & duckdbIncDir)
+    switch("passL", "-lduckdb")
+    switch("passL", "-Wl,-rpath," & duckdbIncDir)
+    when defined(macosx):
+      # Keep the system path as a secondary rpath so a missing vendored dylib
+      # doesn't shadow a system install users may have for other tools.
+      switch("passL", "-Wl,-rpath,/usr/local/lib")
+    when defined(windows):
+      switch("passC", "-Wno-implicit-function-declaration")
+  else:
+    # Tier 2: probe for a system-installed libduckdb.
+    # pkg-config is the preferred signal (vcpkg/Conan/Homebrew ship .pc files);
+    # ldconfig -p covers distro installs that lack a .pc file (most Linuxen).
+    let pcOk = gorge("pkg-config --exists duckdb && echo yes || echo no").strip == "yes"
+    let ldOk = gorge("ldconfig -p 2>/dev/null | grep -qi libduckdb && echo yes || echo no").strip == "yes"
+    if pcOk or ldOk:
+      switch("passL", "-lduckdb")
+      when defined(macosx):
+        switch("passL", "-Wl,-rpath,/usr/local/lib")
+      when defined(windows):
+        switch("passC", "-Wno-implicit-function-declaration")
+    else:
+      # Tier 3: nothing found. Fail the build with an actionable message.
+      echo "Fatal: libduckdb not found. Either:"
+      echo "  (1) run `just fetch-lib` to vendor libduckdb.so + duckdb.h under src/include/, or"
+      echo "  (2) install libduckdb system-wide (and ensure a pkg-config .pc file or an ldconfig entry)."
+      quit(1)
 
 # --- Sanitizers (opt-in via -d:useSanitizers) ---
 when defined(useSanitizers):

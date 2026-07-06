@@ -12,3 +12,13 @@ src/lib/
 # Stray compiled test binaries (no file extension)
 tests/test_data_chunk
 tests/test_logical_type
+
+# CI cache for DuckDB downloads (macOS/Windows)
+.duckdb-cache/
+
+# Vendored DuckDB artifacts (downloaded via `just fetch-lib`, not committed)
+src/include/libduckdb.so
+src/include/libduckdb.dylib
+src/include/duckdb.dll
+src/include/duckdb.h
+src/include/duckdb_static.lib

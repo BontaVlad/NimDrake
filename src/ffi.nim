@@ -15,6 +15,7 @@ when defined(useFuthark):
   # standard system include locations where duckdb.h normally lives.
   importc:
     compilerArg gorge("pkg-config --cflags-only-I duckdb 2>/dev/null || true")
+    path currentSourcePath.parentDir / "include"   # vendored header first
     path "/usr/local/include"
     path "/usr/include"
     "duckdb.h"

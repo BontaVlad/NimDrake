@@ -378,4 +378,38 @@ build-static:
         --passL:"-lstdc++" \
         src/nimdrake
 
+# Vendor libduckdb.so + duckdb.h into src/include/ (linux amd64, glibc).
+# TODO(P7-51): auto-detect host OS/arch and pull the matching release asset.
+fetch-lib:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    INCLUDE_DIR="{{justfile_directory()}}/src/include"
+    DUCKDB_VERSION="v1.5.4"
+    ASSET="libduckdb-linux-amd64.zip"
+    URL="https://github.com/duckdb/duckdb/releases/download/${DUCKDB_VERSION}/${ASSET}"
+    TMP_DIR="$(mktemp -d)"
+
+    mkdir -p "${INCLUDE_DIR}"
+
+    echo "Downloading ${ASSET} (${DUCKDB_VERSION})..."
+    wget -q "${URL}" -O "${TMP_DIR}/${ASSET}"
+
+    # Extract the zip. Prefer `unzip` (most common), fall back to `bsdtar`.
+    if command -v unzip &>/dev/null; then
+      unzip -o "${TMP_DIR}/${ASSET}" -d "${TMP_DIR}/extract"
+    else
+      mkdir -p "${TMP_DIR}/extract"
+      bsdtar -xf "${TMP_DIR}/${ASSET}" -C "${TMP_DIR}/extract"
+    fi
+
+    # The zip contains libduckdb.so, duckdb.h, and (on some platforms) a static .lib.
+    # We only vendor the shared lib + header for the 3-tier lookup.
+    cp "${TMP_DIR}/extract/libduckdb.so" "${INCLUDE_DIR}/"
+    cp "${TMP_DIR}/extract/duckdb.h"     "${INCLUDE_DIR}/"
+
+    rm -rf "${TMP_DIR}"
+    echo "Vendored libduckdb to ${INCLUDE_DIR}/"
+    ls -la "${INCLUDE_DIR}/"
+
 # --gcc.exe:"musl-gcc" --gcc.linkerexe:"musl-gcc"

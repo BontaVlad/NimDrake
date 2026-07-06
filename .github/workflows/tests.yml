@@ -47,6 +47,39 @@ jobs:
           ${{ runner.os }}-nim-${{ matrix.version }}-
           ${{ runner.os }}-nim-
 
+    - name: Cache DuckDB (Linux — src/include/)
+      if: runner.os == 'Linux'
+      id: cache-duckdb-linux
+      uses: actions/cache@v4
+      with:
+        path: src/include
+        key: Linux-duckdb-v1.5.4-${{ hashFiles('justfile') }}
+        restore-keys: |
+          Linux-duckdb-v1.5.4-
+          Linux-duckdb-
+
+    - name: Cache DuckDB (macOS — extracted zip)
+      if: runner.os == 'macOS'
+      id: cache-duckdb-macos
+      uses: actions/cache@v4
+      with:
+        path: .duckdb-cache
+        key: macOs-duckdb-v1.5.4-${{ hashFiles('.github/workflows/tests.yml') }}
+        restore-keys: |
+          macOs-duckdb-v1.5.4-
+          macOs-duckdb-
+
+    - name: Cache DuckDB (Windows — extracted zip)
+      if: runner.os == 'Windows'
+      id: cache-duckdb-windows
+      uses: actions/cache@v4
+      with:
+        path: .duckdb-cache
+        key: Windows-duckdb-v1.5.4-${{ hashFiles('.github/workflows/tests.yml') }}
+        restore-keys: |
+          Windows-duckdb-v1.5.4-
+          Windows-duckdb-
+
     - name: Install dependencies (Windows)
       if: runner.os == 'Windows'
       uses: msys2/setup-msys2@v2
@@ -61,40 +94,46 @@ jobs:
           mingw-w64-x86_64-git
           unzip
 
-    - name: Install DuckDB (Linux)
-      if: runner.os == 'Linux'
+    - name: Vendor DuckDB (Linux)
+      if: steps.cache-duckdb-linux.outputs.cache-hit != 'true' && runner.os == 'Linux'
+      run: just fetch-lib
+
+    - name: Download & extract DuckDB (macOS)
+      if: steps.cache-duckdb-macos.outputs.cache-hit != 'true' && runner.os == 'macOS'
       run: |
-        wget -q https://github.com/duckdb/duckdb/releases/download/v1.5.4/libduckdb-linux-amd64.zip
-        unzip -o libduckdb-linux-amd64.zip -d duckdb-install
-        sudo cp duckdb-install/libduckdb.so /usr/lib/
-        sudo cp duckdb-install/duckdb.h /usr/include/
-        sudo ldconfig
+        mkdir -p .duckdb-cache
+        wget -q https://github.com/duckdb/duckdb/releases/download/v1.5.4/libduckdb-osx-universal.zip -O .duckdb-cache/libduckdb.zip
+        unzip -o .duckdb-cache/libduckdb.zip -d .duckdb-cache/
 
     - name: Install DuckDB (macOS)
       if: runner.os == 'macOS'
       run: |
-        wget -q https://github.com/duckdb/duckdb/releases/download/v1.5.4/libduckdb-osx-universal.zip
-        unzip -o libduckdb-osx-universal.zip -d duckdb-install
         sudo mkdir -p /usr/local/lib /usr/local/include
-        sudo cp duckdb-install/libduckdb.dylib /usr/local/lib/
-        sudo cp duckdb-install/duckdb.h /usr/local/include/
+        sudo cp .duckdb-cache/libduckdb.dylib /usr/local/lib/
+        sudo cp .duckdb-cache/duckdb.h /usr/local/include/
+
+    - name: Download & extract DuckDB (Windows)
+      if: steps.cache-duckdb-windows.outputs.cache-hit != 'true' && runner.os == 'Windows'
+      shell: msys2 {0}
+      run: |
+        mkdir -p .duckdb-cache
+        curl -sL -o .duckdb-cache/libduckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.5.4/libduckdb-windows-amd64.zip
+        unzip -o .duckdb-cache/libduckdb.zip -d .duckdb-cache/
 
     - name: Install DuckDB (Windows)
       if: runner.os == 'Windows'
       shell: msys2 {0}
       run: |
-        curl -sL -o libduckdb-windows-amd64.zip https://github.com/duckdb/duckdb/releases/download/v1.5.4/libduckdb-windows-amd64.zip
-        unzip -o libduckdb-windows-amd64.zip -d duckdb-install
-        cp duckdb-install/duckdb.dll C:/msys64/mingw64/bin/
-        cp duckdb-install/duckdb.h C:/msys64/mingw64/include/
-        cp duckdb-install/libduckdb.lib C:/msys64/mingw64/lib/ || cp duckdb-install/duckdb.lib C:/msys64/mingw64/lib/ || true
+        cp .duckdb-cache/duckdb.dll C:/msys64/mingw64/bin/
+        cp .duckdb-cache/duckdb.h C:/msys64/mingw64/include/
+        cp .duckdb-cache/libduckdb.lib C:/msys64/mingw64/lib/ || cp .duckdb-cache/duckdb.lib C:/msys64/mingw64/lib/ || true
 
     - name: Verify installations (Unix)
       if: runner.os != 'Windows'
       shell: bash
       run: |
         echo "=== DuckDB ==="
-        ls -la /usr/lib/libduckdb* /usr/local/lib/libduckdb* 2>/dev/null || true
+        ls -la src/include/libduckdb.* /usr/lib/libduckdb* /usr/local/lib/libduckdb* 2>/dev/null || true
         echo "=== Nim ==="
         nim --version
 

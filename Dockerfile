@@ -63,14 +63,15 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install DuckDB
-RUN mkdir -p /tmp/duckdb-cache && \
-    cd /tmp/duckdb-cache && \
-    wget https://github.com/duckdb/duckdb/releases/download/v1.3.2/libduckdb-linux-amd64.zip && \
-    unzip libduckdb-linux-amd64.zip && \
-    cp libduckdb.so /usr/lib/ && \
-    ldconfig && \
-    rm -rf /tmp/duckdb-cache
+# Vendor DuckDB into src/include/ via the justfile recipe.
+# This exercises the same 3-tier lookup path that local builds use
+# (config.nims: local src/include/ lib → system → error), instead of
+# polluting /usr/lib with an unversioned copy.
+RUN apt-get update && apt-get install -y curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin
+COPY justfile ./
+RUN just fetch-lib
 
 # Copy entire Nim installation
 COPY --from=nim-build /src/Nim /usr/local/lib/nim

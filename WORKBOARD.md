@@ -102,6 +102,21 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
 
 ---
 
+## P7 — Vendored libduckdb / 3-tier lookup
+
+- [ ] 47. `config.nims`: 3-tier DuckDB link resolution (local `src/include/` → system via pkg-config/ldconfig → hard `error()`). Skipped under nimsuggest + useFuthark.
+- [ ] 48. `src/ffi.nim`: futhark header search prepends `src/include/` before system paths.
+- [ ] 49. `justfile`: `fetch-lib` recipe downloads `libduckdb-linux-amd64.zip` (v1.5.4) into `src/include/`.
+- [ ] 50. `.gitignore`: vendored `src/include/{libduckdb.so,libduckdb.dylib,duckdb.dll,duckdb.h,duckdb_static.lib}` ignored.
+- [ ] 51. `Dockerfile`: replaced `/usr/lib` install with `just fetch-lib`; version aligned to v1.5.4 (closes P6-39).
+- [ ] 52. `.github/workflows/tests.yml`: Linux DuckDB install → `just fetch-lib`; mac/windows unchanged.
+- [ ] 53. `README.md`: "DuckDB dependency" subsection documenting the 3-tier lookup + version pin (closes P6-46).
+- [ ] 54. (Deferred) Extend `fetch-lib` to auto-detect host OS/arch and pull the matching release asset (macOS universal, windows-amd64, linux-arm64, musl variants).
+
+**Commit + tests after P7.**
+
+---
+
 ## Progress Log
 
 - **P0 complete** — 11 correctness bugs fixed. All 147 tests pass with ASan. Files changed: `scalar_functions.nim`, `aggregate_functions.nim`, `value.nim`, `table_scan.nim`, `datachunk.nim`, `ffi.nim`, `database.nim`, `query.nim`.
