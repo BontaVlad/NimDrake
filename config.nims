@@ -39,11 +39,22 @@ when not defined(nimsuggest) and not defined(useFuthark):
       switch("passC", "-Wno-implicit-function-declaration")
   else:
     # Tier 2: probe for a system-installed libduckdb.
-    # pkg-config is the preferred signal (vcpkg/Conan/Homebrew ship .pc files);
-    # ldconfig -p covers distro installs that lack a .pc file (most Linuxen).
+    # pkg-config is the preferred signal (vcpkg/Conan/Homebrew ship .pc files).
+    # The fallback is platform-specific:
+    #   Linux:  ldconfig -p (covers distro installs without a .pc file)
+    #   macOS:  check standard dylib paths (ldconfig doesn't exist on macOS)
+    #   Windows: check MSYS2/mingw default lib dir for the import library
     let pcOk = gorge("pkg-config --exists duckdb && echo yes || echo no").strip == "yes"
-    let ldOk = gorge("ldconfig -p 2>/dev/null | grep -qi libduckdb && echo yes || echo no").strip == "yes"
-    if pcOk or ldOk:
+    var sysOk = false
+    when defined(macosx):
+      sysOk = fileExists("/usr/local/lib/libduckdb.dylib") or
+              fileExists("/opt/homebrew/lib/libduckdb.dylib")
+    elif defined(linux):
+      sysOk = gorge("ldconfig -p 2>/dev/null | grep -qi libduckdb && echo yes || echo no").strip == "yes"
+    elif defined(windows):
+      sysOk = fileExists("C:/msys64/mingw64/lib/libduckdb.lib") or
+              fileExists("C:/msys64/mingw64/lib/duckdb.lib")
+    if pcOk or sysOk:
       switch("passL", "-lduckdb")
       when defined(macosx):
         switch("passL", "-Wl,-rpath,/usr/local/lib")
@@ -53,7 +64,7 @@ when not defined(nimsuggest) and not defined(useFuthark):
       # Tier 3: nothing found. Fail the build with an actionable message.
       echo "Fatal: libduckdb not found. Either:"
       echo "  (1) run `just fetch-lib` to vendor libduckdb.so + duckdb.h under src/include/, or"
-      echo "  (2) install libduckdb system-wide (and ensure a pkg-config .pc file or an ldconfig entry)."
+      echo "  (2) install libduckdb system-wide (and ensure a pkg-config .pc file or a standard library path entry)."
       quit(1)
 
 # --- Sanitizers (opt-in via -d:useSanitizers) ---
