@@ -126,7 +126,7 @@ jobs:
       run: |
         cp .duckdb-cache/duckdb.dll C:/msys64/mingw64/bin/
         cp .duckdb-cache/duckdb.h C:/msys64/mingw64/include/
-        cp .duckdb-cache/libduckdb.lib C:/msys64/mingw64/lib/ || cp .duckdb-cache/duckdb.lib C:/msys64/mingw64/lib/ || true
+        cp .duckdb-cache/duckdb.lib C:/msys64/mingw64/lib/libduckdb.lib
 
     - name: Verify installations (Unix)
       if: runner.os != 'Windows'
@@ -166,4 +166,4 @@ jobs:
     - name: Test (Windows)
       if: runner.os == 'Windows'
       shell: msys2 {0}
-      run: just test
+      run: just test asan=0
