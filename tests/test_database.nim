@@ -1,7 +1,7 @@
 import unittest2
 import std/[tables]
 import utils
-import ../src/[ffi, database, config, query, query_result, exceptions]
+import ../src/[ffi, types, database, config, query, qresult, exceptions]
 
 suite "Database settings":
 
@@ -11,24 +11,27 @@ suite "Database settings":
 
     let con = newDatabase(config).connect()
     let outcome =
-      con.execute("SELECT current_setting('threads') AS threads;").fetchall()
-    assert outcome[0].valueBigint == @[8'i64]
+      con.executeMaterialized("SELECT current_setting('threads') AS threads;")
+    for chunk in outcome:
+      assert chunk.bindAs(0, DuckType.BigInt).toSeq == @[8'i64]
 
     config.setConfig("threads", "2")
 
     let con2 = newDatabase(config).connect()
     let outcome2 =
-      con2.execute("SELECT current_setting('threads') AS threads;").fetchall()
-    assert outcome2[0].valueBigint == @[2'i64]
+      con2.executeMaterialized("SELECT current_setting('threads') AS threads;")
+    for chunk in outcome2:
+      assert chunk.bindAs(0, DuckType.BigInt).toSeq == @[2'i64]
 
   test "Settings before database init directly from initialization":
     let config = newConfig({"threads": "3"}.toTable)
 
     let con = newDatabase(config).connect()
     let outcome =
-      con.execute("SELECT current_setting('threads') AS threads;").fetchall()
-    assert outcome[0].valueBigint ==
-      @[3'i64]
+      con.executeMaterialized("SELECT current_setting('threads') AS threads;")
+    for chunk in outcome:
+      assert chunk.bindAs(0, DuckType.BigInt).toSeq ==
+        @[3'i64]
 
   #   # triggers the memory sanitizer
   test "Incorrect setting key should throw an error":
@@ -70,7 +73,7 @@ suite "Connections":
         b = data.id * 20
         res = a + b
 
-      conn.execute(
+      conn.executeMaterialized(
          "INSERT INTO results VALUES (?, ?, ?, ?)",
          (data.id, a, b, res)
       )
@@ -86,22 +89,24 @@ suite "Connections":
 
     joinThreads(threads)
 
-    let results = mainConn.execute("SELECT calculation_result, value_a, value_b, thread_id FROM results ORDER BY thread_id").fetchAll()
-    # results is column-major: results[0]=calculation_result, results[1]=value_a,
-    # results[2]=value_b, results[3]=thread_id
-    # Thread 0: a=0, b=0, res=0; Thread 1: a=10, b=20, res=30; Thread 2: a=20, b=40, res=60
-    check results[0].valueInteger[0] == 0'i64  # calculation_result for thread 0
-    check results[0].valueInteger[1] == 30'i64 # calculation_result for thread 1
-    check results[0].valueInteger[2] == 60'i64 # calculation_result for thread 2
+    let results = mainConn.executeMaterialized("SELECT calculation_result, value_a, value_b, thread_id FROM results ORDER BY thread_id")
+    for chunk in results:
+      let calcResult = chunk.bindAs(0, DuckType.Integer).toSeq
+      let valueA = chunk.bindAs(1, DuckType.Integer).toSeq
+      let valueB = chunk.bindAs(2, DuckType.Integer).toSeq
+      let threadId = chunk.bindAs(3, DuckType.Integer).toSeq
 
-    check results[3].valueInteger[0] == 0'i64  # thread_id for thread 0
-    check results[3].valueInteger[1] == 1'i64  # thread_id for thread 1
-    check results[3].valueInteger[2] == 2'i64  # thread_id for thread 2
+      check calcResult[0] == 0'i64
+      check calcResult[1] == 30'i64
+      check calcResult[2] == 60'i64
 
-    # Verify all 5 threads produced correct results
-    check results[0].valueInteger.len == 5
-    check results[1].valueInteger == @[0'i32, 10, 20, 30, 40]  # value_a
-    check results[2].valueInteger == @[0'i32, 20, 40, 60, 80]  # value_b
+      check threadId[0] == 0'i64
+      check threadId[1] == 1'i64
+      check threadId[2] == 2'i64
+
+      check calcResult.len == 5
+      check valueA == @[0'i32, 10, 20, 30, 40]
+      check valueB == @[0'i32, 20, 40, 60, 80]
 
   test "Multiple In-Memory DB Start Up and Shutdown":
     var
@@ -110,13 +115,12 @@ suite "Connections":
 
     for i in 0..<10:
       databases[i] = newDatabase()
-      check databases[i].handle != nil
+      check databases[i].rawHandle != nil
       for j in 0..<10:
         connections[i * 10 + j] = databases[i].connect()
-        check connections[i * 10 + j].handle != nil
+        check connections[i * 10 + j].rawHandle != nil
 
-    # Verify each connection can execute a query
     for i in 0..<100:
-      let outcome = connections[i].execute("SELECT 1").fetchAll()
-      check outcome.len == 1
-      check outcome[0].valueInteger == @[1'i32]
+      for chunk in connections[i].executeMaterialized("SELECT 1"):
+        check chunk.vector(0).kind == DuckType.Integer
+        check chunk.bindAs(0, DuckType.Integer).toSeq == @[1'i32]
