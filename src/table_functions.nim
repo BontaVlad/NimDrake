@@ -1,7 +1,5 @@
-import std/[macros, tables, sequtils, sugar]
-import fusion/[matching, astdsl]
-import /[ffi, datachunk, database, types, exceptions, value]
-import tools/wrench
+import std/[macros]
+import /[ffi, database, types, exceptions]
 
 type
   FunctionInfo* = object of duckdbFunctionInfo
@@ -21,6 +19,10 @@ type
   InitInfo* = object
     handle*: duckdbInitInfo
     mainFunction*: TableFunction # globalLock::ReentrantLock
+
+  BindParameter* = object
+    kind*: DuckType
+    isValid*: bool
 
 converter toC*(fi: FunctionInfo): duckdbFunctionInfo =
   cast[duckdbFunctionInfo](fi)
@@ -42,10 +44,13 @@ proc `$`*(tf: TableFunction): string =
 proc parameterCount*(info: BindInfo): int =
   duckdbBindGetParameterCount(info.handle).int
 
-proc getParameter(info: BindInfo, index: int): Value =
-  result = newValue(newDuckValue(duckdbBindGetParameter(info.handle, index.idx_t)))
+proc getParameter(info: BindInfo, index: int): BindParameter =
+  let handle = duckdbBindGetParameter(info.handle, index.idx_t)
+  let logicalTp = duckdb_get_value_type(handle)
+  let kind = toDuckType(duckdbGetTypeId(logicalTp))
+  result = BindParameter(kind: kind, isValid: not duckdb_is_null_value(handle).bool)
 
-iterator parameters*(info: BindInfo): Value =
+iterator parameters*(info: BindInfo): BindParameter =
   for idx in 0 ..< info.parameterCount:
     yield info.getParameter(idx)
 
@@ -109,213 +114,17 @@ proc newTableFunction*(
 
   duckdbTableFunctionSupportsProjectionPushdown(result.handle, projectionPushdown)
 
-proc arguments(params: seq[NimNode]): seq[NimNode] =
-  result = newSeq[NimNode]()
-  for param in params[1 ..^ 1]:
-    let tp = param[^2]
-    for p in param[0 ..^ 3]:
-      if param[^1].kind == nnkEmpty:
-        result.add(newIdentDefs(ident($p), tp))
-      else:
-        result.add(newIdentDefs(ident($p), tp, param[^1]))
-
-proc createBindData(name: NimNode, params: seq[NimNode]): NimNode =
-  let objFields = arguments(params)
-
-  result = buildAst(stmtList):
-    TypeSection:
-      TypeDef:
-        name
-        empty()
-        RefTy:
-          ObjectTy:
-            empty()
-            empty()
-            RecList:
-              objFields
-
-proc createInitData(name: NimNode): NimNode =
-  result = quote:
-    type `name` = ref object
-      pos: int
-      exausted: bool
-
-proc createBindFunctionStmt(
-    returnColumnName: string,
-    bindDataName, bindFunctionName, destroyBindData: NimNode,
-    params: seq[NimNode],
-    producerReturnType: DuckType,
-): NimNode =
-  generateTypeToField("typeToField", Vector)
-
-  var bindDataCreateStmt = newNimNode(nnkObjConstr).add(bindDataName)
-  var paramCount = 0
-  let paramSeqName = ident"parameter"
-  for param in params[1 ..^ 1]:
-    let tp = param[^2]
-    for p in param[0 ..^ 3]:
-      let i = newLit paramCount
-      let tp = ident typeToField[newDuckType(tp)]
-      let node = newNimNode(nnkExprColonExpr).add(
-          p,
-          quote do:
-            `paramSeqName`[`i`].`tp`,
-        )
-      bindDataCreateStmt.add(node)
-      paramCount += 1
-
-  let producerReturnTypeNode = newDotExpr(ident("DuckType"), ident($producerReturnType))
-
-  result = quote:
-    proc `bindFunctionName`(info: BindInfo) =
-      info.add_result_column(`returnColumnName`, `producerReturnTypeNode`)
-      let
-        `paramSeqName` = info.parameters.toSeq
-        data = `bindDataCreateStmt`
-      GC_ref(data)
-      duckdb_bind_set_bind_data(
-        info.handle, cast[ptr `bindDataName`](data), `destroyBindData`
-      )
-
-# TODO: prototype code, take what is in scalar functions and build some abstractions
-# from what we learn here
 macro producer*(body: typed): untyped =
-  # will be refactored out(duplicated from scalar_functions.nim)
-
+  ## UDF table macro — currently stubbed. Will be revived in a future pass.
   if body.kind != nnkIteratorDef:
     error("The {.producer.} pragma can only be applied to iterator definitions.")
-
-  body.assertMatch:
-    IteratorDef:
-      Sym(strVal: @name) | Postfix[_, Sym(strVal: @name)] # callback proc name
-      _ # Term rewriting template
-      _ # Generic params
-      @formalParams # parameters passed to the callback
-      @pragmas # callback pragmas
-      _ # Reserved
-      @implementation # callback body
-      all _
-
-  let closurePragma = pragmas.toSeq.filter(p => p.strVal == "closure")
-  if len(closurePragma) == 0:
-    error("Only closure iterators are supported, consider adding a {.closure.} pragma")
-
-  let
-    params = formalParams.toSeq
-    producerName = ident(name)
-    producerCallback = ident(name & "callBack")
-    initFunctionName = genSym(nskProc, "initFunction")
-    bindFunctionName = genSym(nskProc, "bindFunction")
-    mainFunctionName = genSym(nskProc, "mainFunction")
-    returnTp = params[0]
-    producerReturnType = newDuckType(returnTp)
-    bindDataName = genSym(nskType, "BindData")
-    bindDataSymName = genSym(nskVar, "bindData")
-    initDataName = genSym(nskType, "InitData")
-    destroyBindData = genSym(nskProc, "destroyBind")
-    destroyInitData = genSym(nskProc, "destroyInit")
-
-  let bindDataNode = createBindData(bindDataName, params)
-  let initDataNode = createInitData(initDataName)
-
-  let typeDefinitions = quote("@"):
-    `@ bindDataNode`
-    `@ initDataNode`
-
-    proc `@ destroyBindData`(p: pointer) {.cdecl.} =
-      `=destroy`(cast[`@ bindDataName`](p))
-
-    proc `@ destroyInitData`(p: pointer) {.cdecl.} =
-      `=destroy`(cast[`@ initDataName`](p))
-
-  let bindFunctionStmt = createBindFunctionStmt(
-    name, bindDataName, bindFunctionName, destroyBindData, params, producerReturnType
-  )
-
-  let initFunctionStmt = quote:
-    proc `initFunctionName`(info: InitInfo) =
-      let data = `initDataName`(pos: 0, exausted: false)
-      GC_ref(data)
-      duckdb_init_set_init_data(
-        info.handle, cast[ptr `initDataName`](data), `destroyInitData`
-      )
-
-  let producerFactory = newNimNode(nnkIteratorDef).add(
-      producerCallback,
-      newEmptyNode(),
-      newEmptyNode(),
-      newNimNode(nnkFormalParams).add(returnTp).add(formalParams[1 ..^ 1]),
-      pragmas,
-      newEmptyNode(),
-      implementation,
+  result = quote do:
+    raise newException(
+      OperationError,
+      "UDF table macros need updating for the new qresult/Vector[kt] API.",
     )
-
-  let
-    producerIteratorName = ident"producerIterator"
-    producerArguments = arguments(params).map(p => newDotExpr(bindDataSymName, p[0]))
-    producerIterator = newLetStmt(producerIteratorName, producerCallback)
-    producerInvoke = newCall(producerIteratorName, producerArguments)
-
-  let mainFunctionStmt = quote:
-    proc `mainFunctionName`(info: FunctionInfo, rawChunk: duckdbDatachunk) =
-      var `bindDataSymName` = cast[`bindDataName`](duckdbFunctionGetBindData(info))
-      var initInfo = cast[`initDataName`](duckdbFunctionGetInitData(info))
-
-      `producerFactory`
-
-      let vecPtr = duckdbDataChunkGetVector(rawChunk, 0.idx_t)
-
-      `producerIterator`
-
-      var count = 0
-      while not initInfo.exausted and initInfo.pos < VECTOR_SIZE:
-        let res = `producerInvoke`
-        if finished(`producerIteratorName`):
-          initInfo.exausted = true
-          break
-        vecPtr[count] = res
-        count += 1
-        initInfo.pos += 1
-      duckdbDataChunkSetSize(rawChunk, count.idx_t)
-
-  var tableFunctionParameters = newSeq[NimNode]()
-  for param in params[1 ..^ 1]:
-    let tp = param[^2]
-    for p in param[0 ..^ 3]:
-      tableFunctionParameters.add(
-        newCall(bindSym"newLogicalType", newDotExpr(ident("DuckType"), ident($newDuckType(tp))))
-      )
-
-  let tblFuncParams = buildAst(stmtList):
-    Prefix:
-      ident "@"
-      Bracket:
-        tableFunctionParameters
-
-  let tableFunction = quote:
-    let `producerName` = newTableFunction(
-      name = `name`,
-      parameters = `tblFuncParams`,
-      bindFunc = `bindFunctionName`,
-      initFunc = `initFunctionName`,
-      initLocalFunc = proc(_: InitInfo) =
-        discard,
-      mainFunc = `mainFunctionName`,
-      extraData = nil,
-      projectionPushdown = true,
-    )
-
-  result = nnkStmtList.newTree()
-  result.add quote do:
-    `typeDefinitions`
-
-    `bindFunctionStmt`
-    `initFunctionStmt`
-    `mainFunctionStmt`
-
-    `tableFunction`
 
 proc register*(con: Connection, fun: TableFunction) =
   check(
-    duckdbRegisterTableFunction(con.handle, fun.handle), "Failed to regiter function"
+    duckdbRegisterTableFunction(con.rawHandle, fun.handle), "Failed to regiter function"
   )

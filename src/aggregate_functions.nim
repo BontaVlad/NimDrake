@@ -1,6 +1,6 @@
-import std/[macros, strformat, sequtils, tables, enumerate]
+import std/[macros, strformat, sequtils, enumerate]
 import fusion/[matching, astdsl]
-import /[ffi, types, database, exceptions, query_result]
+import /[ffi, types, database, qresult, exceptions]
 
 type
   FunctionInfo* = object of duckdbFunctionInfo
@@ -10,7 +10,6 @@ type
     handle*: duckdbAggregateFunction
 
   AggregateFunction* = ref object of AggregateFunctionBase
-  ValidityMaskRegistry* = Table[string, ValidityMask]
 
 proc `=destroy`(agg: AggregateFunctionBase) =
   if agg.handle != nil:
@@ -199,6 +198,6 @@ macro newAggregateFunction*(
 
 proc register*(con: Connection, fun: AggregateFunction) =
   check(
-    duckdb_register_aggregate_function(con.handle, fun.handle),
+    duckdb_register_aggregate_function(con.rawHandle, fun.handle),
     fmt"Failed to register function '{fun.name}'",
   )
