@@ -155,29 +155,34 @@ for i, row in enumerate(task.rows):
 # row 2: (3, Value_3)
 ```
 
-### Example 4: Using the dataframe
+### Example 4: Pretty-print a result as a table
 ```nim
 let 
   # we can also start a session with custom config flags
   config = newConfig({"threads": "3"}.toTable)
   duck = newDatabase().connect(config)
 
-let df = newDataFrame(
-  {
-    "foo": newVector(@[10, 30, 20]),
-    "bar": newVector(@["a", "b", "c"])
-  }.toTable)
-duck.register("df", df)
-echo duck.execute("SELECT * FROM df ORDER BY foo;")
+let r = duck.executeMaterialized(
+  "SELECT 10::INTEGER AS foo, 'a'::VARCHAR AS bar " &
+  "UNION ALL SELECT 30, 'b' " &
+  "UNION ALL SELECT 20, 'c'"
+)
+echo r.len          # 3
+echo r.columnCount  # 2
+echo r.column("foo").kind  # Integer
+echo r
   
 #output:
-# ┌─────┬─────────────┬─────────────┐
-# │  #  │     bar     │     foo     │
-# ├─────┼─────────────┼─────────────┤
-# │  0  │     a       │     10      │
-# │  1  │     c       │     20      │
-# │  2  │     b       │     30      │
-# └─────┴─────────────┴─────────────┘
+# 3
+# 2
+# Integer
+# ┌─────────────┬─────────────┐
+# │     foo     │     bar     │
+# ├─────────────┼─────────────┤
+# │     10      │     a       │
+# │     30      │     b       │
+# │     20      │     c       │
+# └─────────────┴─────────────┘
 ```
 
 ### Example 5: Insert with prepared statement
