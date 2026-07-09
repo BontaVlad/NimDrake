@@ -1,118 +1,133 @@
 import /[ffi, config, exceptions]
 
 ## To use NimDrake, you must first initialize a Database obj using newDatabase.
-## newDatabase takes as parameter the database file to read and write from, or it can be used to create an in-memory database if no parameters is provided.
-## Note that for an in-memory database no data is persisted to disk (i.e., all data is lost when you exit the process).
-## With the Database obj, you can create one or many Connection using db.connect(). While individual connections are thread-safe, they will be locked during querying. It is therefore recommended that each thread uses its own connection to allow for the best parallel performance.
+## newDatabase takes as parameter the database file to read and write from, or it
+## can be used to create an in-memory database if no path or `:memory:` is provided.
+## Note that for an in-memory database no data is persisted to disk.
+## With the Database obj, you can create one or many Connection using db.connect().
+## While individual connections are thread-safe, they will be locked during querying.
+## It is therefore recommended that each thread uses its own connection to allow
+## for the best parallel performance.
+##
+## For a complete example, see the runnableExamples on `connect` or the top-level
+## `nimdrake` module.
 
 type
-  Database* = object of RootObj
-    handle*: duckdbDatabase
+  DbObj = object
+    handle: duckdbDatabase
+
+  Database* = object
+    p: ref DbObj
+
+  ConnObj = object
+    handle: duckdbConnection
+    db: ref DbObj
 
   Connection* = object
-    handle*: duckdbConnection
+    p: ref ConnObj
 
-  QueryProgress* = object of duckdbQueryProgressType
+  QueryProgress* = object
+    p: duckdb_query_progress_type
 
-proc `=destroy`*(db: Database) =
-  if db.handle != nil:
-    duckdbClose(db.handle.addr)
+proc `=destroy`(obj: var DbObj) =
+  if obj.handle != nil:
+    duckdb_close(obj.handle.addr)
 
-proc `=wasMoved`*(db: var Database) =
-  db.handle = nil
+proc `=destroy`(obj: var ConnObj) =
+  if obj.handle != nil:
+    duckdb_disconnect(obj.handle.addr)
 
-proc `=copy`*(
-  dest: var Database, source: Database
-) {.error.}
+# --- Accessors ----------------------------------------------------------------
 
-proc `=destroy`*(con: Connection) =
-  if con.handle != nil:
-    duckdbDisconnect(cast[ptr duckdbConnection](con.addr))
+proc rawHandle*(db: Database): duckdbDatabase {.inline.} =
+  if db.p.isNil: nil else: db.p.handle
 
-proc `=wasMoved`*(con: var Connection) =
-  con.handle = nil
+proc rawHandle*(con: Connection): duckdbConnection {.inline.} =
+  if con.p.isNil: nil else: con.p.handle
 
-proc `=copy`*(
-  dest: var Connection, source: Connection
-) {.error.}
+# --- QueryProgress accessors --------------------------------------------------
 
-proc newDatabase*(path: string, config: Config): Database =
-  ## Creates a new preconfigured database or opens an existing database file stored at the given path.
+proc percentage*(q: QueryProgress): float {.inline.} =
+  q.p.percentage.float
 
-  runnableExamples:
-    import std/tables
-    import nimdrake
+proc rowsProcessed*(q: QueryProgress): uint64 {.inline.} =
+  q.p.rows_processed
 
-    let
-      conf = newConfig({"threads": "3"}.toTable)
-      db = newDatabase("duckdb.db", conf)
-      conn = db.connect()
+proc totalRows*(q: QueryProgress): uint64 {.inline.} =
+  q.p.total_rows_to_process
 
-    let outcome = conn.execute("SELECT * FROM range(3);").fetchall()
+# --- Database construction / open-n-create -----------------------------------
 
-    assert outcome[0].valueBigInt == @[0'i64, 1'i64, 2'i64]
+proc newDatabase*(path: string = ":memory:", config: Config = Config()): Database =
+  ## Create or open a DuckDB database.
+  ##
+  ## If called with no arguments or with `":memory:"`, an in-memory database is
+  ## created (no data persisted to disk). If called with a file path, that
+  ## database file is opened (or created if it does not exist). An optional
+  ## `Config` can be passed to configure the database engine before startup.
+  ##
+  ## runnableExamples:
+  ##   let db = newDatabase()
+  ##   let conn = db.connect()
+  ##   assert conn.rawHandle != nil
 
-  result = Database(handle: nil)
-  var error: cstring = ""
-  let state: duckdbState =
-    duckdbOpenExt(path.cstring, result.handle.addr, config, error.addr)
-  check(state, $error, `=destroy`(result))
+  var h: duckdbDatabase
+  var err: cstring = nil
+  let st = duckdbOpenExt(path.cstring, h.addr, config.rawHandle, err.addr)
+  if st != enumDuckDbState.Duckdbsuccess:
+    let msg = if err.isNil: "Failed to open database" else: $err
+    if not err.isNil: duckdbFree(cast[pointer](err))
+    raise newException(OperationError, msg)
+  result = Database(p: new(ref DbObj))
+  result.p.handle = h
 
-proc newDatabase*(path: string): Database =
-  ## Creates a new database or opens an existing database file stored at the given path.
+proc newDatabase*(config: Config): Database {.inline.} =
+  ## Create an in-memory database with the given configuration.
+  ##
+  ## runnableExamples:
+  ##   import std/tables
+  ##   let conf = newConfig({"threads": "3"}.toTable)
+  ##   let db = newDatabase(conf)
+  ##   let conn = db.connect()
+  ##   assert conn.rawHandle != nil
 
-  runnableExamples:
-    import nimdrake
+  newDatabase(":memory:", config)
 
-    let db = newDatabase("duckdb.db")
-
-  result = Database(handle: nil)
-  check(duckdbOpen(path.cstring, result.handle.addr), "Failed to open database")
-
-proc newDatabase*(config: Config): Database =
-  ##  Create a new in-memory database preconfigured.
-
-  runnableExamples:
-    import std/tables
-    import nimdrake
-
-    let conf = newConfig({"threads": "3"}.toTable)
-    let db = newDatabase(conf)
-
-  result = newDatabase(":memory:", config)
-
-proc newDatabase*(): Database =
-  ##  Create a new in-memory database.
-
-  runnableExamples:
-    import nimdrake
-
-    let db = newDatabase()
-
-  result = newDatabase(":memory:")
+# --- Connections --------------------------------------------------------------
 
 proc connect*(db: Database): Connection =
-  ## Create one or many Connections from a single Database. While individual connections are thread-safe, they will be locked during querying
+  ## Create one or many Connections from a single Database. While individual
+  ## connections are thread-safe, they will be locked during querying.
+  ##
+  ## runnableExamples:
+  ##   let db = newDatabase()
+  ##   let conn = db.connect()
+  ##   let conn2 = db.connect()
+  ##   assert conn.rawHandle != nil
+  ##   assert conn2.rawHandle != nil
 
-  runnableExamples:
-    import nimdrake
+  result = Connection(p: new(ref ConnObj))
+  result.p.db = db.p
+  check(
+    duckdbConnect(db.p.handle, result.p.handle.addr),
+    "Failed to connect to database",
+  )
 
-    let db = newDatabase()
-    let conn = db.connect()
-    let conn2 = db.connect()
+# --- Query progress -----------------------------------------------------------
 
-    conn.execute("CREATE TABLE combined(i INTEGER, j VARCHAR);")
-    conn.execute(
-      "INSERT INTO combined VALUES (6, 'foo'), (5, 'bar'), (?, ?);", ("7", "baz")
-    )
-    let outcome = conn2.execute("SELECT * FROM combined").fetchall()
-    assert outcome[0].valueInteger == @[6'i32, 5'i32, 7'i32]
+proc queryProgress*(con: Connection): QueryProgress {.inline.} =
+  ## Returns the current progress of the execution engine.
+  ## `percentage` is -1.0 when idle, otherwise between 0.0 and 1.0.
+  ##
+  ## runnableExamples:
+  ##   let db = newDatabase()
+  ##   let conn = db.connect()
+  ##   let progress = conn.queryProgress()
+  ##   assert progress.percentage <= 0.0
 
-  result = Connection(handle: nil)
-  check(duckdbConnect(db.handle, result.handle.addr), "Failed to connect to database")
+  QueryProgress(p: duckdbQueryProgress(con.p.handle))
 
-proc queryProgress*(con: Connection): QueryProgress =
-  return cast[QueryProgress](duckdbQueryProgress(con.handle))
+proc interrupt*(con: Connection) {.inline.} =
+  ## Interrupt all pending operations on this connection.
 
-proc interrupt*(con: Connection) =
-  duckdbInterrupt(con.handle)
+  duckdbInterrupt(con.p.handle)
