@@ -1,7 +1,7 @@
 import
   /[
-    types, config, ffi, database, datachunk, query, query_result, table_functions,
-    scalar_functions, vector, value,
+    types, config, complex, ffi, database, qresult, codec, table,
+    query, table_functions, scalar_functions,
   ]
 
 ## NimDrake is a Nim language package designed to integrate with **DuckDB**,
@@ -18,15 +18,11 @@ runnableExamples:
     .execute(
       """ SELECT seq AS int_col, 'Value_' || seq::VARCHAR AS varchar_col FROM generate_series(1,3) AS t(seq) """
     )
-    .fetchAll()
-  assert @[1'i64, 2'i64, 3'i64] == outcome[0].valueBigint
-  # using values getter
-  assert @[1'i64, 2'i64, 3'i64] == outcome[0].values(int64)
-
-  assert @["Value_1", "Value_2", "Value_3"] == outcome[1].valueVarchar
-  # using values getter
-  assert @["Value_1", "Value_2", "Value_3"] == outcome[1].values(string)
+  for chunk in outcome:
+    assert @[1'i64, 2'i64, 3'i64] == chunk.bindAs(0, DuckType.BigInt).toSeq
+  for chunk in outcome:
+    assert @["Value_1", "Value_2", "Value_3"] == chunk.bindAs(1, DuckType.Varchar).toSeq
 
 export
-  types, config, ffi, database, datachunk, query, query_result, table_functions,
-  scalar_functions, vector, value
+  types, config, complex, ffi, database, query, qresult, codec, table,
+  table_functions, scalar_functions
