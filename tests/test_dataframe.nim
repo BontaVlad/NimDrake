@@ -1,5 +1,5 @@
 import unittest2
-import ../src/[database, qresult, query, types]
+import ../src/[database, qresult, query, types, display]
 import utils
 
 suite "Test QResult display":

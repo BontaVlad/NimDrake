@@ -2,7 +2,7 @@ import unittest2
 import std/[times]
 import nint128
 import uuid4
-import ../src/[database, query, qresult, types]
+import ../src/[database, query, qresult, types, codec]
 
 suite "DataChunk read-only API":
   test "chunk vector access + bindAs":
@@ -349,6 +349,17 @@ suite "DataChunk write []= — hugeint and uuid":
     w[0] = u
     check w[0] == u
 
+  test "uuid borrowUuid is zero-alloc raw view":
+    let cols = @[newColumn("u", newLogicalType(DuckType.UUID))]
+    let c = newDataChunk(cols)
+    c.setSize(1)
+    var w = c.bindAs(0, DuckType.UUID)
+    let u = uuid4()
+    w[0] = u
+    let raw = w.borrowUuid(0)
+    let expected = fromHugeInt(toDuckUuid(u))
+    check raw == expected
+
 # ---------------------------------------------------------------------------
 # Bulk insert round-trip via appender
 # ---------------------------------------------------------------------------
@@ -461,6 +472,25 @@ when defined(i386) or defined(amd64):
         check $(v[0]) == "-6.789"
         check $(v[1]) == "0.001"
         check $(v[2]) == "12.345"
+
+    test "decimal borrowDecimal is zero-alloc raw view":
+      let conn = newDatabase().connect()
+      conn.execute("CREATE TABLE dec_borrow (d DECIMAL(6, 3))")
+      var app = newAppender(conn, "dec_borrow")
+      let chunk = newDataChunk(app)
+      chunk.setSize(3)
+      var w = chunk.bindAs(0, DuckType.Decimal)
+      w[0] = newDecimal("12.345")
+      w[1] = newDecimal("-6.789")
+      w[2] = newDecimal("0.001")
+      let (raw0, wid, scl) = w.borrowDecimal(0)
+      let (raw1, _, _) = w.borrowDecimal(1)
+      let (raw2, _, _) = w.borrowDecimal(2)
+      check wid == 6'i8
+      check scl == 3'i8
+      check raw0 == toDuckDecimal(newDecimal("12.345"), 6'i8, 3'i8)
+      check raw1 == toDuckDecimal(newDecimal("-6.789"), 6'i8, 3'i8)
+      check raw2 == toDuckDecimal(newDecimal("0.001"), 6'i8, 3'i8)
 
 # ---------------------------------------------------------------------------
 # setSize edges
