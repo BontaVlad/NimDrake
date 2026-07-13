@@ -1,8 +1,11 @@
 import
   /[
     types, config, complex, ffi, database, qresult, codec, table,
-    query, table_functions, scalar_functions,
+    query, table_functions, scalar_functions, display,
   ]
+
+when defined(features.nimdrake.arrow):
+  import /arrow
 
 ## NimDrake is a Nim language package designed to integrate with **DuckDB**,
 ## an in-process SQL OLAP database management system. It simplifies database interactions while maintaining flexibility for advanced use cases.
@@ -25,4 +28,7 @@ runnableExamples:
 
 export
   types, config, complex, ffi, database, query, qresult, codec, table,
-  table_functions, scalar_functions
+  table_functions, scalar_functions, display
+
+when defined(features.nimdrake.arrow):
+  export arrow

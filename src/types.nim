@@ -73,6 +73,8 @@ const
 type
   LogicalTypeObj = object
     handle*: duckdbLogicalType
+    childNames*: ref seq[string] ## Lazily-populated cache of struct/union
+                                  ## child/member names. Nil until first access.
 
   LogicalType* = ref LogicalTypeObj
 
@@ -93,6 +95,7 @@ proc `=destroy`*(lt: LogicalTypeObj) =
 
 proc `=wasMoved`*(lt: var LogicalTypeObj) =
   lt.handle = nil
+  lt.childNames = nil
 
 proc `=destroy`*(pqresult: PendingQueryResult) =
   if cast[ptr duckdbPendingResult](pqresult) != nil:
