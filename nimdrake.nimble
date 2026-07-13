@@ -11,7 +11,8 @@ bin           = @["nimdrake"]
 # Required by code under src/ at build/runtime.
 
 requires "nim >= 2.0.0", "nint128", "decimal >= 0.0.2",
-         "terminaltables >= 0.1.1", "uuid4 >= 0.9.3", "fusion >= 1.2"
+         "terminaltables >= 0.1.1", "uuid4 >= 0.9.3", "fusion >= 1.2",
+         "threading >= 0.2.1"
 
 # Optional features
 # Activate with: nimble install --parser:declarative --features:arrow

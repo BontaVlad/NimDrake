@@ -1,4 +1,5 @@
 import /[ffi, config, exceptions]
+import threading/smartptrs
 
 ## To use NimDrake, you must first initialize a Database obj using newDatabase.
 ## newDatabase takes as parameter the database file to read and write from, or it
@@ -17,14 +18,14 @@ type
     handle: duckdbDatabase
 
   Database* = object
-    p: ref DbObj
+    p: SharedPtr[DbObj]
 
   ConnObj = object
     handle: duckdbConnection
-    db: ref DbObj
+    db: SharedPtr[DbObj]      # keeps the database alive as long as this connection does
 
   Connection* = object
-    p: ref ConnObj
+    p: ref ConnObj             # never shared across threads -> stays a plain (fast) ref
 
   QueryProgress* = object
     p: duckdb_query_progress_type
@@ -40,7 +41,7 @@ proc `=destroy`(obj: var ConnObj) =
 # --- Accessors ----------------------------------------------------------------
 
 proc rawHandle*(db: Database): duckdbDatabase {.inline.} =
-  if db.p.isNil: nil else: db.p.handle
+  if db.p.isNil: nil else: db.p[].handle
 
 proc rawHandle*(con: Connection): duckdbConnection {.inline.} =
   if con.p.isNil: nil else: con.p.handle
@@ -78,8 +79,7 @@ proc newDatabase*(path: string = ":memory:", config: Config = Config()): Databas
     let msg = if err.isNil: "Failed to open database" else: $err
     if not err.isNil: duckdbFree(cast[pointer](err))
     raise newException(OperationError, msg)
-  result = Database(p: new(ref DbObj))
-  result.p.handle = h
+  result = Database(p: newSharedPtr(DbObj(handle: h)))
 
 proc newDatabase*(config: Config): Database {.inline.} =
   ## Create an in-memory database with the given configuration.
@@ -107,9 +107,9 @@ proc connect*(db: Database): Connection =
   ##   assert conn2.rawHandle != nil
 
   result = Connection(p: new(ref ConnObj))
-  result.p.db = db.p
+  result.p.db = db.p              # atomic-refcounted copy: safe from any thread
   check(
-    duckdbConnect(db.p.handle, result.p.handle.addr),
+    duckdbConnect(db.p[].handle, result.p.handle.addr),
     "Failed to connect to database",
   )
 
