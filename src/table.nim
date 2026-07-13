@@ -18,11 +18,14 @@ type
     t: Table
     colIdx: int
 
-proc initTable*(q: QResult[Materialized]): Table =
+proc initTable*(q: sink QResult[Materialized]): Table =
   result.q = q
   result.offsets = newSeq[int](q.chunks.len + 1)
   for ci in 0 ..< q.chunks.len:
     result.offsets[ci + 1] = result.offsets[ci] + q.chunks[ci].len
+
+proc initTable*(q: sink QResult[Streaming]): Table {.inline.} =
+  initTable(q.materialize())
 
 proc len*(t: Table): int {.inline.} =
   t.offsets[^1]

@@ -32,7 +32,7 @@
 ## `mapKeyType`, `mapValueType`, `unionMemberChild`, `unionMemberCount`,
 ## `unionMemberName`.  `Vector[kt].[]` does not exist for complex kinds.
 
-import std/[tables, math, times, strformat, sequtils]
+import std/[tables, math, times, strformat, sequtils, macros]
 import nint128
 import uuid4
 import terminaltables
@@ -84,13 +84,13 @@ type
     data: pointer
     length*: int
     validity: ptr UncheckedArray[uint64]
+    vec: duckdb_vector
     chunk: DataChunk
     when kt == DuckType.Decimal:
       scale*, width*: int8
     elif kt == DuckType.Enum:
       enumWidth*: DuckType
     when kt in DuckComplexKind:
-      vec: duckdb_vector
       ltype: LogicalType
       colIdx: int
 
@@ -128,8 +128,14 @@ proc `=wasMoved`(h: var DuckdbResultHandle) =
 # ---------------------------------------------------------------------------
 # Construction
 # ---------------------------------------------------------------------------
+proc newChunkMeta(columns: sink seq[Column]): ChunkMeta =
+  new(result)
+  result.columns = columns
+  result.rlen = 0
+  for i in 0 ..< columns.len:
+    result.nameIndex[result.columns[i].name] = i
 
-proc buildMeta(handle: duckdb_result): ChunkMeta =
+proc newChunkMeta(handle: duckdb_result): ChunkMeta =
   new(result)
   let colCount = duckdb_column_count(handle.addr).int
   result.columns = newSeq[Column](colCount)
@@ -147,8 +153,24 @@ proc newDataChunk*(
 ): DataChunk =
   DataChunk(handle: handle, meta: meta)
 
+proc newDataChunk*(columns: sink seq[Column]): DataChunk =
+  new(result)
+  let ncols = columns.len
+  if ncols == 0:
+    raise newException(ValueError, "Cannot create a DataChunk with zero columns")
+  result.meta = newChunkMeta(columns)
+  for i, col in result.meta.columns:
+    doAssert col.ltype != nil, "Column " & $i & " has nil LogicalType"
+  var ltypes = newSeq[duckdb_logical_type](ncols)
+  for i, col in result.meta.columns:
+    ltypes[i] = col.ltype.handle
+  result.handle = duckdb_create_data_chunk(cast[ptr duckdb_logical_type](ltypes[0].addr), ncols.idx_t)
+
+proc newColumn*(name: string, ltype: LogicalType, idx = 0): Column =
+  Column(idx: idx, name: name, kind: toDuckType(ltype), ltype: ltype)
+
 proc newQResult*(_: typedesc[QResult[Materialized]], raw: duckdb_result): QResult[Materialized] =
-  result.meta = buildMeta(raw)
+  result.meta = newChunkMeta(raw)
   while true:
     let chunk = duckdb_fetch_chunk(raw)
     if chunk == nil: break
@@ -158,7 +180,7 @@ proc newQResult*(_: typedesc[QResult[Materialized]], raw: duckdb_result): QResul
   duckdb_destroy_result(raw.addr)
 
 proc newQResult*(_: typedesc[QResult[Streaming]], raw: duckdb_result): QResult[Streaming] =
-  result.meta = buildMeta(raw)
+  result.meta = newChunkMeta(raw)
   doAssert duckdb_result_is_streaming(raw) == true,
     "QResult[Streaming] requires a streaming result"
   result.meta.rlen = -1
@@ -168,13 +190,12 @@ proc newQResult*(_: typedesc[QResult[Streaming]], raw: duckdb_result): QResult[S
 # Iterators
 # ---------------------------------------------------------------------------
 
-iterator items*(res: var QResult[Streaming]): DataChunk =
+iterator items*(res: QResult[Streaming]): DataChunk =
   while true:
     let raw = duckdb_fetch_chunk(res.handle.raw)
     if raw == nil: break
     yield newDataChunk(raw, res.meta)
   duckdb_destroy_result(res.handle.raw.addr)
-  res.handle.raw.internal_data = nil
 
 iterator items*(res: QResult[Materialized]): DataChunk =
   for c in res.chunks:
@@ -186,6 +207,11 @@ iterator items*(res: QResult[Materialized]): DataChunk =
 
 proc len*(c: DataChunk): int {.inline.} =
   duckdb_data_chunk_get_size(c.handle).int
+
+proc setSize*(c: DataChunk, n: int) {.inline.} =
+  duckdb_data_chunk_set_size(c.handle, n.idx_t)
+
+proc columnCount*(c: DataChunk): int {.inline.} = c.meta.columns.len
 
 proc makeColumnView(
     vec: duckdb_vector, ltype: LogicalType, chunk: DataChunk, length: int, colIdx: int
@@ -273,6 +299,7 @@ proc bindAs*(cv: ColumnView, kt: static DuckType): Vector[kt] {.inline.} =
   result.data = cv.data
   result.length = cv.length
   result.validity = cv.validity
+  result.vec = cv.vec
   result.chunk = cv.chunk
   when kt == DuckType.Decimal:
     result.scale = cv.scale
@@ -280,7 +307,6 @@ proc bindAs*(cv: ColumnView, kt: static DuckType): Vector[kt] {.inline.} =
   elif kt == DuckType.Enum:
     result.enumWidth = cv.enumWidth
   when kt in DuckComplexKind:
-    result.vec = cv.vec
     result.ltype = cv.ltype
     result.colIdx = cv.colIdx
 
@@ -325,6 +351,33 @@ template nimOf*(kt: static DuckType): typedesc =
     else: ZonedTime
   elif kt in DuckComplexKind:
     void
+
+template colDuckTypeOf*(T: typedesc): static DuckType =
+  when T is bool: DuckType.Boolean
+  elif T is int8: DuckType.TinyInt
+  elif T is int16: DuckType.SmallInt
+  elif T is int32: DuckType.Integer
+  elif T is int64 or T is int: DuckType.BigInt
+  elif T is uint8 or T is byte: DuckType.UTinyInt
+  elif T is uint16: DuckType.USmallInt
+  elif T is uint32: DuckType.UInteger
+  elif T is uint64 or T is uint: DuckType.UBigInt
+  elif T is float32: DuckType.Float
+  elif T is float64: DuckType.Double
+  elif T is string: DuckType.Varchar
+  elif T is seq[byte]: DuckType.Blob
+  elif T is Timestamp or T is DateTime: DuckType.Timestamp
+  elif T is Time: DuckType.Time
+  elif T is TimeInterval: DuckType.Interval
+  elif T is Int128: DuckType.HugeInt
+  elif T is UInt128: DuckType.UHugeInt
+  elif T is Uuid: DuckType.UUID
+  elif T is DecimalType:
+    {.error: "Decimal columns need explicit width/scale; use newLogicalType(duckdb_create_decimal_type(w, s)) + ChunkBuilder".}
+  elif T is ZonedTime:
+    {.error: "ZonedTime is ambiguous (TimeTz vs TimestampTz); use an explicit LogicalType".}
+  else:
+    {.error: "colDuckTypeOf: unsupported element type".}
 
 # ---------------------------------------------------------------------------
 # duckdb_string_t decoding — shared helpers
@@ -423,6 +476,313 @@ proc `[]`*[kt: static DuckType](v: Vector[kt], i: int): nimOf(kt) {.inline.} =
   elif kt in DuckComplexKind:
     {.error: "Vector[" & $kt & "] does not support `[]`; use listChild/" &
             "structChild/mapEntriesChild/unionMemberChild descent procs".}
+
+# ---------------------------------------------------------------------------
+# Vector[kt] `[]=` — compile-time dispatch, zero-copy for primitives
+# ---------------------------------------------------------------------------
+
+proc `[]=`*[kt: static DuckType](v: var Vector[kt], i: int, val: nimOf(kt)) {.inline.} =
+  doAssert i >= 0 and i < v.length, "Vector index out of bounds: " & $i
+  when kt in DuckPrimitiveKind:
+    cast[ptr UncheckedArray[nimOf(kt)]](v.data)[i] = val
+  elif kt == DuckType.Boolean:
+    cast[ptr UncheckedArray[uint8]](v.data)[i] = uint8(val)
+  elif kt in DuckStringKind:
+    duckdb_vector_assign_string_element_len(v.vec, i.idx_t, val.cstring, val.len.idx_t)
+  elif kt in DuckBlobKind:
+    duckdb_vector_assign_string_element_len(v.vec, i.idx_t,
+      cast[cstring](if val.len > 0: cast[pointer](val[0].addr) else: nil),
+      val.len.idx_t)
+  elif kt == DuckType.Timestamp:
+    cast[ptr UncheckedArray[int64]](v.data)[i] = toTimestamp(val).micros
+  elif kt == DuckType.Date:
+    cast[ptr UncheckedArray[int32]](v.data)[i] = toDatetime(val).days
+  elif kt == DuckType.Time:
+    cast[ptr UncheckedArray[int64]](v.data)[i] = toTime(val).micros
+  elif kt == DuckType.Interval:
+    cast[ptr UncheckedArray[duckdb_interval]](v.data)[i] = toInterval(val)
+  elif kt == DuckType.HugeInt:
+    cast[ptr UncheckedArray[duckdb_hugeint]](v.data)[i] = toHugeInt(val)
+  elif kt == DuckType.UHugeInt:
+    cast[ptr UncheckedArray[duckdb_uhugeint]](v.data)[i] = toUHugeInt(val)
+  elif kt == DuckType.UUID:
+    cast[ptr UncheckedArray[duckdb_hugeint]](v.data)[i] = toDuckUuid(val)
+  elif kt == DuckType.TimestampS:
+    cast[ptr UncheckedArray[int64]](v.data)[i] = toDuckTimestampS(val)
+  elif kt == DuckType.TimestampMs:
+    cast[ptr UncheckedArray[int64]](v.data)[i] = toDuckTimestampMs(val)
+  elif kt == DuckType.TimestampNs:
+    cast[ptr UncheckedArray[int64]](v.data)[i] = toDuckTimestampNs(val)
+  elif kt == DuckType.TimeTz:
+    cast[ptr UncheckedArray[int64]](v.data)[i] = toDuckTimeTz(val)
+  elif kt == DuckType.TimestampTz:
+    cast[ptr UncheckedArray[int64]](v.data)[i] = toDuckTimestampTz(val)
+  elif kt == DuckType.Decimal:
+    let huge = toHugeInt(toDuckDecimal(val, v.width, v.scale))
+    if v.width <= 4:
+      var s64: int64
+      copyMem(addr s64, addr huge.lower, sizeof(int64))
+      cast[ptr UncheckedArray[int16]](v.data)[i] = int16(s64)
+    elif v.width <= 9:
+      var s64: int64
+      copyMem(addr s64, addr huge.lower, sizeof(int64))
+      cast[ptr UncheckedArray[int32]](v.data)[i] = int32(s64)
+    elif v.width <= 18:
+      var s64: int64
+      copyMem(addr s64, addr huge.lower, sizeof(int64))
+      cast[ptr UncheckedArray[int64]](v.data)[i] = s64
+    else:
+      cast[ptr UncheckedArray[duckdb_hugeint]](v.data)[i] = huge
+  elif kt == DuckType.Enum:
+    case v.enumWidth
+    of DuckType.UTinyInt:
+      cast[ptr UncheckedArray[uint8]](v.data)[i] = uint8(val)
+    of DuckType.USmallInt:
+      cast[ptr UncheckedArray[uint16]](v.data)[i] = uint16(val)
+    of DuckType.UInteger:
+      cast[ptr UncheckedArray[uint32]](v.data)[i] = uint32(val)
+    else:
+      raise newException(ValueError, "enumWidth not supported for write: " & $v.enumWidth)
+  elif kt in DuckComplexKind:
+    {.error: "Vector[" & $kt & "] does not support `[]=`; use child writers.".}
+
+proc setNull*[kt: static DuckType](v: var Vector[kt], i: int) {.inline.} =
+  doAssert i >= 0 and i < v.length, "Vector index out of bounds: " & $i
+  if v.validity.isNil:
+    duckdb_vector_ensure_validity_writable(v.vec)
+    v.validity = cast[ptr UncheckedArray[uint64]](duckdb_vector_get_validity(v.vec))
+  duckdb_validity_set_row_invalid(cast[ptr uint64](v.validity), i.idx_t)
+
+proc setValid*[kt: static DuckType](v: var Vector[kt], i: int) {.inline.} =
+  doAssert i >= 0 and i < v.length, "Vector index out of bounds: " & $i
+  if v.validity.isNil:
+    duckdb_vector_ensure_validity_writable(v.vec)
+    v.validity = cast[ptr UncheckedArray[uint64]](duckdb_vector_get_validity(v.vec))
+  duckdb_validity_set_row_valid(cast[ptr uint64](v.validity), i.idx_t)
+
+proc appendValues*[kt: static DuckType](
+    v: var Vector[kt], values: openArray[nimOf(kt)], start = 0) =
+  if values.len == 0:
+    return
+  doAssert start >= 0 and start + values.len <= v.length,
+           "appendValues out of bounds: start=" & $start &
+           " n=" & $values.len & " capacity=" & $v.length
+  when kt in DuckPrimitiveKind:
+    copyMem(
+      cast[ptr UncheckedArray[nimOf(kt)]](v.data)[start].addr,
+      values[0].unsafeAddr,
+      values.len * sizeof(nimOf(kt)))
+  elif kt == DuckType.Boolean:
+    copyMem(
+      cast[ptr UncheckedArray[uint8]](v.data)[start].addr,
+      values[0].unsafeAddr,
+      values.len)
+  elif kt in DuckStringKind:
+    for i in 0 ..< values.len:
+      let s = values[i]
+      duckdb_vector_assign_string_element_len(
+        v.vec, (start + i).idx_t, s.cstring, s.len.idx_t)
+  elif kt in DuckBlobKind:
+    for i in 0 ..< values.len:
+      let s = values[i]
+      duckdb_vector_assign_string_element_len(
+        v.vec, (start + i).idx_t,
+        cast[cstring](if s.len > 0: cast[pointer](s[0].addr) else: nil),
+        s.len.idx_t)
+  elif kt == DuckType.Timestamp:
+    let dst = cast[ptr UncheckedArray[int64]](v.data)
+    for i in 0 ..< values.len: dst[start + i] = toTimestamp(values[i]).micros
+  elif kt == DuckType.Date:
+    let dst = cast[ptr UncheckedArray[int32]](v.data)
+    for i in 0 ..< values.len: dst[start + i] = toDatetime(values[i]).days
+  elif kt == DuckType.Time:
+    let dst = cast[ptr UncheckedArray[int64]](v.data)
+    for i in 0 ..< values.len: dst[start + i] = toTime(values[i]).micros
+  elif kt == DuckType.Interval:
+    let dst = cast[ptr UncheckedArray[duckdb_interval]](v.data)
+    for i in 0 ..< values.len: dst[start + i] = toInterval(values[i])
+  elif kt == DuckType.HugeInt:
+    let dst = cast[ptr UncheckedArray[duckdb_hugeint]](v.data)
+    for i in 0 ..< values.len: dst[start + i] = toHugeInt(values[i])
+  elif kt == DuckType.UHugeInt:
+    let dst = cast[ptr UncheckedArray[duckdb_uhugeint]](v.data)
+    for i in 0 ..< values.len: dst[start + i] = toUHugeInt(values[i])
+  elif kt == DuckType.UUID:
+    let dst = cast[ptr UncheckedArray[duckdb_hugeint]](v.data)
+    for i in 0 ..< values.len: dst[start + i] = toDuckUuid(values[i])
+  elif kt == DuckType.TimestampS:
+    let dst = cast[ptr UncheckedArray[int64]](v.data)
+    for i in 0 ..< values.len: dst[start + i] = toDuckTimestampS(values[i])
+  elif kt == DuckType.TimestampMs:
+    let dst = cast[ptr UncheckedArray[int64]](v.data)
+    for i in 0 ..< values.len: dst[start + i] = toDuckTimestampMs(values[i])
+  elif kt == DuckType.TimestampNs:
+    let dst = cast[ptr UncheckedArray[int64]](v.data)
+    for i in 0 ..< values.len: dst[start + i] = toDuckTimestampNs(values[i])
+  elif kt == DuckType.TimeTz:
+    let dst = cast[ptr UncheckedArray[int64]](v.data)
+    for i in 0 ..< values.len: dst[start + i] = toDuckTimeTz(values[i])
+  elif kt == DuckType.TimestampTz:
+    let dst = cast[ptr UncheckedArray[int64]](v.data)
+    for i in 0 ..< values.len: dst[start + i] = toDuckTimestampTz(values[i])
+  elif kt == DuckType.Decimal:
+    for i in 0 ..< values.len:
+      var tmp = v
+      tmp[start + i] = values[i]
+  elif kt == DuckType.Enum:
+    for i in 0 ..< values.len:
+      var tmp = v
+      tmp[start + i] = values[i]
+  elif kt in DuckComplexKind:
+    {.error: "appendValues not supported for complex kinds; use child descent procs".}
+
+# ---------------------------------------------------------------------------
+# ChunkBuilder — column-oriented DataChunk construction
+# ---------------------------------------------------------------------------
+
+type
+  ChunkBuilder* = object
+    chunk: DataChunk
+    colRows: seq[int]
+    capacity: int
+
+proc `=copy`*(dest: var ChunkBuilder, src: ChunkBuilder) {.error.}
+proc `=dup`*(src: ChunkBuilder): ChunkBuilder {.error.}
+
+proc newChunkBuilder*(columns: sink seq[Column]): ChunkBuilder =
+  result.chunk = newDataChunk(columns)
+  result.colRows = newSeq[int](columns.len)
+  result.capacity = VECTOR_SIZE
+  result.chunk.setSize(VECTOR_SIZE)
+
+proc newChunkBuilder*(chunk: sink DataChunk): ChunkBuilder =
+  result.chunk = chunk
+  result.colRows = newSeq[int](chunk.columnCount)
+  result.capacity = VECTOR_SIZE
+  result.chunk.setSize(VECTOR_SIZE)
+
+proc len*(b: ChunkBuilder): int {.inline.} =
+  if b.colRows.len > 0: b.colRows[0] else: 0
+
+proc appendedRows*(b: ChunkBuilder, col: int): int {.inline.} =
+  doAssert col in 0 ..< b.colRows.len, "column out of range"
+  b.colRows[col]
+
+proc columnCount*(b: ChunkBuilder): int {.inline.} = b.colRows.len
+
+proc append*[kt: static DuckType](
+    b: var ChunkBuilder, col: int, val: sink nimOf(kt)) =
+  doAssert col in 0 ..< b.colRows.len, "column out of range"
+  doAssert b.colRows[col] < b.capacity, "chunk capacity exceeded"
+  var w = b.chunk.bindAs(col, kt)
+  w[b.colRows[col]] = val
+  inc b.colRows[col]
+
+proc appendNull*[kt: static DuckType](
+    b: var ChunkBuilder, col: int) =
+  doAssert col in 0 ..< b.colRows.len, "column out of range"
+  doAssert b.colRows[col] < b.capacity, "chunk capacity exceeded"
+  var w = b.chunk.bindAs(col, kt)
+  w.setNull(b.colRows[col])
+  inc b.colRows[col]
+
+proc appendValues*[kt: static DuckType](
+    b: var ChunkBuilder, col: int,
+    values: openArray[nimOf(kt)]) =
+  doAssert col in 0 ..< b.colRows.len, "column out of range"
+  doAssert b.colRows[col] + values.len <= b.capacity, "chunk capacity exceeded"
+  var w = b.chunk.bindAs(col, kt)
+  w.appendValues(values, start = b.colRows[col])
+  b.colRows[col] += values.len
+
+proc appendNulls*[kt: static DuckType](
+    b: var ChunkBuilder, col: int, n: int) =
+  for _ in 0 ..< n: appendNull[kt](b, col)
+
+proc finish*(b: var ChunkBuilder): DataChunk =
+  doAssert b.chunk != nil, "ChunkBuilder already finished"
+  let n = b.colRows[0]
+  for i in 1 ..< b.colRows.len:
+    if b.colRows[i] != n:
+      raise newException(ValueError,
+        "column length mismatch: col 0 has " & $n & " rows, col " & $i &
+        " has " & $b.colRows[i])
+  b.chunk.setSize(n)
+  result = move(b.chunk)
+
+# ---------------------------------------------------------------------------
+# Seq constructors — single-column and multi-column DataChunk creation
+# ---------------------------------------------------------------------------
+
+proc newDataChunk*[T](name: string, values: sink seq[T]): DataChunk =
+  result = newDataChunk(@[newColumn(name, newLogicalType(colDuckTypeOf(T)))])
+  result.setSize(values.len)
+  if values.len > 0:
+    var w = result.bindAs(0, colDuckTypeOf(T))
+    w.appendValues(values)
+
+macro newChunk*(pairs: varargs[typed]): untyped =
+  proc ktNode(elemType: NimNode): NimNode =
+    let n = repr(elemType)
+    let dt = ident"DuckType"
+    if n == "bool": newDotExpr(dt, ident"Boolean")
+    elif n == "int8": newDotExpr(dt, ident"TinyInt")
+    elif n == "int16": newDotExpr(dt, ident"SmallInt")
+    elif n == "int32": newDotExpr(dt, ident"Integer")
+    elif n == "int64" or n == "int": newDotExpr(dt, ident"BigInt")
+    elif n == "uint8" or n == "byte": newDotExpr(dt, ident"UTinyInt")
+    elif n == "uint16": newDotExpr(dt, ident"USmallInt")
+    elif n == "uint32": newDotExpr(dt, ident"UInteger")
+    elif n == "uint64" or n == "uint": newDotExpr(dt, ident"UBigInt")
+    elif n == "float32": newDotExpr(dt, ident"Float")
+    elif n == "float64": newDotExpr(dt, ident"Double")
+    elif n == "string": newDotExpr(dt, ident"Varchar")
+    elif n == "seq[byte]": newDotExpr(dt, ident"Blob")
+    elif n == "Timestamp" or n == "DateTime": newDotExpr(dt, ident"Timestamp")
+    elif n == "Time": newDotExpr(dt, ident"Time")
+    elif n == "TimeInterval": newDotExpr(dt, ident"Interval")
+    elif n == "Int128": newDotExpr(dt, ident"HugeInt")
+    elif n == "UInt128": newDotExpr(dt, ident"UHugeInt")
+    elif n == "Uuid": newDotExpr(dt, ident"UUID")
+    else: error "unsupported element type: " & n, elemType
+  if pairs.len < 1:
+    error "newChunk needs at least one (name, seq) pair"
+  let chunkL = genSym(nskVar, "chunkL")
+  let nL = genSym(nskLet, "nL")
+  var
+    colDefs = newNimNode(nnkBracket)
+    lenChecks = newNimNode(nnkStmtList)
+    fills = newNimNode(nnkStmtList)
+    firstSeq: NimNode = nil
+  for i, pair in pairs:
+    if pair.kind != nnkTupleConstr or pair.len != 2:
+      error "each argument must be a (name, seq) tuple", pair
+    let
+      nameAst = pair[0]
+      seqAst = pair[1]
+    if firstSeq.isNil: firstSeq = seqAst
+    let seqType = seqAst.getTypeInst
+    let elemType =
+      if seqType.kind == nnkBracketExpr and seqType.len == 2: seqType[1]
+      else: error "expected seq[T], got " & $seqType, seqAst
+    let kt = ktNode(elemType)
+    colDefs.add(newCall(bindSym"newColumn", nameAst,
+                        newCall(bindSym"newLogicalType", kt)))
+    if i > 0:
+      lenChecks.add(newCall(bindSym"doAssert",
+        infix(newDotExpr(seqAst, ident"len"), "==", newDotExpr(firstSeq, ident"len")),
+        newStrLitNode("column length mismatch in newChunk")))
+    let wI = genSym(nskVar, "w" & $i)
+    fills.add(newVarStmt(wI, newCall(bindSym"bindAs", chunkL, newLit i, kt)))
+    fills.add(newCall(bindSym"appendValues", wI, seqAst))
+  result = newStmtList()
+  result.add(newVarStmt(chunkL,
+    newCall(bindSym"newDataChunk", prefix(colDefs, "@"))))
+  result.add(newLetStmt(nL, newDotExpr(firstSeq, ident"len")))
+  result.add(lenChecks)
+  result.add(newCall(newDotExpr(chunkL, ident"setSize"), nL))
+  result.add(fills)
+  result.add(chunkL)
 
 # ---------------------------------------------------------------------------
 # borrow() — non-allocating view for VARCHAR / Bit / Blob
@@ -525,6 +885,7 @@ iterator items*[kt: static DuckType](v: Vector[kt]): nimOf(kt) =
   for i in 0 ..< n:
     if v.valid(i): yield v[i]
     else: yield default(nimOf(kt))
+
 
 # ---------------------------------------------------------------------------
 # toSeq — explicit bulk materialise for any kind
@@ -725,11 +1086,9 @@ when defined(features.nimdrake.arrow):
     var
       handles = newSeq[duckdbLogicalType](len(cols))
       names = newSeq[cstring](len(cols))
-
-    for i, col in cols:
-      handles[i] = col.ltype.handle
-      names[i] = col.name.cstring
-
+    for i in 0 ..< cols.len:
+      handles[i] = cols[i].ltype.handle
+      names[i] = cols[i].name.cstring
     let err = duckdb_to_arrow_schema(
       opt.handle,
       cast[ptr duckdbLogicalType](handles[0].addr),
@@ -737,7 +1096,6 @@ when defined(features.nimdrake.arrow):
       len(cols).idx_t,
       cast[ptr struct_ArrowSchema](result.addr),
     )
-
     if not isNil(err):
       raise newException(OperationError, $duckdb_error_data_message(err))
 
@@ -757,3 +1115,12 @@ when defined(features.nimdrake.arrow):
     let gSchema = newSchema(cast[pointer](schema.addr))
     for batch in toArrowStream(qrs, options, gSchema):
       yield batch
+
+  proc toArrowTable*(qrs: QResult[Streaming]): ArrowTable =
+    var recordBatches = newSeq[RecordBatch]()
+    let options = newArrowOptions(qrs.handle.raw.addr)
+    let schema  = newArrowSchema(options, qrs.meta.columns)
+    let gSchema = newSchema(cast[pointer](schema.addr))
+    for batch in qrs.toArrowStream(options, gSchema):
+      recordBatches.add(batch)
+    result = newArrowTable(gSchema, recordBatches)

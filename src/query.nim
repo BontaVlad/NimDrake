@@ -363,8 +363,7 @@ proc execute*[T: Values](
     con: Connection, statement: Statement, args: T
 ): QResult[Streaming] {.discardable.} =
   ## Executes a prepared statement with provided arguments, returning a
-  ## streaming result. Raises if the query does not produce a streaming result
-  ## (e.g. INSERT, UPDATE, DELETE — use `executeMaterialized` instead).
+  ## streaming result.
   for i, value in enumerate(args.fields):
     check(
       bindVal(statement, (i + 1), value),
@@ -377,13 +376,12 @@ proc execute*[T: Values](
     duckdb_destroy_result(raw.addr)
     raise newException(OperationError,
       "execute with prepared statement did not produce a streaming result; " &
-      "use executeMaterialized for DML statements")
+      "use executeMaterialized for DML or non-streaming statements")
   result = newQResult(QResult[Streaming], raw)
 
 proc execute*(con: Connection, statement: Statement): QResult[Streaming] {.discardable.} =
   ## Executes a prepared statement, returning a streaming result.
   ## Raises if the query does not produce a streaming result
-  ## (e.g. INSERT, UPDATE, DELETE — use `executeMaterialized` instead).
   var raw: duckdb_result
   checkResult(duckdb_execute_prepared_streaming(statement, raw.addr),
     raw, "execute prepared streaming")
@@ -391,7 +389,7 @@ proc execute*(con: Connection, statement: Statement): QResult[Streaming] {.disca
     duckdb_destroy_result(raw.addr)
     raise newException(OperationError,
       "execute with prepared statement did not produce a streaming result; " &
-      "use executeMaterialized for DML statements")
+      "use executeMaterialized for DML or non-streaming statements")
   result = newQResult(QResult[Streaming], raw)
 
 proc execute*(con: Connection, query: Query): QResult[Materialized] {.discardable.} =
@@ -420,31 +418,27 @@ proc execute*(pending: PendingQueryResult): QResult[Streaming] {.discardable.} =
     duckdb_destroy_result(raw.addr)
     raise newException(OperationError,
       "execute(pending) requires a streaming pending result; " &
-      "use newPendingStreamingResult or executeMaterialized")
+      "use newPendingStreamingResult or executeMaterialized for DML")
   result = newQResult(QResult[Streaming], raw)
 
 # ---------------------------------------------------------------------------
-# executeMaterialized — explicit materialized shortcut
+# execute — materialized (for DML and non-streaming queries)
 # ---------------------------------------------------------------------------
 
-proc executeMaterialized*(con: Connection, query: Query): QResult[Materialized] {.discardable.} =
-  ## Executes a raw query, materializing all results upfront.
-  var raw: duckdb_result
-  checkResult(duckdb_query(con.rawHandle, query, raw.addr),
-    raw, "execute materialized")
-  result = newQResult(QResult[Materialized], raw)
-
 proc executeMaterialized*(con: Connection, statement: Statement): QResult[Materialized] {.discardable.} =
-  ## Executes a prepared statement, materializing all results upfront.
+  ## Executes a prepared statement, materializing results upfront.
+  ## Use this for DML statements (INSERT, UPDATE, DELETE) and queries that
+  ## do not produce a streaming result.
   var raw: duckdb_result
   checkResult(duckdb_execute_prepared(statement, raw.addr),
-    raw, "execute prepared materialized")
+    raw, "executeMaterialized")
   result = newQResult(QResult[Materialized], raw)
 
 proc executeMaterialized*[T: Values](
     con: Connection, statement: Statement, args: T
 ): QResult[Materialized] {.discardable.} =
-  ## Executes a prepared statement with arguments, materializing all results upfront.
+  ## Executes a prepared statement with provided arguments, materializing
+  ## results upfront. Suitable for DML statements and non-streaming queries.
   for i, value in enumerate(args.fields):
     check(
       bindVal(statement, (i + 1), value),
@@ -452,29 +446,23 @@ proc executeMaterialized*[T: Values](
     )
   var raw: duckdb_result
   checkResult(duckdb_execute_prepared(statement, raw.addr),
-    raw, "execute prepared materialized")
+    raw, "executeMaterialized")
   result = newQResult(QResult[Materialized], raw)
 
 proc executeMaterialized*[T: Values](
     con: Connection, query: Query, args: T
 ): QResult[Materialized] {.discardable.} =
-  ## Executes a query with arguments, materializing all results upfront.
+  ## Executes a query with arguments by first preparing a statement,
+  ## then materializing results upfront. Suitable for DML statements
+  ## (``INSERT``, ``UPDATE``, ``DELETE``) and non-streaming queries.
+  ##
+  ## .. code-block:: nim
+  ##   conn.executeMaterialized(
+  ##     "INSERT INTO t VALUES (?, ?, ?)", (1, "hello", 3.14))
   let statement = newStatement(con, query)
   result = con.executeMaterialized(statement, args)
 
-proc executeMaterialized*(pending: PendingQueryResult): QResult[Materialized] {.discardable.} =
-  ## Executes a pending query result, materializing all results upfront.
-  ## Handles both streaming and non-streaming pending results.
-  var raw: duckdb_result
-  checkResult(duckdb_execute_pending(pending, raw.addr),
-    raw, "execute pending materialized")
-  if duckdb_result_is_streaming(raw):
-    var sres = newQResult(QResult[Streaming], raw)
-    result = materialize(sres)
-  else:
-    result = newQResult(QResult[Materialized], raw)
-
-# ---------------------------------------------------------------------------
+# # ---------------------------------------------------------------------------
 # Pending / step-based execution
 # ---------------------------------------------------------------------------
 
@@ -554,6 +542,15 @@ proc newAppender*(con: Connection, table: string): Appender =
     fmt"Failed to create appender for table: {table}",
     `=destroy`(result),
   )
+
+proc newDataChunk*(appender: Appender): DataChunk =
+  var cols: seq[Column]
+  for c in columns(appender):
+    cols.add newColumn("", c.tpy, idx = c.idx)
+  result = newDataChunk(cols)
+
+proc newChunkBuilder*(appender: Appender): ChunkBuilder =
+  result = newChunkBuilder(newDataChunk(appender))
 
 proc newAppender*[T](con: Connection, table: string, ent: seq[seq[T]]) =
   ## Appends a sequence of sequences of type `T` to a specified table in a DuckDB database.

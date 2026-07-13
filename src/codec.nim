@@ -192,3 +192,67 @@ proc fromDuckDecimal*(scale, width: int8, data: pointer, i: int): DecimalType {.
     fracStr = $absFrac
     paddedFrac = repeat('0', scale - fracStr.len) & fracStr
   newDecimal($whole & "." & paddedFrac)
+
+# ---------------------------------------------------------------------------
+# Inverse encoders — write path for Vector[kt][] =
+# ---------------------------------------------------------------------------
+
+proc toDuckTimestampS*(val: DateTime): int64 {.inline.} =
+  let t = val.inZone(utc()).toTime
+  t.toUnix
+
+proc toDuckTimestampMs*(val: DateTime): int64 {.inline.} =
+  let t = val.inZone(utc()).toTime
+  t.toUnix * 1000 + (t.nanosecond div 1_000_000)
+
+proc toDuckTimestampNs*(val: DateTime): int64 {.inline.} =
+  let t = val.inZone(utc()).toTime
+  t.toUnix * 1_000_000_000 + t.nanosecond
+
+proc toDuckTimeTz*(val: ZonedTime): int64 {.inline.} =
+  let micros = val.time.toUnix * 1_000_000 + (val.time.nanosecond div 1_000)
+  let packed = duckdb_create_time_tz(cast[int64](micros), int32(val.utcOffset))
+  cast[int64](packed.bits)
+
+proc toDuckTimestampTz*(val: ZonedTime): int64 {.inline.} =
+  val.time.toUnix * 1_000_000 + (val.time.nanosecond div 1_000)
+
+proc toDuckUuid*(val: Uuid): duckdb_hugeint {.inline.} =
+  var hi: uint64 = 0
+  var lo: uint64 = 0
+  for b in 0 .. 7:
+    hi = hi or (uint64(val.bytes[b]) shl ((7 - b) * 8))
+    lo = lo or (uint64(val.bytes[8 + b]) shl ((7 - b) * 8))
+  duckdb_hugeint(upper: cast[int64](hi), lower: lo)
+
+proc toDuckDecimal*(val: DecimalType, width: int8, scale: int8): Int128 {.inline.} =
+  let s = $val
+  if s == "" or s == "NaN" or s == "Inf" or s == "-Inf":
+    return zero(Int128)
+  var unscaled = ""
+  var seenDot = false
+  var fracDst = 0
+  var neg = false
+  for i in 0 ..< s.len:
+    case s[i]
+    of '-':
+      if i == 0: neg = true
+      else: discard
+    of '.':
+      seenDot = true
+    of '0' .. '9':
+      unscaled.add s[i]
+      if seenDot:
+        inc fracDst
+    else: discard
+  while fracDst < scale:
+    unscaled.add '0'
+    inc fracDst
+  if unscaled.len == 0:
+    return zero(Int128)
+  var r = zero(Int128)
+  for c in unscaled:
+    r = r * i128(10) + i128(ord(c) - ord('0'))
+  if neg:
+    r = -r
+  result = r

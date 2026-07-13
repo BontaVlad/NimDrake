@@ -406,3 +406,12 @@ proc toDuckValue*(nv: NimValue): duckdb_value =
     raise newException(ValueError,
       "toDuckValue not yet implemented for complex kinds (" & $nv.kind &
       "); use typed bindVal/append overloads instead")
+
+
+proc scalar*(qrs: QResult): NimValue =
+  for chunk in qrs:
+    return chunk.vector(0).toNimValue(0)
+
+proc scalar*(qrs: QResult, kt: static DuckType): nimOf(kt) =
+  for chunk in qrs:
+    return chunk.bindAs(0, kt)[0]
