@@ -49,7 +49,7 @@ suite "Test replacement scans":
     )
 
     # Test with base number = 3, table name "2" -> range(5) -> 0,1,2,3,4
-    let result1 = conn.executeMaterialized("SELECT * FROM \"2\"")
+    let result1 = conn.execute("SELECT * FROM \"2\"")
     for chunk in result1:
       let vals = chunk.bindAs(0, DuckType.BigInt).toSeq
       check vals.len == 5
@@ -58,14 +58,14 @@ suite "Test replacement scans":
     baseNumber.number = 1
 
     # Test with base number = 1, table name "2" -> range(3) -> 0,1,2
-    let result2 = conn.executeMaterialized("SELECT * FROM \"2\"")
+    let result2 = conn.execute("SELECT * FROM \"2\"")
     for chunk in result2:
       let vals = chunk.bindAs(0, DuckType.BigInt).toSeq
       check vals.len == 3
       check vals == @[0'i64, 1'i64, 2'i64]
 
     expect(OperationError):
-      discard conn.executeMaterialized("SELECT * FROM nonexistant")
+      discard conn.execute("SELECT * FROM nonexistant")
 
   test "Test error replacement scan":
     let
@@ -80,4 +80,4 @@ suite "Test replacement scans":
     )
 
     expect(OperationError):
-      discard conn.executeMaterialized("SELECT * FROM nonexistant")
+      discard conn.execute("SELECT * FROM nonexistant")

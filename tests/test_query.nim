@@ -57,7 +57,7 @@ suite "Prepared/Appender statements":
     )
     let r = conn.execute("SELECT * FROM combined")
     for chunk in r:
-      check chunk.bindAs(0, DuckType.Integer).toSeq == @[6'i32, 5'i32, 7'i32]
+      check chunk.bindAs(0, DuckType.Integer).toSeq == @[6'i32, 5, 7]
       check chunk.bindAs(1, DuckType.Varchar).toSeq == @["foo", "bar", "baz"]
 
   test "Insert with appender":
@@ -67,8 +67,8 @@ suite "Prepared/Appender statements":
     conn.newAppender("integers", expected)
     let r = conn.execute("SELECT * FROM integers")
     for chunk in r:
-      check chunk.bindAs(0, DuckType.Integer).toSeq == @[6'i32, 5'i32, 7'i32]
-      check chunk.bindAs(1, DuckType.Integer).toSeq == @[4'i32, 6'i32, 8'i32]
+      check chunk.bindAs(0, DuckType.Integer).toSeq == @[6'i32, 5, 7]
+      check chunk.bindAs(1, DuckType.Integer).toSeq == @[4'i32, 6, 8]
 
   test "Insert with all appenders":
     let conn = newDatabase().connect()
@@ -362,7 +362,7 @@ suite "Test bind val dispatch":
     let blobData: seq[byte] = @[byte(1), byte(2), byte(3), byte(255)]
     check not duckdb_bind_blob(prepared, 1.idx_t, addr blobData[0], blobData.len.idx_t)
     conn.executeMaterialized(prepared)
-    let r = conn.executeMaterialized("SELECT blob_val FROM blob_table;")
+    let r = conn.execute("SELECT blob_val FROM blob_table;")
     for chunk in r:
       check chunk.bindAs(0, DuckType.Blob).toSeq == @[blobData]
 
@@ -373,7 +373,7 @@ suite "Test bind val dispatch":
     check not bindNull(prepared, 1)
     check not bindNull(prepared, 2)
     conn.executeMaterialized(prepared)
-    let r = conn.executeMaterialized("SELECT int_val, str_val FROM nullable_table;")
+    let r = conn.execute("SELECT int_val, str_val FROM nullable_table;")
     for chunk in r:
       check chunk.vector(0).valid(0) == false
       check chunk.vector(1).valid(0) == false
@@ -773,9 +773,9 @@ suite "Test pending statement queries":
     let
       conn = newDatabase().connect()
       prepared = conn.newStatement("SELECT SUM(i) FROM range(1000000) tbl(i);")
-      pending = newPendingResult(prepared)
+      pending = newPendingStreamingResult(prepared)
 
-    let outcome = pending.executeMaterialized()
+    let outcome = pending.execute()
     for chunk in outcome:
       check chunk.bindAs(0, DuckType.HugeInt)[0] == i128("499999500000")
 
@@ -783,7 +783,7 @@ suite "Test pending statement queries":
     let
       conn = newDatabase().connect()
       prepared = conn.newStatement("SELECT SUM(i) FROM range(1000000) tbl(i);")
-      pending = newPendingResult(prepared)
+      pending = newPendingStreamingResult(prepared)
 
     while true:
       let state = pending.step()
@@ -792,7 +792,7 @@ suite "Test pending statement queries":
       elif state == PendingState.Error:
         break
 
-    let outcome = pending.executeMaterialized()
+    let outcome = pending.execute()
     for chunk in outcome:
       check chunk.bindAs(0, DuckType.HugeInt)[0] == i128("499999500000")
 

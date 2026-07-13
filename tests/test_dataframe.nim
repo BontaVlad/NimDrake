@@ -8,7 +8,7 @@ suite "Test QResult display":
     duck.execute("DROP TABLE IF EXISTS temp")
     duck.execute("CREATE TABLE temp AS SELECT 10 AS foo, 'a' AS bar")
     duck.execute("INSERT INTO temp VALUES (20, 'b')")
-    let r = duck.executeMaterialized("SELECT * FROM temp")
+    let r = duck.execute("SELECT * FROM temp")
 
   test "Test result columns":
     var names: seq[string]
