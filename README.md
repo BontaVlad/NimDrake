@@ -10,447 +10,426 @@
 </div>
 <br>
 
-## NimDrake
+## Overview
 
-NimDrake is a [Nim](https://nim-lang.org/) language package designed to integrate with [DuckDB](https://duckdb.org/), an in-process SQL OLAP database management system. It simplifies database interactions while maintaining flexibility for advanced use cases. NimDrake is built with two ideas in mind, the high-level interface offers quick and easy database operations, ideal for rapid development and simplicity,
-and a lower-level interface that directly interacts with DuckDB's core functionalities, enabling complex or high-performance implementations when necessary.
-This dual-layer approach ensures that NimDrake caters to both beginners and advanced users.
+NimDrake is a [Nim](https://nim-lang.org/) package for [DuckDB](https://duckdb.org/), an
+in-process OLAP database engine. It provides a dual-layer API:
 
-**Please note:** NimDrake is currently in a pre-alpha stage and is considered experimental. It contains bugs and lacks some intended features. Use with caution and report any issues you encounter.
+- **High level** — `execute`, `$` pretty-printing, scalar/table UDF macros, prepared
+  statements with Nim-tuple binding, appenders, cross-chunk `Table` views.
+- **Low level** — zero-copy `Vector[kt]` views, streaming chunk iteration, `bindAs`
+  type dispatch, `ChunkBuilder`, raw DuckDB FFI handles.
+
+NimDrake targets DuckDB v1.5.4 and Nim `>= 2.0.0`.
+
+> NimDrake is pre-alpha. It contains bugs and missing features. Use with caution.
 
 ---
 
 ## Installation
 
-NimDrake is a [nimble](https://github.com/nim-lang/nimble) package. It uses
-nimble's **feature sets** to keep dev-only dependencies (`futhark`,
-`criterion`, `unittest2`) out of the default install. Those deps are grouped
-under the built-in `dev` feature and are pulled in only when you opt in.
-
-### From the package registry (production)
+### From the package registry
 
 ```bash
 nimble install nimdrake
 ```
 
-This installs only the production dependencies (`nint128`, `decimal`,
-`terminaltables`, `uuid4`, `fusion`).
-
-### With development dependencies
-
-Tests, benchmarks, and wrapper regeneration (via `-d:useFuthark`) need the
-extra dev dependencies. Activate them with the declarative parser and the
-`dev` feature set:
+### With dev dependencies (tests, benchmarks, FFI regeneration)
 
 ```bash
 nimble install nimdrake --parser:declarative --features:dev
 ```
 
-> **Note:** The `dev:` block is ignored by nimble's default `nimvm` parser, so
-> the `--parser:declarative` flag is required for `--features:dev` to take
-> effect. With the declarative parser active, source files can also gate on
-> `when defined(features.nimdrake.dev)`.
+`--parser:declarative` is required for nimble's declarative parser to recognise the
+`dev` feature set that pulls in `unittest2` and `criterion`.
 
-### From source (manual)
+### From source
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/BontaVlad/NimDrake
-   cd NimDrake
-   ```
+```bash
+git clone https://github.com/BontaVlad/NimDrake
+cd NimDrake
+nimble install
+```
 
-2. Install with nimble (add `--parser:declarative --features:dev` for dev deps):
-   ```bash
-   nimble install
-   ```
+### DuckDB native library
 
+NimDrake needs `libduckdb.so` (Linux), `libduckdb.dylib` (macOS), or `duckdb.dll`
+(Windows). The build resolves it in this order:
 
-### DuckDB dependency
+1. **Vendored** under `src/include/` — populate with `just fetch-lib`
+2. **System-installed** — discovered via `pkg-config duckdb` or `ldconfig`
+3. **Error** — if neither is present
 
-NimDrake requires DuckDB v1.5.4. The build resolves the library in three
-tiers, tried in order:
+The vendored path is preferred for reproducible builds.
 
-1. **Vendored** under `src/include/` (`libduckdb.so` on Linux, `libduckdb.dylib`
-   on macOS, `duckdb.dll` on Windows). Populate it with:
-   ```bash
-   just fetch-lib        # linux amd64; other platforms: see justfile
-   ```
-2. **System-installed** libduckdb, discovered via `pkg-config --exists duckdb`
-   or `ldconfig -p`. Install via your distro's package manager or Homebrew.
-3. **Error** — if neither is present, `nim c` fails with a message listing both
-   options above.
+---
 
-The vendored path is preferred for reproducible builds; the system path is the
-fallback for users who already have DuckDB installed. Futhark binding
-regeneration (`-d:useFuthark`) searches `src/include/duckdb.h` first, then
-`/usr/local/include` and `/usr/include`.
+## Quick start
 
-## Full Documentation
-For a full documentation and API index go [here](http://bontavlad.com/NimDrake/)
-
-## Code Examples
-
-Here are a few simple examples of how to use this repository:
-
-### Example 1: Simple query
 ```nim
 import nimdrake
 
-let duck = newDatabase().connect()
+let db = newDatabase()
+let con = db.connect()
 
-echo duck.execute("SELECT * FROM range(100) AS example;")
-
-# Environment Variables for Controlling Dataframe Display Options
-# - **display_show_index** (True/False): Determines whether to show or hide row index columns. Set `True` to display indexes, `False` to hide them.  
-# - **display_max_rows**: Specifies the maximum number of rows displayed in a dataframe output.
-# - **display_max_columns** (Default 100): Restricts the maximum number of columns to be shown at once to prevent overwhelming displays; set to `100` as default.
-# - **display_clip_column_name**: Limits the length of column names displayed, which can help in keeping outputs clean when dealing with long-named columns. Set it to `20`.
-
-# output:
-# ┌───────┬───────────────┐
-# │  #    │     range     │
-# ├───────┼───────────────┤
-# │  0    │     0         │
-# │  1    │     1         │
-# │  2    │     2         │
-# │  3    │     3         │
-# │  4    │     4         │
-# │  ...  │     ...       │
-# │  95   │     95        │
-# │  96   │     96        │
-# │  97   │     97        │
-# │  98   │     98        │
-# │  99   │     99        │
-# └───────┴───────────────┘
-
-```
-
-### Example 2: Access query results using the Vector Interface.
-```nim
-let duck = newDatabase().connect()
-
-let outcome = duck.execute(""" SELECT seq AS int_col, 'Value_' || seq::VARCHAR AS varchar_col FROM generate_series(1,3) AS t(seq) """).fetchAll()
-echo outcome[0].valueBigint # -> @[1, 2, 3]
-echo outcome[1].valueVarchar # -> @["Value_1", "Value_2", "Value_3"]
-
-# we can also access by column name
-
-let outcome = duck.execute(""" SELECT seq AS int_col, 'Value_' || seq::VARCHAR AS varchar_col FROM generate_series(1,3) AS t(seq) """).fetchAllNamed()
-echo outcome["int_col"].valueBigint # -> @[1, 2, 3]
-echo outcome["varchar_col"].valueVarchar # -> @["Value_1", "Value_2", "Value_3"]
-
-```
-
-### Example 3: Using the row iterator interface
-```nim
-let duck = newDatabase().connect()
-
-let task = duck.execute(""" SELECT seq AS int_col, 'Value_' || seq::VARCHAR AS varchar_col FROM generate_series(1,3) AS t(seq) """)
-for i, row in enumerate(task.rows):
-  echo fmt"row {i}: ({row[0]}, {row[1]})"
-  
-#output:
-# row 0: (1, Value_1)
-# row 1: (2, Value_2)
-# row 2: (3, Value_3)
-```
-
-### Example 4: Pretty-print a result as a table
-```nim
-let 
-  # we can also start a session with custom config flags
-  config = newConfig({"threads": "3"}.toTable)
-  duck = newDatabase().connect(config)
-
-let r = duck.executeMaterialized(
-  "SELECT 10::INTEGER AS foo, 'a'::VARCHAR AS bar " &
-  "UNION ALL SELECT 30, 'b' " &
-  "UNION ALL SELECT 20, 'c'"
-)
-echo r.len          # 3
-echo r.columnCount  # 2
-echo r.column("foo").kind  # Integer
+let r = con.execute("""
+  SELECT i, i * i AS sq
+  FROM generate_series(1, 5) AS t(i)
+""")
 echo r
-  
-#output:
-# 3
-# 2
-# Integer
 # ┌─────────────┬─────────────┐
-# │     foo     │     bar     │
+# │      i      │     sq      │
 # ├─────────────┼─────────────┤
-# │     10      │     a       │
-# │     30      │     b       │
-# │     20      │     c       │
+# │     1       │     1       │
+# │     2       │     4       │
+# │     3       │     9       │
+# │     4       │     16      │
+# │     5       │     25      │
 # └─────────────┴─────────────┘
 ```
 
-### Example 5: Insert with prepared statement
+---
+
+## API guide
+
+### Database and configuration
 
 ```nim
-let duck = newDatabase().connect()
-duck.execute(
-    """
-    CREATE TABLE prepared_table (
-        bool_val BOOLEAN,
-        int32_val INTEGER,
-        float64_val DOUBLE,
-        string_val VARCHAR,
-    );
-    """
-)
+import nimdrake
 
-let prepared = duck.newStatement("INSERT INTO prepared_table VALUES (?, ?, ?, ?);")
-duck.execute(prepared, (true, -2147483648'i32, 3.14159265359'f64, "hello"))
-echo duck.execute("SELECT * FROM prepared_table;")
+# In-memory (default)
+let db = newDatabase()
+let con = db.connect()
 
-# output:
-# ┌─────┬──────────────────┬────────────────────┬─────────────────────┬───────────────────────┐
-# │  #  │     bool_val     │     string_val     │     int32_val       │     float64_val       │
-# ├─────┼──────────────────┼────────────────────┼─────────────────────┼───────────────────────┤
-# │  0  │     true         │     hello          │     -2147483648     │     3.14159265359     │
-# └─────┴──────────────────┴────────────────────┴─────────────────────┴───────────────────────┘
-
+# Persistent file
+let db2 = newDatabase("mydb.duckdb")
+let con2 = db2.connect()
 ```
 
-### Example 6: Using UDF(user defined functions)
-
-NimDrake supports registering plain Nim procs as DuckDB scalar functions via
-the `registerScalar` macro. The macro introspects param/return types at compile
-time and generates a type-safe DuckDB wrapper with null propagation (any NULL
-input → NULL output without calling the body).
+### Config flags
 
 ```nim
-let duck = newDatabase().connect()
+let cfg = newConfig({"threads": "4", "memory_limit": "2GB"}.toTable)
+let con = newDatabase(cfg).connect()
+```
 
-proc doubleValue(a, b: int64): int64 = a * b
+### Query execution
 
-duck.registerScalar(doubleValue)
+`con.execute("SELECT ...")` returns `QResult[Materialized]` — a fully materialised
+in-memory result. `con.execute(stmt)` with a prepared statement returns
+`QResult[Streaming]` for lazy chunk-by-chunk consumption.
 
-let r = duck.execute("SELECT doubleValue(3::BIGINT, 4::BIGINT)")
+### Accessing results — typed Vector views
+
+```nim
+let r = con.execute("SELECT 42::BIGINT AS answer, 'hello'::VARCHAR AS greeting")
+
+for chunk in r:
+  let answer   = chunk.vector(0).bindAs DuckType.BigInt
+  let greeting = chunk.vector(1).bindAs DuckType.Varchar
+  # or by name:
+  # let answer   = chunk["answer"].bindAs DuckType.BigInt
+  for i in 0 ..< answer.len:
+    echo answer[i], " — ", greeting[i]
+```
+
+`Vector[kt]` is a zero-copy typed view over a DuckDB column's raw data buffer.
+Use `bindAs(DuckType.X)` to select the Nim type. See the type-mapping table at
+the bottom for the full `DuckType` → Nim mapping.
+
+### Streaming iteration
+
+```nim
+let stmt = con.newStatement("SELECT i FROM generate_series(1, 1_000_000) AS t(i)")
+for chunk in con.execute(stmt):
+  let v = chunk.vector(0).bindAs DuckType.BigInt
+  for x in v:
+    discard  # process row by row
+```
+
+### Prepared statements with Nim-tuple binding
+
+```nim
+con.execute("""
+  CREATE TABLE people (id BIGINT, name VARCHAR, active BOOLEAN)
+""")
+let stmt = con.newStatement("INSERT INTO people VALUES (?, ?, ?)")
+con.execute(stmt, (int64(1), "Alice", true))
+con.execute(stmt, (int64(2), "Bob", false))
+echo con.execute("SELECT * FROM people ORDER BY id")
+```
+
+### Appender (bulk insert)
+
+```nim
+let appender = con.newAppender("people")
+for i in 3 .. 100_000:
+  appender.append(int64(i))
+  appender.append("person_" & $i)
+  appender.append(true)
+  appender.endRow()
+appender.close()
+```
+
+### Transaction helpers
+
+```nim
+con.transaction:
+  con.execute("INSERT INTO people VALUES (999, 'inside', true)")
+  # auto-commits on success, rolls back on exception
+```
+
+### Cross-chunk random access — Table API
+
+```nim
+let r = con.execute("SELECT i FROM generate_series(1, 5000) AS t(i)")
+let tbl = initTable(r)
+let col = tbl.bindAs(0, DuckType.BigInt)
+echo col[4999]   # O(log n) binary search across chunks
+```
+
+---
+
+## User-defined functions
+
+### Scalar UDF (`registerScalar`)
+
+Register any non-generic Nim proc as a DuckDB scalar function. The macro
+introspects parameter and return types at compile time. NULL input cells
+propagate to NULL output automatically (null-propagating semantics).
+
+```nim
+proc multiply(a, b: int64): int64 = a * b
+
+let con = newDatabase().connect()
+con.registerScalar(multiply)
+
+let r = con.execute("SELECT multiply(3::BIGINT, 7::BIGINT)")
 for chunk in r:
   let v = chunk.vector(0).bindAs DuckType.BigInt
-  echo v[0]  # 7
-
-# output (without loop):
-# ┌──────────────────────────┐
-# │ doubleValue(3, 4)        │
-# ├──────────────────────────┤
-# │ 7                        │
-# └──────────────────────────┘
+  echo v[0]  # 21
 ```
 
-Supported param/return types: `bool`, `int8`–`int64`, `uint8`–`uint64`,
-`float32`, `float64`, `string`, `seq[byte]`, `DateTime`, `Time`,
-`TimeInterval`, `Int128`, `UInt128`, `Uuid`, `ZonedTime`.
+Supported types: `bool`, `int8`–`int64`, `uint8`–`uint64`, `float32`, `float64`,
+`string`, `seq[byte]`, `DateTime`, `Time`, `TimeInterval`, `Int128`, `UInt128`,
+`Uuid`, `ZonedTime`.
 
-### Example 7: Using UDF as table generators
+### Table function UDF (`registerTableFunction`)
 
-Nim closure iterators can be registered as DuckDB table functions via the
-`registerTableFunction` macro. Two styles are available:
+Register a `{.closure.}` iterator as a DuckDB table function. Parameters are
+automatically bound from SQL.
 
-**Style A — explicit macro call:**
 ```nim
-let duck = newDatabase().connect()
-
 iterator countToN(count: int): int {.closure.} =
   for i in 0 ..< count:
     yield i
 
-duck.registerTableFunction(countToN)
-
-echo duck.execute("SELECT * FROM countToN(3)")
-```
-
-**Style B — `{.producer.}` pragma (auto-generates `registerXxx(con)` proc):**
-```nim
-iterator countToN(count: int): int {.producer, closure.} =
-  for i in 0 ..< count:
-    yield i
-
-# Auto-generated: registerCountToN(con: Connection)
-registerCountToN(duck)
-
-echo duck.execute("SELECT * FROM countToN(3)")
-
-# output:
+let con = newDatabase().connect()
+con.registerTableFunction(countToN)
+echo con.execute("SELECT * FROM countToN(5)")
 # ┌─────┬──────────────────┐
 # │  #  │     countToN     │
 # ├─────┼──────────────────┤
 # │  0  │     0            │
 # │  1  │     1            │
 # │  2  │     2            │
+# │  3  │     3            │
+# │  4  │     4            │
 # └─────┴──────────────────┘
 ```
 
-Multi-param and multi-type iterators work naturally:
+### `{.producer.}` pragma
+
+Sugar that auto-generates a `registerXxx(con)` proc:
+
 ```nim
-iterator progress(count: int, sigil: string): string {.producer, closure.} =
-  var output = ""
-  for _ in 0 ..< count:
-    output &= sigil
-    yield output
+iterator fibNumbers(limit: int): int {.producer, closure.} =
+  var (a, b) = (0, 1)
+  while a <= limit:
+    yield a
+    (a, b) = (b, a + b)
 
-registerProgress(duck)
-echo duck.execute("SELECT * FROM progress(5, '#')")
-
-# ┌─────┬──────────────────┐
-# │  #  │     progress     │
-# ├─────┼──────────────────┤
-# │  0  │     #            │
-# │  1  │     ##           │
-# │  2  │     ###          │
-# │  3  │     ####         │
-# │  4  │     #####        │
-# └─────┴──────────────────┘
+let con = newDatabase().connect()
+registerFibNumbers(con)          # auto-generated
+echo con.execute("SELECT * FROM fibNumbers(100)")
 ```
 
-Infinite iterators are supported (DuckDB applies `LIMIT` natively):
-```nim
-iterator floatCounter(): float {.producer, closure.} =
-  var counter = 0.0
-  while true:
-    yield counter
-    counter += 1.0
+### Multi-column tables — tuple yields
 
-registerFloatCounter(duck)
-echo duck.execute("SELECT * FROM floatCounter() LIMIT 5")
-
-# ┌─────┬──────────────────────┐
-# │  #  │     floatCounter     │
-# ├─────┼──────────────────────┤
-# │  0  │     0.0              │
-# │  1  │     1.0              │
-# │  2  │     2.0              │
-# │  3  │     3.0              │
-# │  4  │     4.0              │
-# └─────┴──────────────────────┘
-```
-
-### Example 8: Multi-column tables from tuple-yield iterators
-
-Iterators yielding Nim tuples produce multi-column output with automatic
-column names (from named tuples) or overridable names (from anonymous tuples).
+Iterators yielding Nim named or anonymous tuples produce multi-column DuckDB output:
 
 ```nim
-let duck = newDatabase().connect()
-
-iterator namedTupleIter(n: int): tuple[idx: int, label: string] {.closure.} =
+iterator namedCols(n: int): tuple[idx: int, label: string] {.closure.} =
   for i in 0 ..< n:
-    yield (idx: i, label: $i)
+    yield (idx: i, label: "row " & $i)
 
-duck.registerTableFunction(namedTupleIter)
-
-let r = duck.execute("SELECT * FROM namedTupleIter(3)")
+con.registerTableFunction(namedCols)
+let r = con.execute("SELECT * FROM namedCols(3)")
 echo r.column(0).name   # "idx"
 echo r.column(1).name   # "label"
-# idx and label become DuckDB column names automatically
 ```
 
-### Example 9: NULL handling and advanced options
+Anonymous tuples produce default `col0`, `col1`, ... names, overridable with
+`columnNames = @["name1", "name2"]`.
 
-`Option[T]` return types produce NULL cells; `Option[T]` parameters accept
-nullable bind values. Named parameters, cardinality hints, and projection
-pushdown are configurable via extra macro arguments.
+### NULL handling — `Option[T]`
+
+`Option[T]` return types produce SQL NULL; `Option[T]` parameters accept NULL
+bind values:
 
 ```nim
 iterator withNulls(n: int): Option[int] {.closure.} =
   for i in 0 ..< n:
     if i == 0:
-      yield none(int)      # NULL in DuckDB
+      yield none(int)       # NULL in DuckDB
     else:
       yield some(i)
-
-iterator namedParams(a: int, b: Option[string]): string {.closure.} =
-  yield $a & b.get("default")
-
-let duck = newDatabase().connect()
-duck.registerTableFunction(withNulls)
-duck.registerTableFunction(namedParams, named = true)
-# Named params use SQL syntax: SELECT * FROM namedParams(a := 1, b := 'hello')
 ```
-## DuckDB to Nim Type Mapping
 
-| **DuckType**         | **Nim Equivalent**           |
-|-----------------------|------------------------------|
-| `Invalid`            | `uint8`                     |
-| `ANY`                | `uint8`                     |
-| `VARINT`             | `uint8`                     |
-| `SQLNULL`            | `uint8`                     |
-| `Boolean`            | `bool`                      |
-| `TinyInt`            | `int8`                      |
-| `SmallInt`           | `int16`                     |
-| `Integer`            | `int32`                     |
-| `BigInt`             | `int64`                     |
-| `UTinyInt`           | `uint8`                     |
-| `USmallInt`          | `uint16`                    |
-| `UInteger`           | `uint32`                    |
-| `UBigInt`            | `uint64`                    |
-| `Float`              | `float32`                   |
-| `Double`             | `float64`                   |
-| `Timestamp`          | `DateTime`                  |
-| `Date`               | `DateTime`                  |
-| `Time`               | `Time`                      |
-| `Interval`           | `TimeInterval`              |
-| `HugeInt`            | `Int128`                    |
-| `Varchar`            | `string`                    |
-| `Blob`               | `seq[byte]`                 |
-| `Decimal`            | `DecimalType`               |
-| `TimestampS`         | `DateTime`                  |
-| `TimestampMs`        | `DateTime`                  |
-| `TimestampNs`        | `DateTime`                  |
-| `Enum`               | `uint`                      |
-| `List`               | `seq[Value]`                |
-| `Struct`             | `Table[string, Value]`      |
-| `Map`                | `Table[string, Value]`      |
-| `UUID`               | `Uuid`                      |
-| `Union`              | `Table[string, Value]`      |
-| `Bit`                | `string`                    |
-| `TimeTz`             | `ZonedTime`                 |
+### Advanced options
+
+```nim
+# Cardinality hint
+con.registerTableFunction(myIter, cardinality = 1000, exact = true)
+
+# Named SQL parameters (call-site: my_func(a := 1))
+con.registerTableFunction(myIter, named = true)
+
+# Per-thread local-init callback
+con.registerTableFunction(myIter, localInit = myLocalInit)
+```
 
 ---
 
-## Contribution
+## Complex types — List, Struct, Map, Union
+
+```nim
+let r = con.execute("SELECT [1, 2, 3] AS nums, {'k': 'v'}::MAP(VARCHAR, VARCHAR) AS mp")
+for chunk in r:
+  let listCol = chunk.vector(0).bindAs DuckType.List
+  let child   = listCol.listChild().bindAs DuckType.Integer
+  let (offset, length) = listCol.listEntry(0)
+  for j in offset ..< offset + length:
+    echo child[j]
+
+  # Map key/value access
+  let mapCol = chunk.vector(1).bindAs DuckType.Map
+  echo mapCol.mapKeyType()    # Varchar
+  echo mapCol.mapValueType()  # Varchar
+```
+
+Recursive materialisation via `NimValue` is also available:
+
+```nim
+let r = con.execute("SELECT [1, 2, 3]")
+let nv = r.scalar  # NimValue(kind: nvList, ...)
+```
+
+---
+
+## Arrow export
+
+When `features.nimdrake.arrow` is defined and `narrow >= 0.0.1` is installed:
+
+```nim
+let r = con.execute("SELECT * FROM generate_series(1, 100) AS t(i)")
+for batch in r.toArrowStream():
+  echo batch.schema
+  echo batch.column(0).toSeq(float64)   # or any arrow-backed type
+```
+
+---
+
+## Type mapping
+
+| DuckType | Nim type |
+|---|---|
+| `Boolean` | `bool` |
+| `TinyInt` | `int8` |
+| `SmallInt` | `int16` |
+| `Integer` | `int32` |
+| `BigInt` | `int64` / `int` |
+| `UTinyInt` | `uint8` / `byte` |
+| `USmallInt` | `uint16` |
+| `UInteger` | `uint32` |
+| `UBigInt` | `uint64` |
+| `Float` | `float32` |
+| `Double` | `float64` |
+| `Timestamp` / `TimestampS` / `TimestampMs` / `TimestampNs` / `Date` | `DateTime` |
+| `Time` | `Time` |
+| `TimeTz` / `TimestampTz` | `ZonedTime` |
+| `Interval` | `TimeInterval` |
+| `HugeInt` | `Int128` |
+| `UHugeInt` | `UInt128` |
+| `Varchar` / `Bit` | `string` |
+| `Blob` | `seq[byte]` |
+| `Decimal` | `DecimalType` |
+| `UUID` | `Uuid` |
+| `Enum` | `uint` |
+| `List` / `Array` | child access via `listEntry` / `arrayChild` |
+| `Struct` | child access via `structChild` / `structChildName` |
+| `Map` | key/value access via `mapKeyType` / `mapValueType` |
+| `Union` | tag + member child access |
+
+---
+
+## Dependencies
+
+**Production** (required):
+
+```
+nim >= 2.0.0
+nint128
+decimal >= 0.0.2
+terminaltables >= 0.1.1
+uuid4 >= 0.9.3
+fusion >= 1.2
+threading >= 0.2.1
+```
+
+**Dev** (tests, benchmarks, FFI regeneration):
+
+```
+unittest2 >= 0.2.3
+criterion >= 0.3.1
+```
+
+**Optional** — Arrow export:
+
+```
+narrow >= 0.0.1    # via feature "arrow"
+```
+
+**Native**: DuckDB C library v1.5.4 (vendored or system-installed).
+
+---
+
+## Development
 
 NimDrake uses [just](https://github.com/casey/just) for build orchestration.
-Key commands:
 
-- `just test` — compile and run all tests with AddressSanitizer (sequential)
-- `just test isParallel=true cores=4` — run tests in parallel
-- `just test-arrow` — run Arrow/narrow tests (requires `-d:features.nimdrake.arrow`)
-- `just coverage` — generate lcov coverage report
-- `just benchmark` — run performance benchmarks
-- `just format src` — format all Nim files in `src/` with `nph`
-- `just generate` — regenerate FFI bindings from `duckdb.h` using futhark
-- `just debug nim_file="tests/test_query.nim"` — compile with full debug info
-- `just valgrind nim_file="..."` — run under Valgrind
+```bash
+just test                # all tests, debug + ASan, sequential
+just test isParallel=true cores=8  # parallel
+just test-release        # release mode, no leak checks
+just test-arc            # ARC mm
+just test-arrow          # include Arrow tests
+just coverage            # lcov → coverage/index.html
+just benchmark           # run benchmarks
+just format src          # format with nph
+just generate            # regenerate FFI from duckdb.h via Futhark
+just debug nim_file="tests/test_query.nim"  # debug with rr+lldb
+just valgrind nim_file="..."                # Valgrind leak check
+```
 
-The project uses `config.nims` for compiler switches (linker flags, sanitizer
-options, Int128 support detection). Tests use `unittest2` and run with
-`--mm:orc -d:useMalloc -fsanitize=address`.
-
-See [WORKBOARD.md](WORKBOARD.md) for the current project status and TODO list.
-
----
-
-## Acknowledgments
-
-# Acknowledgements
-
-This project relies on several Nim packages:
-
-- [Nim](https://nim-lang.org/) (version 2.0.0 or higher)
-- [futhark](https://github.com/arnetheduck/nim-futhark)
-- [nint128](https://github.com/cheatfate/nim-nint128)
-- [decimal](https://github.com/ba0f3/decimal) (version 0.0.2 or higher)
-- [terminaltables](https://github.com/ThomasTJdev/nim-terminaltables) (version 0.1.1 or higher)
-- [uuid4](https://github.com/krux02/uuid4) (version 0.9.3 or higher)
-
-A special thanks to:
-
-- A lot of code ported from [Duckdb Julia](https://duckdb.org/docs/api/julia.html)
-- Futhark was a life saver
-
-Feel free to fork, contribute, and share this repository. 
+See [WORKBOARD.md](WORKBOARD.md) for the project status and TODO list.
 
 ---
+
+## Acknowledgements
+
+- Portions inspired by [DuckDB Julia](https://duckdb.org/docs/api/julia.html)
+- [Futhark](https://github.com/arnetheduck/nim-futhark) for FFI generation
+- [nint128](https://github.com/cheatfate/nim-nint128) and [decimal](https://github.com/ba0f3/decimal) for 128-bit and decimal types
+- [terminaltables](https://github.com/ThomasTJdev/nim-terminaltables) for pretty-printing
+- [uuid4](https://github.com/krux02/uuid4) for UUID support
