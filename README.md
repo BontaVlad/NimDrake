@@ -238,22 +238,6 @@ echo con.execute("SELECT * FROM countToN(5)")
 # └─────┴──────────────────┘
 ```
 
-### `{.producer.}` pragma
-
-Sugar that auto-generates a `registerXxx(con)` proc:
-
-```nim
-iterator fibNumbers(limit: int): int {.producer, closure.} =
-  var (a, b) = (0, 1)
-  while a <= limit:
-    yield a
-    (a, b) = (b, a + b)
-
-let con = newDatabase().connect()
-registerFibNumbers(con)          # auto-generated
-echo con.execute("SELECT * FROM fibNumbers(100)")
-```
-
 ### Multi-column tables — tuple yields
 
 Iterators yielding Nim named or anonymous tuples produce multi-column DuckDB output:

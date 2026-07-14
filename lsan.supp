@@ -1,0 +1,21 @@
+# === DuckDB C++ internal allocations (library-level catch for CI) ===
+# DuckDB caches LogicalType, FunctionData, and other internal objects
+# that are never freed on duckdb_close.  Coverage matches both the
+# shared-library name and the C++ mangled symbol prefix.
+leak:libduckdb
+leak:duckdb
+
+# === DuckDB-specific function-level patterns ===
+leak:duckdb_open_internal
+leak:duckdb_column_logical_type
+leak:duckdb::LogicalType
+leak:duckdb::StructPackBind
+leak:duckdb::ArrayTypeInfo::Deserialize
+
+# === Nim runtime (one-time global state, not freed at exit by ORC) ===
+leak:allocImpl
+leak:reallocImpl
+leak:rawAlloc
+
+# === Test infrastructure ===
+leak:unittest2

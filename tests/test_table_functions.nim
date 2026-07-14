@@ -313,21 +313,6 @@ test "T20: cardinality hint via macro argument":
     let v = chunk.vector(0).bindAs DuckType.BigInt
     check v.len == 5
 
-# ═══ v3: Producer pragma ═══════════════════════════════════════════════════════
-
-iterator prodTest(n: int): int {.producer, closure.} =
-  for i in 0 ..< n: yield i * 10
-
-test "T21: producer pragma generates registerProc":
-  let conn = newDatabase().connect()
-  registerProdTest(conn)
-  let r = conn.execute("SELECT * FROM prodTest(3)")
-  var vals: seq[int64]
-  for chunk in r:
-    let v = chunk.vector(0).bindAs DuckType.BigInt
-    for i in 0 ..< v.len: vals.add v[i]
-  check vals == @[0'i64, 10'i64, 20'i64]
-
 # ═══ v3: Local init hook ═══════════════════════════════════════════════════════
 
 proc localInitNoop(info: InitInfo) {.cdecl.} =

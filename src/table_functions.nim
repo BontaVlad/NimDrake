@@ -725,44 +725,4 @@ macro registerTableFunction*(con: typed, iterSym: typed,
   regStmts.add(newCall(bindSym"register", con, tfName))
   result.add(regStmts)
 
-# ---------------------------------------------------------------------------
-# producer pragma macro — syntactic sugar over registerTableFunction
-# ---------------------------------------------------------------------------
 
-macro producer*(iterDef: untyped): untyped =
-  expectKind(iterDef, nnkIteratorDef)
-  let nameStr = iterDef[0].strVal
-
-  var pragmas: NimNode
-  var hasClosure = false
-  let oldPragmas = iterDef[4]
-  if oldPragmas.kind == nnkPragma:
-    pragmas = nnkPragma.newTree()
-    for ch in oldPragmas:
-      let s = if ch.kind in {nnkIdent, nnkSym}: ch.strVal else: ""
-      if s == "closure":
-        hasClosure = true
-        pragmas.add(ch)
-      elif s != "producer":
-        pragmas.add(ch)
-
-  if not hasClosure:
-    pragmas.add(ident"closure")
-
-  let cleanedIter = copyNimTree(iterDef)
-  cleanedIter[4] = pragmas
-
-  var capName = nameStr
-  if capName.len > 0 and capName[0] in {'a'..'z'}:
-    capName = chr(capName[0].ord - 32) & capName[1..^1]
-  let regProcName = ident("register" & capName)
-  let regProc = newProc(
-    name = regProcName,
-    params = [newEmptyNode(),
-      newIdentDefs(ident"con", bindSym"Connection")],
-    body = newStmtList(
-      newCall(bindSym"registerTableFunction",
-        ident"con", ident nameStr)),
-    pragmas = nnkPragma.newTree(ident"inline"))
-
-  result = newStmtList(cleanedIter, regProc)
