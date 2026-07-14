@@ -38,6 +38,7 @@ import uuid4
 
 import /[ffi, types, codec]
 import /compatibility/decimal_compat
+import /tools/wrench
 
 type
   QResultType* = enum
@@ -58,6 +59,7 @@ type
   # --- owning ref: ARC-managed via =destroy on the underlying object ---
 
   DataChunkObj = object of RootObj
+    nonOwning: bool
     handle: duckdb_data_chunk
     meta: ChunkMeta
 
@@ -109,11 +111,14 @@ type
 # ---------------------------------------------------------------------------
 
 proc `=destroy`(d: DataChunkObj) =
-  if d.handle != nil:
+  if d.handle != nil and not d.nonOwning:
     duckdb_destroy_data_chunk(d.handle.addr)
 
 proc rawHandle*(d: DataChunk): duckdb_data_chunk {.inline.} =
   d.handle
+
+proc wrapDataChunk*(handle: duckdb_data_chunk, meta: ChunkMeta): DataChunk =
+  DataChunk(nonOwning: true, handle: handle, meta: meta)
 
 proc `=destroy`(h: var DuckdbResultHandle) =
   if h.raw.internal_data != nil:
@@ -313,6 +318,22 @@ proc bindAs*(c: DataChunk, i: int, kt: static DuckType): Vector[kt] {.inline.} =
 
 proc bindAs*(c: DataChunk, name: string, kt: static DuckType): Vector[kt] {.inline.} =
   c[name].bindAs(kt)
+
+# ---------------------------------------------------------------------------
+# Raw-handle vector construction — for scalar UDF wrappers.
+# The returned Vector carries NO DataChunk back-ref (chunk stays nil); it is
+# safe only for the duration of the raw duckdb_vector's lifetime. No current
+# Vector[kt] operation dereferences `chunk`, so this is sound for short-lived
+# scalar-function input/output binding.
+# ---------------------------------------------------------------------------
+
+proc initVector*[kt: static DuckType](
+    vec: duckdb_vector, length: int
+): Vector[kt] {.inline.} =
+  result.data = duckdb_vector_get_data(vec)
+  result.length = length
+  result.validity = cast[ptr UncheckedArray[uint64]](duckdb_vector_get_validity(vec))
+  result.vec = vec
 
 # ---------------------------------------------------------------------------
 # Per-kind Nim type mapping
@@ -675,29 +696,6 @@ proc newDataChunk*[T](name: string, values: sink seq[T]): DataChunk =
     w.appendValues(values)
 
 macro newChunk*(pairs: varargs[typed]): untyped =
-  proc ktNode(elemType: NimNode): NimNode =
-    let n = repr(elemType)
-    let dt = ident"DuckType"
-    if n == "bool": newDotExpr(dt, ident"Boolean")
-    elif n == "int8": newDotExpr(dt, ident"TinyInt")
-    elif n == "int16": newDotExpr(dt, ident"SmallInt")
-    elif n == "int32": newDotExpr(dt, ident"Integer")
-    elif n == "int64" or n == "int": newDotExpr(dt, ident"BigInt")
-    elif n == "uint8" or n == "byte": newDotExpr(dt, ident"UTinyInt")
-    elif n == "uint16": newDotExpr(dt, ident"USmallInt")
-    elif n == "uint32": newDotExpr(dt, ident"UInteger")
-    elif n == "uint64" or n == "uint": newDotExpr(dt, ident"UBigInt")
-    elif n == "float32": newDotExpr(dt, ident"Float")
-    elif n == "float64": newDotExpr(dt, ident"Double")
-    elif n == "string": newDotExpr(dt, ident"Varchar")
-    elif n == "seq[byte]": newDotExpr(dt, ident"Blob")
-    elif n == "Timestamp" or n == "DateTime": newDotExpr(dt, ident"Timestamp")
-    elif n == "Time": newDotExpr(dt, ident"Time")
-    elif n == "TimeInterval": newDotExpr(dt, ident"Interval")
-    elif n == "Int128": newDotExpr(dt, ident"HugeInt")
-    elif n == "UInt128": newDotExpr(dt, ident"UHugeInt")
-    elif n == "Uuid": newDotExpr(dt, ident"UUID")
-    else: error "unsupported element type: " & n, elemType
   if pairs.len < 1:
     error "newChunk needs at least one (name, seq) pair"
   let chunkL = genSym(nskVar, "chunkL")
@@ -718,7 +716,7 @@ macro newChunk*(pairs: varargs[typed]): untyped =
     let elemType =
       if seqType.kind == nnkBracketExpr and seqType.len == 2: seqType[1]
       else: error "expected seq[T], got " & $seqType, seqAst
-    let kt = ktNode(elemType)
+    let kt = duckTypeDotExpr(elemType)
     colDefs.add(newCall(bindSym"newColumn", nameAst,
                         newCall(bindSym"newLogicalType", kt)))
     if i > 0:
