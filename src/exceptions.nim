@@ -3,16 +3,16 @@ import ffi
 type
   BaseError* = object of CatchableError
   OperationError* = object of BaseError
-  Error* = enumDuckDbState
+  DuckState* = enumDuckDbState
 
-converter toBool*(e: Error): bool =
+converter toBool*(e: DuckState): bool =
   e != enumDuckDbState.Duckdbsuccess
 
-template check*(error: Error, message: string): untyped =
-  if error:
+template check*(state: DuckState, message: string): untyped =
+  if state:
     raise newException(OperationError, message)
 
-template check*(error: Error, message: string, finalizer: untyped): untyped =
-  if error:
+template check*(state: DuckState, message: string, finalizer: untyped): untyped =
+  if state:
     finalizer
     raise newException(OperationError, message)

@@ -4,12 +4,17 @@ import std/[cmdline, strutils, parseutils, os]
 switch("path", thisDir() / "src")
 switch("define", "unittest2Compat=false")
 
+# --- Thread safety ---
+# thread-safe Database sharing requires threading/smartptrs which needs
+# --threads:on; make it explicit so the requirement is visible.
+switch("threads", "on")
+
 # --- DuckDB link resolution (safe for LSP) ---
 # nimsuggest evaluates config.nims on every keystroke; guard shell calls so
 # the language server doesn't hang on `gorge("pkg-config ...")`.
 #
-# Arrow/GLib linking is handled by the `narrow` package itself when the
-# `features.nimdrake.arrow` feature is enabled. Do not duplicate it here.
+when defined(features.nimdrake.arrow):
+  switch("passL", gorge("pkg-config --libs arrow-glib arrow-dataset-glib parquet-glib"))
 #
 # Lookup order (skipped entirely during futhark binding generation — it only
 # parses headers, no linking):
@@ -55,6 +60,8 @@ when not defined(nimsuggest) and not defined(useFuthark):
       sysOk = fileExists("C:/msys64/mingw64/lib/libduckdb.lib") or
               fileExists("C:/msys64/mingw64/lib/duckdb.lib")
     if pcOk or sysOk:
+      when defined(windows):
+        switch("passL", "-LC:/msys64/mingw64/lib")
       switch("passL", "-lduckdb")
       when defined(macosx):
         switch("passL", "-Wl,-rpath,/usr/local/lib")

@@ -2,7 +2,7 @@ import std/[sequtils, times, options, tables]
 import unittest2
 import nint128
 import utils
-import ../src/[ffi, database, datachunk, vector, types, query, query_result, transaction, exceptions, config]
+import ../src/[ffi, database, qresult, types, query, transaction, exceptions, config, codec]
 import ../src/compatibility/decimal_compat
 
 {.warning[Deprecated]: off.}
@@ -32,7 +32,7 @@ suite "Prepared/Appender statements":
     check parameters[0].tpy == DuckType.Integer
     check parameters[1].name == "2"
     check parameters[1].idx == 2
-    check parameters[1].tpy == DuckType.VARCHAR
+    check parameters[1].tpy == DuckType.Varchar
 
   test "BindParameter and paramters for prepared statement":
     let conn = newDatabase().connect()
@@ -52,21 +52,23 @@ suite "Prepared/Appender statements":
   test "Insert with prepared statements":
     let conn = newDatabase().connect()
     conn.execute("CREATE TABLE combined(i INTEGER, j VARCHAR);")
-    conn.execute(
+    conn.executeMaterialized(
       "INSERT INTO combined VALUES (6, 'foo'), (5, 'bar'), (?, ?);", ("7", "baz")
     )
-    let outcome = conn.execute("SELECT * FROM combined").fetchall()
-    check outcome[0].valueInteger == @[6'i32, 5'i32, 7'i32]
-    check outcome[1].valueVarChar == @["foo", "bar", "baz"]
+    let r = conn.execute("SELECT * FROM combined")
+    for chunk in r:
+      check chunk.bindAs(0, DuckType.Integer).toSeq == @[6'i32, 5, 7]
+      check chunk.bindAs(1, DuckType.Varchar).toSeq == @["foo", "bar", "baz"]
 
   test "Insert with appender":
     let conn = newDatabase().connect()
     conn.execute("CREATE TABLE integers(i INTEGER, j INTEGER);")
     let expected = @[@["6", "4"], @["5", "6"], @["7", "8"]]
     conn.newAppender("integers", expected)
-    let outcome = conn.execute("SELECT * FROM integers").fetchall()
-    check outcome[0].valueInteger == @[6'i32, 5'i32, 7'i32]
-    check outcome[1].valueInteger == @[4'i32, 6'i32, 8'i32]
+    let r = conn.execute("SELECT * FROM integers")
+    for chunk in r:
+      check chunk.bindAs(0, DuckType.Integer).toSeq == @[6'i32, 5, 7]
+      check chunk.bindAs(1, DuckType.Integer).toSeq == @[4'i32, 6, 8]
 
   test "Insert with all appenders":
     let conn = newDatabase().connect()
@@ -108,20 +110,20 @@ suite "Prepared/Appender statements":
     appender.endRow()
     appender.close()
 
-    # Fetch the data and verify correctness
-    let outcome = conn.execute("SELECT * FROM foo_table").fetchall()
-    check outcome[0].valueBoolean == @[true]
-    check outcome[1].valueTinyInt == @[-128'i8]
-    check outcome[2].valueSmallInt == @[32767'i16]
-    check outcome[3].valueInteger == @[-2147483648'i32]
-    check outcome[4].valueBigInt == @[9223372036854775807'i64]
-    check outcome[5].valueUTinyInt == @[255'u8]
-    check outcome[6].valueUSmallInt == @[65535'u16]
-    check outcome[7].valueUInteger == @[4294967295'u32]
-    check outcome[8].valueUBigInt == @[18446744073709551615'u64]
-    check outcome[9].valueFloat == @[3.14'f32]
-    check outcome[10].valueDouble == @[3.14159265359'f64]
-    check outcome[11].valueVarChar == @["hello"]
+    let r = conn.execute("SELECT * FROM foo_table")
+    for chunk in r:
+      check chunk.bindAs(0, DuckType.Boolean).toSeq == @[true]
+      check chunk.bindAs(1, DuckType.TinyInt).toSeq == @[-128'i8]
+      check chunk.bindAs(2, DuckType.SmallInt).toSeq == @[32767'i16]
+      check chunk.bindAs(3, DuckType.Integer).toSeq == @[-2147483648'i32]
+      check chunk.bindAs(4, DuckType.BigInt).toSeq == @[9223372036854775807'i64]
+      check chunk.bindAs(5, DuckType.UTinyInt).toSeq == @[255'u8]
+      check chunk.bindAs(6, DuckType.USmallInt).toSeq == @[65535'u16]
+      check chunk.bindAs(7, DuckType.UInteger).toSeq == @[4294967295'u32]
+      check chunk.bindAs(8, DuckType.UBigInt).toSeq == @[18446744073709551615'u64]
+      check chunk.bindAs(9, DuckType.Float).toSeq == @[3.14'f32]
+      check chunk.bindAs(10, DuckType.Double).toSeq == @[3.14159265359'f64]
+      check chunk.bindAs(11, DuckType.Varchar).toSeq == @["hello"]
 
   test "Insert with already made prepared statement":
     let conn = newDatabase().connect()
@@ -147,7 +149,7 @@ suite "Prepared/Appender statements":
     let prepared = newStatement(
       conn, "INSERT INTO prepared_table VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);"
     )
-    conn.execute(
+    conn.executeMaterialized(
       prepared,
       (
         true,
@@ -164,19 +166,20 @@ suite "Prepared/Appender statements":
         "hello",
       ),
     )
-    let outcome = conn.execute("SELECT * FROM prepared_table").fetchall()
-    check outcome[0].valueBoolean == @[true]
-    check outcome[1].valueTinyInt == @[-128'i8]
-    check outcome[2].valueSmallInt == @[32767'i16]
-    check outcome[3].valueInteger == @[-2147483648'i32]
-    check outcome[4].valueBigInt == @[9223372036854775807'i64]
-    check outcome[5].valueUTinyInt == @[255'u8]
-    check outcome[6].valueUSmallInt == @[65535'u16]
-    check outcome[7].valueUInteger == @[4294967295'u32]
-    check outcome[8].valueUBigInt == @[18446744073709551615'u64]
-    check outcome[9].valueFloat == @[3.14'f32]
-    check outcome[10].valueDouble == @[3.14159265359'f64]
-    check outcome[11].valueVarChar == @["hello"]
+    let r = conn.execute("SELECT * FROM prepared_table")
+    for chunk in r:
+      check chunk.bindAs(0, DuckType.Boolean).toSeq == @[true]
+      check chunk.bindAs(1, DuckType.TinyInt).toSeq == @[-128'i8]
+      check chunk.bindAs(2, DuckType.SmallInt).toSeq == @[32767'i16]
+      check chunk.bindAs(3, DuckType.Integer).toSeq == @[-2147483648'i32]
+      check chunk.bindAs(4, DuckType.BigInt).toSeq == @[9223372036854775807'i64]
+      check chunk.bindAs(5, DuckType.UTinyInt).toSeq == @[255'u8]
+      check chunk.bindAs(6, DuckType.USmallInt).toSeq == @[65535'u16]
+      check chunk.bindAs(7, DuckType.UInteger).toSeq == @[4294967295'u32]
+      check chunk.bindAs(8, DuckType.UBigInt).toSeq == @[18446744073709551615'u64]
+      check chunk.bindAs(9, DuckType.Float).toSeq == @[3.14'f32]
+      check chunk.bindAs(10, DuckType.Double).toSeq == @[3.14159265359'f64]
+      check chunk.bindAs(11, DuckType.Varchar).toSeq == @["hello"]
 
 suite "Test bind val dispatch":
 
@@ -188,151 +191,169 @@ suite "Test bind val dispatch":
     conn.transient:
       conn.execute("CREATE TABLE prepared_table (bool_val BOOLEAN,);")
       let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
-      conn.execute(prepared, (true, ))
-      let outcome = conn.execute("SELECT bool_val FROM prepared_table;").fetchall()
-      check outcome[0].valueBoolean == @[true]
+      conn.executeMaterialized(prepared, (true, ))
+      let r = conn.execute("SELECT bool_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Boolean).toSeq == @[true]
 
   test "Bind int8 val":
     conn.transient:
       conn.execute("CREATE TABLE prepared_table (int8_val TINYINT);")
       let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
-      conn.execute(prepared, (42'i8, ))
-      let outcome = conn.execute("SELECT int8_val FROM prepared_table;").fetchall()
-      check outcome[0].valueTinyInt == @[42'i8]
+      conn.executeMaterialized(prepared, (42'i8, ))
+      let r = conn.execute("SELECT int8_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.TinyInt).toSeq == @[42'i8]
 
   test "Bind int16 val":
     conn.transient:
       conn.execute("CREATE TABLE prepared_table (int16_val SMALLINT);")
       let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
-      conn.execute(prepared, (1000'i16, ))
-      let outcome = conn.execute("SELECT int16_val FROM prepared_table;").fetchall()
-      check outcome[0].valueSmallInt == @[1000'i16]
+      conn.executeMaterialized(prepared, (1000'i16, ))
+      let r = conn.execute("SELECT int16_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.SmallInt).toSeq == @[1000'i16]
 
   test "Bind int32 val":
     conn.transient:
       conn.execute("CREATE TABLE prepared_table (int32_val INTEGER);")
       let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
-      conn.execute(prepared, (1_000_000'i32, ))
-      let outcome = conn.execute("SELECT int32_val FROM prepared_table;").fetchall()
-      check outcome[0].valueInteger == @[1_000_000'i32]
+      conn.executeMaterialized(prepared, (1_000_000'i32, ))
+      let r = conn.execute("SELECT int32_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Integer).toSeq == @[1_000_000'i32]
 
   test "Bind int64 val":
     conn.transient:
       conn.execute("CREATE TABLE prepared_table (int64_val BIGINT);")
       let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
-      conn.execute(prepared, (1_000_000_000'i64, ))
-      let outcome = conn.execute("SELECT int64_val FROM prepared_table;").fetchall()
-      check outcome[0].valueBigInt == @[1_000_000_000'i64]
+      conn.executeMaterialized(prepared, (1_000_000_000'i64, ))
+      let r = conn.execute("SELECT int64_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.BigInt).toSeq == @[1_000_000_000'i64]
 
   test "Bind uint8 val":
     conn.transient:
       conn.execute("CREATE TABLE prepared_table (uint8_val UTINYINT);")
       let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
-      conn.execute(prepared, (200'u8, ))
-      let outcome = conn.execute("SELECT uint8_val FROM prepared_table;").fetchall()
-      check outcome[0].valueUTinyInt == @[200'u8]
+      conn.executeMaterialized(prepared, (200'u8, ))
+      let r = conn.execute("SELECT uint8_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.UTinyInt).toSeq == @[200'u8]
 
   test "Bind uint16 val":
     conn.transient:
       conn.execute("CREATE TABLE prepared_table (uint16_val USMALLINT);")
       let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
-      conn.execute(prepared, (50000'u16, ))
-      let outcome = conn.execute("SELECT uint16_val FROM prepared_table;").fetchall()
-      check outcome[0].valueUSmallInt == @[50000'u16]
+      conn.executeMaterialized(prepared, (50000'u16, ))
+      let r = conn.execute("SELECT uint16_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.USmallInt).toSeq == @[50000'u16]
 
   test "Bind uint32 val":
     conn.transient:
       conn.execute("CREATE TABLE prepared_table (uint32_val UINTEGER);")
       let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
-      conn.execute(prepared, (3_000_000_000'u32, ))
-      let outcome = conn.execute("SELECT uint32_val FROM prepared_table;").fetchall()
-      check outcome[0].valueUInteger == @[3_000_000_000'u32]
+      conn.executeMaterialized(prepared, (3_000_000_000'u32, ))
+      let r = conn.execute("SELECT uint32_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.UInteger).toSeq == @[3_000_000_000'u32]
 
   test "Bind uint64 val":
     conn.transient:
       conn.execute("CREATE TABLE prepared_table (uint64_val UBIGINT);")
       let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
-      conn.execute(prepared, (18_446_744_073_709_551_615'u64, ))
-      let outcome = conn.execute("SELECT uint64_val FROM prepared_table;").fetchall()
-      check outcome[0].valueUBigInt == @[18_446_744_073_709_551_615'u64]
+      conn.executeMaterialized(prepared, (18_446_744_073_709_551_615'u64, ))
+      let r = conn.execute("SELECT uint64_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.UBigInt).toSeq == @[18_446_744_073_709_551_615'u64]
 
   test "Bind float val":
     conn.transient:
       conn.execute("CREATE TABLE prepared_table (float_val REAL);")
       let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
-      conn.execute(prepared, (3.14'f32, ))
-      let outcome = conn.execute("SELECT float_val FROM prepared_table;").fetchall()
-      check outcome[0].valueFloat == @[3.14'f32]
+      conn.executeMaterialized(prepared, (3.14'f32, ))
+      let r = conn.execute("SELECT float_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Float).toSeq == @[3.14'f32]
 
   test "Bind double val":
     conn.transient:
       conn.execute("CREATE TABLE prepared_table (double_val DOUBLE);")
       let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
-      conn.execute(prepared, (3.14159265359, ))
-      let outcome = conn.execute("SELECT double_val FROM prepared_table;").fetchall()
-      check outcome[0].valueDouble == @[3.14159265359]
+      conn.executeMaterialized(prepared, (3.14159265359, ))
+      let r = conn.execute("SELECT double_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Double).toSeq == @[3.14159265359]
 
   test "Bind varchar val":
     conn.transient:
       conn.execute("CREATE TABLE prepared_table (varchar_val VARCHAR);")
       let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
-      conn.execute(prepared, ("Hello, World!", ))
-      let outcome = conn.execute("SELECT varchar_val FROM prepared_table;").fetchall()
-      check outcome[0].valueVarchar == @["Hello, World!"]
+      conn.executeMaterialized(prepared, ("Hello, World!", ))
+      let r = conn.execute("SELECT varchar_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Varchar).toSeq == @["Hello, World!"]
 
   test "Bind HugeInt val":
     conn.transient:
       conn.execute("CREATE TABLE prepared_table (hugeint_val HUGEINT);")
       let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
       let hugeIntVal = i128("-18446744073709551616")
-      conn.execute(prepared, (hugeIntVal, ))
-      let outcome = conn.execute("SELECT hugeint_val FROM prepared_table;").fetchall()
-      check outcome[0].valueHugeInt == @[hugeIntVal]
+      conn.executeMaterialized(prepared, (hugeIntVal, ))
+      let r = conn.execute("SELECT hugeint_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.HugeInt).toSeq == @[hugeIntVal]
 
   test "Bind UHugeInt val":
     conn.transient:
       conn.execute("CREATE TABLE prepared_table (uhugeint_val UHUGEINT);")
       let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
       let uHugeIntVal = u128("18446744073709551616")
-      conn.execute(prepared, (uHugeIntVal, ))
-      let outcome = conn.execute("SELECT uhugeint_val FROM prepared_table;").fetchall()
-      check outcome[0].valueUHugeInt == @[uHugeIntVal]
+      conn.executeMaterialized(prepared, (uHugeIntVal, ))
+      let r = conn.execute("SELECT uhugeint_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.UHugeInt).toSeq == @[uHugeIntVal]
 
   test "Bind timestamp val":
     conn.transient:
       conn.execute("CREATE TABLE prepared_table (timestamp_val TIMESTAMP);")
       let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
       let timestamp = Timestamp(parse("2023-12-25T13:45:30", "yyyy-MM-dd'T'HH:mm:ss"))
-      conn.execute(prepared, (timestamp, ))
-      let outcome = conn.execute("SELECT timestamp_val FROM prepared_table;").fetchall()
-      check outcome[0].valueTimestamp == @[timestamp]
+      conn.executeMaterialized(prepared, (timestamp, ))
+      let r = conn.execute("SELECT timestamp_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Timestamp).toSeq == @[timestamp]
 
   test "Bind date val":
     conn.transient:
       conn.execute("CREATE TABLE prepared_table (date_val DATE);")
       let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
       let date = parse("2023-12-25", "yyyy-MM-dd", zone=utc())
-      conn.execute(prepared, (date, ))
-      let outcome = conn.execute("SELECT date_val FROM prepared_table;").fetchall()
-      check outcome[0].valueDate == @[date]
+      conn.executeMaterialized(prepared, (date, ))
+      let r = conn.execute("SELECT date_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Date).toSeq == @[date]
 
   test "Bind time val":
     conn.transient:
       conn.execute("CREATE TABLE prepared_table (time_val TIME);")
       let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
       let time = parse("2023-12-25T15:30:00", "yyyy-MM-dd'T'HH:mm:ss", zone=utc()).toTime()
-      conn.execute(prepared, (time, ))
-      let outcome = conn.execute("SELECT time_val FROM prepared_table;").fetchall()
-      check outcome[0].valueTime == @[time]
+      conn.executeMaterialized(prepared, (time, ))
+      let r = conn.execute("SELECT time_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Time).toSeq == @[time]
 
   test "Bind interval val":
     conn.transient:
       conn.execute("CREATE TABLE prepared_table (interval_val INTERVAL);")
       let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
       let valInterval = initTimeInterval(years=1, months=5, days = 1, hours = 2, minutes=27, seconds=16)
-      conn.execute(prepared, (valInterval, ))
-      let outcome = conn.execute("SELECT interval_val FROM prepared_table;").fetchall()
-      check outcome[0].valueInterval == @[valInterval]
+      conn.executeMaterialized(prepared, (valInterval, ))
+      let r = conn.execute("SELECT interval_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Interval).toSeq == @[valInterval]
 
   test "Bind blob val":
     let conn = newDatabase().connect()
@@ -340,20 +361,22 @@ suite "Test bind val dispatch":
     let prepared = newStatement(conn, "INSERT INTO blob_table VALUES (?);")
     let blobData: seq[byte] = @[byte(1), byte(2), byte(3), byte(255)]
     check not duckdb_bind_blob(prepared, 1.idx_t, addr blobData[0], blobData.len.idx_t)
-    conn.execute(prepared)
-    let outcome = conn.execute("SELECT blob_val FROM blob_table;").fetchAll()
-    check outcome[0].valueBlob == @[blobData]
+    conn.executeMaterialized(prepared)
+    let r = conn.execute("SELECT blob_val FROM blob_table;")
+    for chunk in r:
+      check chunk.bindAs(0, DuckType.Blob).toSeq == @[blobData]
 
   test "Bind null val":
     let conn = newDatabase().connect()
     conn.execute("CREATE TABLE nullable_table (int_val INTEGER, str_val VARCHAR);")
     let prepared = newStatement(conn, "INSERT INTO nullable_table VALUES (?, ?);")
-    check not duckdb_bind_null(prepared, 1.idx_t)
-    check not duckdb_bind_null(prepared, 2.idx_t)
-    conn.execute(prepared)
-    let outcome = conn.execute("SELECT int_val, str_val FROM nullable_table;").fetchAll()
-    check outcome[0].isValid(0) == false
-    check outcome[1].isValid(0) == false
+    check not bindNull(prepared, 1)
+    check not bindNull(prepared, 2)
+    conn.executeMaterialized(prepared)
+    let r = conn.execute("SELECT int_val, str_val FROM nullable_table;")
+    for chunk in r:
+      check chunk.vector(0).valid(0) == false
+      check chunk.vector(1).valid(0) == false
 
 suite "Test appender dispatch":
 
@@ -368,8 +391,9 @@ suite "Test appender dispatch":
       appender.append(true)
       appender.endRow()
       appender.flush()
-      let outcome = conn.execute("SELECT bool_val FROM appender_table;").fetchall()
-      check outcome[0].valueBoolean == @[true]
+      let r = conn.execute("SELECT bool_val FROM appender_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Boolean).toSeq == @[true]
 
   test "Append int8 val":
     conn.transient:
@@ -378,8 +402,9 @@ suite "Test appender dispatch":
       appender.append(42'i8)
       appender.endRow()
       appender.flush()
-      let outcome = conn.execute("SELECT int8_val FROM appender_table;").fetchall()
-      check outcome[0].valueTinyInt == @[42'i8]
+      let r = conn.execute("SELECT int8_val FROM appender_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.TinyInt).toSeq == @[42'i8]
 
   test "Append int16 val":
     conn.transient:
@@ -388,8 +413,9 @@ suite "Test appender dispatch":
       appender.append(1000'i16)
       appender.endRow()
       appender.flush()
-      let outcome = conn.execute("SELECT int16_val FROM appender_table;").fetchall()
-      check outcome[0].valueSmallInt == @[1000'i16]
+      let r = conn.execute("SELECT int16_val FROM appender_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.SmallInt).toSeq == @[1000'i16]
 
   test "Append int32 val":
     conn.transient:
@@ -398,8 +424,9 @@ suite "Test appender dispatch":
       appender.append(1_000_000'i32)
       appender.endRow()
       appender.flush()
-      let outcome = conn.execute("SELECT int32_val FROM appender_table;").fetchall()
-      check outcome[0].valueInteger == @[1_000_000'i32]
+      let r = conn.execute("SELECT int32_val FROM appender_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Integer).toSeq == @[1_000_000'i32]
 
   test "Append int64 val":
     conn.transient:
@@ -408,8 +435,9 @@ suite "Test appender dispatch":
       appender.append(1_000_000_000'i64)
       appender.endRow()
       appender.flush()
-      let outcome = conn.execute("SELECT int64_val FROM appender_table;").fetchall()
-      check outcome[0].valueBigInt == @[1_000_000_000'i64]
+      let r = conn.execute("SELECT int64_val FROM appender_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.BigInt).toSeq == @[1_000_000_000'i64]
 
   test "Append uint8 val":
     conn.transient:
@@ -418,8 +446,9 @@ suite "Test appender dispatch":
       appender.append(200'u8)
       appender.endRow()
       appender.flush()
-      let outcome = conn.execute("SELECT uint8_val FROM appender_table;").fetchall()
-      check outcome[0].valueUTinyInt == @[200'u8]
+      let r = conn.execute("SELECT uint8_val FROM appender_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.UTinyInt).toSeq == @[200'u8]
 
   test "Append uint16 val":
     conn.transient:
@@ -428,8 +457,9 @@ suite "Test appender dispatch":
       appender.append(50000'u16)
       appender.endRow()
       appender.flush()
-      let outcome = conn.execute("SELECT uint16_val FROM appender_table;").fetchall()
-      check outcome[0].valueUSmallInt == @[50000'u16]
+      let r = conn.execute("SELECT uint16_val FROM appender_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.USmallInt).toSeq == @[50000'u16]
 
   test "Append uint32 val":
     conn.transient:
@@ -438,8 +468,9 @@ suite "Test appender dispatch":
       appender.append(3_000_000_000'u32)
       appender.endRow()
       appender.flush()
-      let outcome = conn.execute("SELECT uint32_val FROM appender_table;").fetchall()
-      check outcome[0].valueUInteger == @[3_000_000_000'u32]
+      let r = conn.execute("SELECT uint32_val FROM appender_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.UInteger).toSeq == @[3_000_000_000'u32]
 
   test "Append uint64 val":
     conn.transient:
@@ -448,8 +479,9 @@ suite "Test appender dispatch":
       appender.append(18_446_744_073_709_551_615'u64)
       appender.endRow()
       appender.flush()
-      let outcome = conn.execute("SELECT uint64_val FROM appender_table;").fetchall()
-      check outcome[0].valueUBigInt == @[18_446_744_073_709_551_615'u64]
+      let r = conn.execute("SELECT uint64_val FROM appender_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.UBigInt).toSeq == @[18_446_744_073_709_551_615'u64]
 
   test "Append float val":
     conn.transient:
@@ -458,8 +490,9 @@ suite "Test appender dispatch":
       appender.append(3.14'f32)
       appender.endRow()
       appender.flush()
-      let outcome = conn.execute("SELECT float_val FROM appender_table;").fetchall()
-      check outcome[0].valueFloat == @[3.14'f32]
+      let r = conn.execute("SELECT float_val FROM appender_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Float).toSeq == @[3.14'f32]
 
   test "Append double val":
     conn.transient:
@@ -468,8 +501,9 @@ suite "Test appender dispatch":
       appender.append(3.14159265359)
       appender.endRow()
       appender.flush()
-      let outcome = conn.execute("SELECT double_val FROM appender_table;").fetchall()
-      check outcome[0].valueDouble == @[3.14159265359]
+      let r = conn.execute("SELECT double_val FROM appender_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Double).toSeq == @[3.14159265359]
 
   test "Append varchar val":
     conn.transient:
@@ -478,8 +512,9 @@ suite "Test appender dispatch":
       appender.append("Hello, World!")
       appender.endRow()
       appender.flush()
-      let outcome = conn.execute("SELECT varchar_val FROM appender_table;").fetchall()
-      check outcome[0].valueVarchar == @["Hello, World!"]
+      let r = conn.execute("SELECT varchar_val FROM appender_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Varchar).toSeq == @["Hello, World!"]
 
   test "Append HugeInt val":
     conn.transient:
@@ -489,8 +524,9 @@ suite "Test appender dispatch":
       appender.append(hugeIntVal)
       appender.endRow()
       appender.flush()
-      let outcome = conn.execute("SELECT hugeint_val FROM appender_table;").fetchall()
-      check outcome[0].valueHugeInt == @[hugeIntVal]
+      let r = conn.execute("SELECT hugeint_val FROM appender_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.HugeInt).toSeq == @[hugeIntVal]
 
   test "Append UHugeInt val":
     conn.transient:
@@ -500,8 +536,9 @@ suite "Test appender dispatch":
       appender.append(uHugeIntVal)
       appender.endRow()
       appender.flush()
-      let outcome = conn.execute("SELECT uhugeint_val FROM appender_table;").fetchall()
-      check outcome[0].valueUHugeInt == @[uHugeIntVal]
+      let r = conn.execute("SELECT uhugeint_val FROM appender_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.UHugeInt).toSeq == @[uHugeIntVal]
 
   test "Append timestamp val":
     conn.transient:
@@ -511,8 +548,9 @@ suite "Test appender dispatch":
       appender.append(timestamp)
       appender.endRow()
       appender.flush()
-      let outcome = conn.execute("SELECT timestamp_val FROM appender_table;").fetchall()
-      check outcome[0].valueTimestamp == @[timestamp]
+      let r = conn.execute("SELECT timestamp_val FROM appender_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Timestamp).toSeq == @[timestamp]
 
   test "Append date val":
     conn.transient:
@@ -522,8 +560,9 @@ suite "Test appender dispatch":
       appender.append(date)
       appender.endRow()
       appender.flush()
-      let outcome = conn.execute("SELECT date_val FROM appender_table;").fetchall()
-      check outcome[0].valueDate == @[date]
+      let r = conn.execute("SELECT date_val FROM appender_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Date).toSeq == @[date]
 
   test "Append time val":
     conn.transient:
@@ -533,8 +572,9 @@ suite "Test appender dispatch":
       appender.append(time)
       appender.endRow()
       appender.flush()
-      let outcome = conn.execute("SELECT time_val FROM appender_table;").fetchall()
-      check outcome[0].valueTime == @[time]
+      let r = conn.execute("SELECT time_val FROM appender_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Time).toSeq == @[time]
 
   test "Append interval val":
     conn.transient:
@@ -544,28 +584,28 @@ suite "Test appender dispatch":
       appender.append(valInterval)
       appender.endRow()
       appender.flush()
-      let outcome = conn.execute("SELECT interval_val FROM appender_table;").fetchall()
-      check outcome[0].valueInterval == @[valInterval]
+      let r = conn.execute("SELECT interval_val FROM appender_table;")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Interval).toSeq == @[valInterval]
 
   test "Append decimal values with different precision and scale":
     ignoreLeak:
       conn.transient:
-        # Test various decimal types
         conn.execute("CREATE TABLE decimal_test (d1 DECIMAL(4,3), d2 DECIMAL(8,0), d3 DECIMAL(19,6));")
         var appender = newAppender(conn, "decimal_test")
 
-        # Test appending different decimal values
-        appender.append("1.234")  # Will be converted to decimal(4,3)
-        appender.append(99999999) # Will be converted to decimal(8,0)
-        appender.append("3245234.123123") # Will be converted to decimal(19,6)
+        appender.append("1.234")
+        appender.append(99999999)
+        appender.append("3245234.123123")
 
         appender.endRow()
         appender.flush()
 
-        let outcome = conn.execute("SELECT * FROM decimal_test").fetchall()
-        check outcome[0].valueDecimal == @[newDecimal("1.234")]
-        check outcome[1].valueDecimal == @[newDecimal("99999999")]
-        check outcome[2].valueDecimal == @[newDecimal("3245234.123123")]
+        let r = conn.execute("SELECT * FROM decimal_test")
+        for chunk in r:
+          check chunk.bindAs(0, DuckType.Decimal).toSeq == @[newDecimal("1.234")]
+          check chunk.bindAs(1, DuckType.Decimal).toSeq == @[newDecimal("99999999")]
+          check chunk.bindAs(2, DuckType.Decimal).toSeq == @[newDecimal("3245234.123123")]
 
   test "Append DEFAULT values":
     conn.transient:
@@ -573,13 +613,14 @@ suite "Test appender dispatch":
       var appender = newAppender(conn, "default_test")
 
       appender.append(42'i32)
-      appender.append()  # Should use default value of 5
+      appender.append()
       appender.endRow()
       appender.flush()
 
-      let outcome = conn.execute("SELECT * FROM default_test").fetchall()
-      check outcome[0].valueInteger == @[42'i32]
-      check outcome[1].valueInteger == @[5'i32]
+      let r = conn.execute("SELECT * FROM default_test")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Integer).toSeq == @[42'i32]
+        check chunk.bindAs(1, DuckType.Integer).toSeq == @[5'i32]
 
   test "Append without all columns raises error":
     let db = newDatabase()
@@ -597,90 +638,77 @@ suite "Test appender dispatch":
       conn.execute("CREATE TABLE null_test (i INTEGER, s VARCHAR, d DOUBLE);")
       var appender = newAppender(conn, "null_test")
 
-      # Test appending NULL values
       appender.append(42'i32)
       appender.append(none(string))
       appender.append(none(float))
       appender.endRow()
       appender.flush()
 
-      let outcome = conn.execute("SELECT * FROM null_test").fetchall()
-      check outcome[0].valueInteger[0] == 42'i32
+      let r = conn.execute("SELECT * FROM null_test")
+      for chunk in r:
+        check chunk.bindAs(0, DuckType.Integer)[0] == 42'i32
 
-      # check outcome[0].isValid(0) == true
-      # check outcome[0].isValid(1) == false
-      # check outcome[0].isValid(2) == false
+      # check chunk.vector(0).valid(0) == true
+      # check chunk.vector(0).valid(1) == false
+      # check chunk.vector(0).valid(2) == false
 
   test "Append DataChunk val":
     conn.transient:
       conn.execute("CREATE TABLE appender_table (int_val INTEGER, varchar_val VARCHAR, bool_val BOOLEAN);")
       var appender = newAppender(conn, "appender_table")
 
-      let types =
-        @[
-          DuckType.Integer,
-          DuckType.Varchar,
-          DuckType.Boolean
-        ]
-      var chunk = newDataChunk(types)
       let
         intValues = @[1'i32, 2'i32, 3'i32]
         strValues = @["foo", "bar", "baz"]
         boolValues = @[true, false, true]
 
-      chunk[0] = intValues
-      chunk[1] = strValues
-      chunk[2] = boolValues
-
-      appender.append(chunk)
+      for i in 0 ..< 3:
+        appender.append(intValues[i])
+        appender.append(strValues[i])
+        appender.append(boolValues[i])
+        appender.endRow()
       appender.flush()
 
-      let outcome = conn.execute("SELECT * FROM appender_table;").fetchall()
-      check outcome[0].valueInteger == intValues
-      check outcome[1].valueVarchar == strValues
-      check outcome[2].valueBoolean == boolValues
+      let r = conn.execute("SELECT * FROM appender_table;")
+      for ck in r:
+        check ck.bindAs(0, DuckType.Integer).toSeq == intValues
+        check ck.bindAs(1, DuckType.Varchar).toSeq == strValues
+        check ck.bindAs(2, DuckType.Boolean).toSeq == boolValues
 
   test "Append DataChunk val using Options":
     conn.transient:
       conn.execute("CREATE TABLE appender_table (int_val INTEGER, varchar_val VARCHAR, bool_val BOOLEAN);")
       var appender = newAppender(conn, "appender_table")
 
-      let types =
-        @[
-          DuckType.Integer,
-          DuckType.Varchar,
-          DuckType.Boolean
-        ]
-      var chunk = newDataChunk(types)
       let
         intValues = @[some(1'i32), none(int32), some(3'i32)]
         strValues = @[none(string), some("bar"), none(string)]
         boolValues = @[none(bool), none(bool), some(true)]
 
-      chunk[0] = intValues
-      chunk[1] = strValues
-      chunk[2] = boolValues
-
-      appender.append(chunk)
+      for i in 0 ..< 3:
+        appender.append(intValues[i])
+        appender.append(strValues[i])
+        appender.append(boolValues[i])
+        appender.endRow()
       appender.flush()
 
-      let outcome = conn.execute("SELECT * FROM appender_table;").fetchall()
+      let r = conn.execute("SELECT * FROM appender_table;")
+      for ck in r:
+        check ck.vector(0).valid(0) == true
+        check ck.vector(0).valid(1) == false
+        check ck.vector(0).valid(2) == true
 
-      check outcome[0].isValid(0) == true
-      check outcome[0].isValid(1) == false
-      check outcome[0].isValid(2) == true
+        check ck.vector(1).valid(0) == false
+        check ck.vector(1).valid(1) == true
+        check ck.vector(1).valid(2) == false
 
-      check outcome[1].isValid(0) == false
-      check outcome[1].isValid(1) == true
-      check outcome[1].isValid(2) == false
+        check ck.vector(2).valid(0) == false
+        check ck.vector(2).valid(1) == false
+        check ck.vector(2).valid(2) == true
 
-      check outcome[2].isValid(0) == false
-      check outcome[2].isValid(1) == false
-      check outcome[2].isValid(2) == true
-
-      check outcome[0].valueInteger[0] == intValues[0].get()
-      check outcome[1].valueVarchar[0] == ""
-      check outcome[2].valueBoolean[2] == true
+        check ck.bindAs(0, DuckType.Integer)[0] == intValues[0].get()
+        check ck.bindAs(1, DuckType.Varchar)[0] == ""
+        check ck.bindAs(2, DuckType.Boolean)[2] == true
 
   test "Append throws an error on missing column on flush":
     let db = newDatabase()
@@ -688,40 +716,33 @@ suite "Test appender dispatch":
 
     conn.execute("CREATE TABLE test (i INTEGER, d double, s string)")
 
-    # Test appender with invalid table
     doAssertRaises(OperationError):
       discard newAppender(conn, "unknown_table")
 
-    # Create valid appender
     var appender = newAppender(conn, "test")
 
-    # Start appending rows
     appender.append(42'i32)
     appender.append(4.2)
     appender.append("Hello, World")
     appender.endRow()
     appender.flush()
 
-    # Next row with missing column
     appender.append(69'i32)
     appender.append(6.9)
 
-    # Should cause an error if we try to end the row without all columns
     doAssertRaises(OperationError):
       appender.endRow()
 
-    # Complete the row correctly
     appender.append("Hello, Duckdb")
     appender.endRow()
     appender.flush()
 
-    let outcome = conn.execute("SELECT * FROM test").fetchall()
-
-    # number of columns
-    check outcome.len == 3
-    check outcome[0].valueInteger[0] == 42'i64
-    check outcome[1].valueDouble[1] == 6.9
-    check outcome[2].valueVarchar[1] == "Hello, Duckdb"
+    let r = conn.execute("SELECT * FROM test")
+    check r.meta.columns.len == 3
+    for chunk in r:
+      check chunk.bindAs(0, DuckType.Integer)[0] == 42'i32
+      check chunk.bindAs(1, DuckType.Double)[1] == 6.9
+      check chunk.bindAs(2, DuckType.Varchar)[1] == "Hello, Duckdb"
 
   test "Complex varchar":
     let conn = newDatabase().connect()
@@ -737,80 +758,67 @@ suite "Test appender dispatch":
       from
         range(5000) tbl(i);
     """
-    let outcome = conn.execute(query).fetchAll()
-    check outcome.len == 1
-    check outcome[0].kind == DuckType.Varchar
-    check outcome[0].len == 5000
+    var r = conn.execute(query)
+    check r.meta.columns.len == 1
+    var totalLen = 0
+    for chunk in r:
+      let cv = chunk.vector(0)
+      check cv.kind == DuckType.Varchar
+      totalLen += cv.len
+    check totalLen == 5000
 
 suite "Test pending statement queries":
 
-  test "Basic pending query, execute directly, skipping asking the task future":
+  test "Basic pending query, execute directly (materialized)":
     let
       conn = newDatabase().connect()
       prepared = conn.newStatement("SELECT SUM(i) FROM range(1000000) tbl(i);")
-      pending = newPendingResult(prepared)
+      pending = newPendingStreamingResult(prepared)
 
-    let outcome = pending.execute().fetchall()
-    check outcome[0].valueHugeInt[0] == i128("499999500000")
+    let outcome = pending.execute()
+    for chunk in outcome:
+      check chunk.bindAs(0, DuckType.HugeInt)[0] == i128("499999500000")
 
-  test "Basic pending query asking the task future":
+  test "Basic pending query stepping with step/isFinished":
     let
       conn = newDatabase().connect()
       prepared = conn.newStatement("SELECT SUM(i) FROM range(1000000) tbl(i);")
-      pending = newPendingResult(prepared)
+      pending = newPendingStreamingResult(prepared)
 
     while true:
-      let state = pending.executeTask()
-      case state:
-      of DUCKDB_PENDING_RESULT_READY:
+      let state = pending.step()
+      if state.isFinished:
         break
-      of DUCKDB_PENDING_RESULT_NOT_READY:
-        continue
-      of DUCKDB_PENDING_ERROR:
+      elif state == PendingState.Error:
         break
-        # echo pending.error
-      of DUCKDB_PENDING_NO_TASKS_AVAILABLE:
-        continue
-        # echo "no tasks"
 
-    let outcome = pending.execute().fetchall()
-    check outcome[0].valueHugeInt[0] == i128("499999500000")
+    let outcome = pending.execute()
+    for chunk in outcome:
+      check chunk.bindAs(0, DuckType.HugeInt)[0] == i128("499999500000")
 
-  test "Testing streaming results":
+  test "Testing streaming results with step":
     let
       conn = newDatabase().connect()
       prepared = conn.newStatement("SELECT i::UINT32 FROM range(1000000) tbl(i)")
       pending = newPendingStreamingResult(prepared)
 
     while true:
-      let state = pending.executeTask()
-      case state:
-      of DUCKDB_PENDING_RESULT_READY:
+      let state = pending.step()
+      if state.isFinished:
         break
-      of DUCKDB_PENDING_RESULT_NOT_READY:
-        continue
-      of DUCKDB_PENDING_ERROR:
+      elif state == PendingState.Error:
         break
-        # echo pending.error
-      of DUCKDB_PENDING_NO_TASKS_AVAILABLE:
+      elif state == PendingState.NotReady:
         continue
-        # echo "no tasks"
 
-    # res is still unevaluated
-    let res = pending.execute()
-    check res.columnCount == 1
-    check res.rowCount == 0
-    check res.chunkCount == 0
+    var res = pending.execute()
+    check res.meta.columns.len == 1
+    var total = 0
+    for chunk in res:
+      total += chunk.len
+    check total == 1000000
 
-    # this succeeds because the result is materialized if a stream-result method hasn't being used yet
-    let outcome = res.fetchall()
-    check len(outcome[0].valueUInteger) == 1000000
-
-    # we exausted the streaming result
-    let emptyOutcome = res.fetchall()
-    check len(emptyOutcome[0].valueUInteger) == 0
-
-  test "Testing streaming interrupt and progress":
+  test "Testing streaming interrupt and progress with step":
     let config = newConfig({"threads": "1",}.toTable)
     let conn = newDatabase(config).connect()
 
@@ -819,7 +827,6 @@ suite "Test pending statement queries":
     conn.execute("SET enable_progress_bar=true;")
     conn.execute("SET enable_progress_bar_print=false;")
 
-    # nothing running
     check conn.queryProgress.percentage == -1
 
     let
@@ -828,20 +835,17 @@ suite "Test pending statement queries":
 
     check conn.queryProgress.percentage == 0.0
 
-    # task not started yet
     while conn.queryProgress.percentage == 0.0:
-      let state = pending.executeTask()
-      check state == DUCKDB_PENDING_RESULT_NOT_READY
+      let state = pending.step()
+      check state == PendingState.NotReady
 
-    # task has begun
-    check conn.queryProgress.rows_processed == 10000
+    check conn.queryProgress.rowsProcessed == 10000
     check conn.queryProgress.percentage >= 0.0
 
-    # task was intrerrupted, should be pending error
     conn.interrupt()
     while true:
-      let state = pending.executeTask()
-      check state != DUCKDB_PENDING_RESULT_READY
+      let state = pending.step()
+      check state != PendingState.Ready
 
-      if state == DUCKDB_PENDING_ERROR:
+      if state == PendingState.Error:
          break

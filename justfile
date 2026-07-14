@@ -1,8 +1,100 @@
-truthy_regex := '(?i)^(?:yes|1|true)$'
+# =============================================================================
+# Configuration
+# =============================================================================
 
-# List all available commands by default
+# Directories
+test_root    := "tests"
+bench_root   := "benchmarks"
+out_root     := "nimcache"
+profile_dir  := "profiles"
+coverage_dir := "coverage"
+
+# Test defaults
+parallel := "false"
+cores    := "4"
+mm       := "orc"      # orc | arc
+mode     := "debug"    # debug | release
+leaks    := "true"     # true | false
+cc       := "gcc"
+
+# =============================================================================
+# Flag sets (shell variable fragments, spliced into recipes)
+# =============================================================================
+
+_base_flags := "--verbosity:0 --hints:off --lineDir:on"
+
+_debug_flags := "-d:debug -d:nimDebugDlOpen --opt:none --stacktrace:on --debuginfo:on --debugger:native -d:useMalloc --passC:-O0 --passC:-g3"
+
+_sanitizer_flags := "--passC:-fsanitize=address --passL:-fsanitize=address"
+
+_release_flags := "-d:release --opt:speed"
+
+# =============================================================================
+# Public targets
+# =============================================================================
+
+# List all available commands
 default:
     @just --choose --justfile {{justfile()}}
+
+# Run tests with current settings
+test: (_run-tests parallel cores mm mode leaks)
+
+# Convenience presets
+test-debug: (_run-tests "false" "4" "orc" "debug" "true")
+test-debug-par: (_run-tests "true" "8" "orc" "debug" "true")
+test-release: (_run-tests "false" "4" "orc" "release" "false")
+test-arc: (_run-tests "false" "4" "arc" "debug" "true")
+
+# Run narrow/Arrow tests (requires -d:features.nimdrake.arrow)
+test-arrow: (_run-tests-arrow parallel cores mm mode leaks)
+
+# Generate lcov coverage report
+coverage: (_run-tests-gcov)
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    OUT_ROOT="{{out_root}}/tests"
+    COV_DIR="{{coverage_dir}}"
+    LCOV_FILE="coverage.info"
+
+    GCDA_COUNT=$(find "$OUT_ROOT" -name "*.gcda" | wc -l)
+    if [[ "$GCDA_COUNT" -eq 0 ]]; then
+        echo "No coverage data (.gcda files) found."; exit 1
+    fi
+    echo "Found $GCDA_COUNT .gcda files"
+
+    rm -rf "$COV_DIR"
+    mkdir -p "$COV_DIR"
+
+    lcov --capture \
+        --directory "$OUT_ROOT" \
+        --output-file "$LCOV_FILE" \
+        --rc lcov_branch_coverage=1 \
+        --ignore-errors inconsistent,unused,gcov
+
+    lcov --extract "$LCOV_FILE" "*/src/*.nim" \
+        --output-file "$LCOV_FILE" \
+        --rc lcov_branch_coverage=1 \
+        --ignore-errors inconsistent
+
+    lcov --remove "$LCOV_FILE" "*/generated.nim" \
+        --output-file "$LCOV_FILE" \
+        --rc lcov_branch_coverage=1 \
+        --ignore-errors inconsistent
+
+    genhtml "$LCOV_FILE" \
+        --output-directory "$COV_DIR" \
+        --branch-coverage --legend \
+        --ignore-errors inconsistent,missing,corrupt,range
+
+    echo ""
+    echo "Coverage Summary:"
+    lcov --summary "$LCOV_FILE" --rc lcov_branch_coverage=1 \
+        --ignore-errors corrupt,inconsistent 2>&1 \
+        | grep -E "(lines|functions|branches)" || true
+    echo ""
+    echo "Report: $COV_DIR/index.html"
 
 # Recursively format all Nim files in a specific directory
 format directory="src":
@@ -12,234 +104,35 @@ format directory="src":
         nph "$file"
     done
 
-# Generate test coverage
-coverage:
+# Build and debug a single file with lldb
+dbg file:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    FILEINFO="lcov.info"
-    LCOV_ARGS="--rc branch_coverage=1 --ignore-errors inconsistent --ignore-errors range --ignore-errors unused"
-    GENERATED_FILE="generated_not_to_break_here"
-    NIMCACHE_DIR="nimcache"
-    CURRENT_DIR=$(pwd)
+    name="$(basename "{{file}}" .nim)"
+    outdir="{{out_root}}/dbg"
+    mkdir -p "$outdir"
 
-    # Create nimcache/tests directory if it doesn't exist
-    mkdir -p "${NIMCACHE_DIR}/tests"
-
-    # Find and process test files
-    find ./tests -name 'test_*.nim' | head -n 2 | while read -r file; do
-        echo "Processing file: $file"
-        filename=$(basename "$file")
-        filename_no_ext="${filename%.nim}"
-
-        # Compile test with coverage
-        nim c \
-            --nimcache:"${NIMCACHE_DIR}" \
-            --hints:off \
-            --debugger:native \
-            --passC:--coverage \
-            --passL:--coverage \
-            -o:"${NIMCACHE_DIR}/tests/${filename_no_ext}" \
-            "$file"
-
-        # Run the compiled test
-        "${NIMCACHE_DIR}/tests/${filename_no_ext}"
-    done
-
-    # Generate coverage data
-    touch "${GENERATED_FILE}"
-    lcov ${LCOV_ARGS} --capture --directory "${NIMCACHE_DIR}" --output-file "${FILEINFO}"
-    rm "${GENERATED_FILE}"
-
-    # Clean up coverage data
-    lcov ${LCOV_ARGS} --extract "${FILEINFO}" "${CURRENT_DIR}/src/*" -o "${FILEINFO}"
-    lcov ${LCOV_ARGS} --remove "${FILEINFO}" "${CURRENT_DIR}/tests/*" -o "${FILEINFO}"
-
-    # Generate HTML report
-    genhtml --branch-coverage --ignore-errors missing,range,corrupt,inconsistent --legend --output-directory coverage/ "${FILEINFO}"
-
-# Generate test coverage
-test isParallel="false" cores="4" asan="1":
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    NIMCACHE_DIR="nimcache"
-    ASAN={{asan}}
-
-    # Create nimcache/tests directory if it doesn't exist
-    mkdir -p "${NIMCACHE_DIR}/tests"
-
-    # Function to compile and run a single test file
-    run_test() {
-        local file="$1"
-        echo "Processing file: $file"
-        filename=$(basename "$file")
-        filename_no_ext="${filename%.nim}"
-
-        local asan_flags=()
-        if [ "${ASAN}" != "0" ]; then
-            asan_flags+=(--passc:-fsanitize=address --passl:-fsanitize=address)
-        fi
-
-        # Step 1: Compile and run with debug flags
-        nim c \
-            -d:debug \
-            -d:nimDebugDlOpen \
-            --verbosity:0 \
-            --hints:off \
-            --opt:none \
-            --debugger:native \
-            --stacktrace:on \
-            "${asan_flags[@]}" \
-            -d:useMalloc \
-            --mm:orc \
-            --passC:-O0 \
-            --passC:-g3 \
-            --passC:-ggdb3 \
-            --passC:-gdwarf-4 \
-            --passC:-Wno-implicit-function-declaration \
-            --lineDir:on \
-            --debuginfo:on \
-            --excessiveStackTrace:on \
-            -o:"${NIMCACHE_DIR}/tests/${filename_no_ext}" \
-            "$file"
-
-        # Run the compiled test
-        "${NIMCACHE_DIR}/tests/${filename_no_ext}"
-    }
-
-    export -f run_test
-    export NIMCACHE_DIR
-
-    # Find test files (exclude narrow tests — they require -d:features.nimdrake.arrow)
-    TEST_FILES=$(find ./tests -name 'test_*.nim' -not -path './tests/narrow/*' | sort)
-
-    if {{isParallel}} =~ truthy_regex; then
-        echo "Running tests in parallel..."
-        # Run tests in parallel using xargs
-        echo "$TEST_FILES" | xargs -n 1 -P {{cores}} -I {} bash -c 'ASAN={{asan}} run_test "$@"' _ {}
-    else
-        echo "Running tests sequentially..."
-        # Run tests sequentially
-        while read -r file; do
-            run_test "$file"
-        done <<< "$TEST_FILES"
-    fi
-
-# Run narrow/Arrow tests (requires -d:features.nimdrake.arrow)
-test-arrow isParallel="false" cores="4" asan="1":
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    NIMCACHE_DIR="nimcache"
-    ASAN={{asan}}
-
-    mkdir -p "${NIMCACHE_DIR}/tests"
-
-    run_test() {
-        local file="$1"
-        echo "Processing file: $file"
-        filename=$(basename "$file")
-        filename_no_ext="${filename%.nim}"
-
-        local asan_flags=()
-        if [ "${ASAN}" != "0" ]; then
-            asan_flags+=(--passc:-fsanitize=address --passl:-fsanitize=address)
-        fi
-
-        nim c \
-            -d:debug \
-            -d:nimDebugDlOpen \
-            -d:features.nimdrake.arrow \
-            --verbosity:0 \
-            --hints:off \
-            --opt:none \
-            --debugger:native \
-            --stacktrace:on \
-            "${asan_flags[@]}" \
-            -d:useMalloc \
-            --mm:orc \
-            --passC:-O0 \
-            --passC:-g3 \
-            --passC:-ggdb3 \
-            --passC:-gdwarf-4 \
-            --passC:-Wno-implicit-function-declaration \
-            --lineDir:on \
-            --debuginfo:on \
-            --excessiveStackTrace:on \
-            -o:"${NIMCACHE_DIR}/tests/${filename_no_ext}" \
-            "$file"
-
-        "${NIMCACHE_DIR}/tests/${filename_no_ext}"
-    }
-
-    export -f run_test
-    export NIMCACHE_DIR
-
-    TEST_FILES=$(find ./tests/narrow -name 'test_*.nim' | sort)
-
-    if [ -z "$TEST_FILES" ]; then
-        echo "No Arrow tests found in tests/narrow/"
-        exit 0
-    fi
-
-    if {{isParallel}} =~ truthy_regex; then
-        echo "Running Arrow tests in parallel..."
-        echo "$TEST_FILES" | xargs -n 1 -P {{cores}} -I {} bash -c 'ASAN={{asan}} run_test "$@"' _ {}
-    else
-        echo "Running Arrow tests sequentially..."
-        while read -r file; do
-            run_test "$file"
-        done <<< "$TEST_FILES"
-    fi
-
-# Debug with rr and connect lldb to the specific target
-debug-run nim_file="src/duckdb" name="":
-    #!/usr/bin/env bash
-    set -euo pipefail
-
-    # Extract the base name without extension
-    BASENAME=$(basename "{{nim_file}}" .nim)
-    DIRNAME=$(dirname "{{nim_file}}")
-    OUTPUT_PATH="${DIRNAME}/${BASENAME}"
-
-    # Step 1: Compile and run with debug flags
     nim c \
-        -r \
-        -d:debug \
-        -d:nimDebugDlOpen \
-        --cc:clang \
-        --opt:none \
-        --panics:on \
-        --debugger:native \
-        --passc:-fsanitize=address \
-        --passl:-fsanitize=address \
-        --stacktrace:on \
-        -d:useMalloc \
-        --mm:orc \
-        --passC:-O1 \
-        --passC:-ggdb3 \
-        --passC:-fno-omit-frame-pointer \
-            --passC:-gdwarf-4 \
-            --passC:-Wno-implicit-function-declaration \
-            --lineDir:on \
-        --debuginfo:on \
-        --threads:off \
+        {{_base_flags}} \
+        --cc:{{cc}} \
+        --mm:{{mm}} \
+        {{_debug_flags}} \
         --excessiveStackTrace:on \
-        "{{nim_file}}" \
-        "{{name}}"
+        -o:"$outdir/$name" \
+        "{{file}}"
+
+    lldb "$outdir/$name"
 
 # Debug with rr and connect lldb to the specific target
 debug nim_file="tests/results/test_result_type.nim":
     #!/usr/bin/env bash
     set -euo pipefail
 
-    # Extract the base name without extension
     BASENAME=$(basename "{{nim_file}}" .nim)
     DIRNAME=$(dirname "{{nim_file}}")
     OUTPUT_PATH="${DIRNAME}/${BASENAME}"
 
-    # Step 1: Compile and run with debug flags
     nim c \
         -d:debug \
         -d:nimDebugDlOpen \
@@ -257,51 +150,50 @@ debug nim_file="tests/results/test_result_type.nim":
         --threads:off \
         --excessiveStackTrace:on \
         "{{nim_file}}"
-    # # Step 2: Record using rr
-    # rr record -M "${OUTPUT_PATH}"
 
-    # # Step 3: Start rr replay and connect lldb
-    # # Start rr in the background
-    # # rr replay -s 9999 &
-    # # rr replay -s 9999 --debugger=nim-gdb
-    # # RR_PID=$!
-    # ./gf2 --rr-replay
+# Debug with rr and connect lldb to the specific target
+debug-run nim_file="src/duckdb" name="":
+    #!/usr/bin/env bash
+    set -euo pipefail
 
-    # # Wait a moment for rr to start
-    # # sleep 2
+    BASENAME=$(basename "{{nim_file}}" .nim)
+    DIRNAME=$(dirname "{{nim_file}}")
+    OUTPUT_PATH="${DIRNAME}/${BASENAME}"
 
-    # # ddd --debugger "nim-gdb -ex 'target remote localhost:9999'" "${OUTPUT_PATH}" &
-
-    # # # Create a source map file for lldb
-    # # PROJECT_ROOT=$(pwd)
-    # # LLDB_SETTINGS=$(mktemp)
-    # # echo "settings set target.source-map /proc/self/cwd ${PROJECT_ROOT}" > "$LLDB_SETTINGS"
-    # # echo "command script import nimlldb.py" >> "$LLDB_SETTINGS"
-
-    # # # Launch lldb with enhanced debug settings
-    # # lldb \
-    # #     -s "$LLDB_SETTINGS" \
-    # #     -o "platform select remote-gdb-server" \
-    # #     -o "target create /home/vlad/.local/share/rr/test_result_type-23/mmap_hardlink_4_test_result_type" \
-    # #     -o "gdb-remote 127.0.0.1:9999" \
-    # #     -o "settings set target.inline-breakpoint-strategy always" \
-    # #     -o "settings set target.skip-prologue false"
-
-    # # # Cleanup
-    # # rm "$LLDB_SETTINGS"
-    # # kill $RR_PID 2>/dev/null || true
+    nim c \
+        -r \
+        -d:debug \
+        -d:nimDebugDlOpen \
+        --cc:clang \
+        --opt:none \
+        --panics:on \
+        --debugger:native \
+        --passc:-fsanitize=address \
+        --passl:-fsanitize=address \
+        --stacktrace:on \
+        -d:useMalloc \
+        --mm:orc \
+        --passC:-O1 \
+        --passC:-ggdb3 \
+        --passC:-fno-omit-frame-pointer \
+        --passC:-gdwarf-4 \
+        --passC:-Wno-implicit-function-declaration \
+        --lineDir:on \
+        --debuginfo:on \
+        --threads:off \
+        --excessiveStackTrace:on \
+        "{{nim_file}}" \
+        "{{name}}"
 
 # Run Valgrind on a Nim file to analyze memory usage
 valgrind nim_file="tests/results/test_result_type.nim" name="":
     #!/usr/bin/env bash
     set -euo pipefail
 
-    # Extract the base name without extension
     BASENAME=$(basename "{{nim_file}}" .nim)
     DIRNAME=$(dirname "{{nim_file}}")
     OUTPUT_PATH="${DIRNAME}/${BASENAME}"
 
-    # Step 1: Compile with debug flags (without optimization)
     nim c \
         -d:debug \
         -d:nimDebugDlOpen \
@@ -320,7 +212,6 @@ valgrind nim_file="tests/results/test_result_type.nim" name="":
         --excessiveStackTrace:on \
         "{{nim_file}}"
 
-    # Step 2: Run Valgrind with memory analysis options
     valgrind \
         --leak-check=full \
         --show-leak-kinds=definite,possible \
@@ -333,12 +224,9 @@ benchmark name="":
     #!/usr/bin/env bash
     set -euo pipefail
 
-    NIMCACHE_DIR="nimcache"
+    NIMCACHE_DIR="{{out_root}}/benchmarks"
+    mkdir -p "$NIMCACHE_DIR"
 
-    # Create nimcache/tests directory if it doesn't exist
-    mkdir -p "${NIMCACHE_DIR}/benchmarks"
-
-    # Find and process test files
     find ./benchmarks -name "benchmark_*{{name}}*.nim" | while read -r file; do
         echo "Processing file: $file"
         filename=$(basename "$file")
@@ -354,14 +242,10 @@ benchmark name="":
             --panics:on \
             --passC:"-flto -march=native -ffast-math -funroll-loops -fopt-info-vec" \
             --passL:"-flto" \
-            -o:"${NIMCACHE_DIR}/benchmarks/${filename_no_ext}" \
+            -o:"${NIMCACHE_DIR}/${filename_no_ext}" \
             "$file"
 
-        # --profiler:on --stacktrace:on --linetrace:on
-            # --debugger:native \
-
-        # Run the compiled test
-        "${NIMCACHE_DIR}/benchmarks/${filename_no_ext}"
+        "${NIMCACHE_DIR}/${filename_no_ext}"
         echo "Running file: $file"
     done
 
@@ -389,7 +273,6 @@ build-static:
         src/nimdrake
 
 # Vendor libduckdb.so + duckdb.h into src/include/ (linux amd64, glibc).
-# TODO(P7-51): auto-detect host OS/arch and pull the matching release asset.
 fetch-lib:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -405,7 +288,6 @@ fetch-lib:
     echo "Downloading ${ASSET} (${DUCKDB_VERSION})..."
     wget -q "${URL}" -O "${TMP_DIR}/${ASSET}"
 
-    # Extract the zip. Prefer `unzip` (most common), fall back to `bsdtar`.
     if command -v unzip &>/dev/null; then
       unzip -o "${TMP_DIR}/${ASSET}" -d "${TMP_DIR}/extract"
     else
@@ -413,8 +295,6 @@ fetch-lib:
       bsdtar -xf "${TMP_DIR}/${ASSET}" -C "${TMP_DIR}/extract"
     fi
 
-    # The zip contains libduckdb.so, duckdb.h, and (on some platforms) a static .lib.
-    # We only vendor the shared lib + header for the 3-tier lookup.
     cp "${TMP_DIR}/extract/libduckdb.so" "${INCLUDE_DIR}/"
     cp "${TMP_DIR}/extract/duckdb.h"     "${INCLUDE_DIR}/"
 
@@ -422,4 +302,184 @@ fetch-lib:
     echo "Vendored libduckdb to ${INCLUDE_DIR}/"
     ls -la "${INCLUDE_DIR}/"
 
-# --gcc.exe:"musl-gcc" --gcc.linkerexe:"musl-gcc"
+# Remove all build artifacts
+clean:
+    rm -rf {{out_root}} {{coverage_dir}} coverage.info {{profile_dir}}
+
+# =============================================================================
+# Internal targets
+# =============================================================================
+
+_run-tests parallel cores mm mode leaks:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    TEST_ROOT="{{test_root}}"
+    OUT_ROOT="{{out_root}}/tests"
+    PARALLEL="{{parallel}}"
+    CORES="{{cores}}"
+    MM="{{mm}}"
+    MODE="{{mode}}"
+    CC="{{cc}}"
+
+    BASE_FLAGS="{{_base_flags}}"
+    DEBUG_FLAGS="{{_debug_flags}}"
+    SANITIZER_FLAGS="{{_sanitizer_flags}}"
+    RELEASE_FLAGS="{{_release_flags}}"
+
+    mkdir -p "$OUT_ROOT"
+    mapfile -t TEST_FILES < <(\
+        find "$TEST_ROOT" -name 'test_*.nim' -not -path "$TEST_ROOT/narrow/*" | sort \
+    )
+
+    if [[ "{{leaks}}" == "true" ]]; then
+        ASAN_OPTIONS="detect_leaks=1"
+        LSAN_OPTIONS="suppressions=lsan.supp:print_suppressions=0"
+    else
+        ASAN_OPTIONS="detect_leaks=0"
+        LSAN_OPTIONS=""
+    fi
+
+    run_test() {
+        local file="$1"
+        local name outdir binary
+        name="$(basename "$file" .nim)"
+        outdir="$OUT_ROOT/$name"
+        binary="$outdir/$name"
+        mkdir -p "$outdir"
+
+        local flags="$BASE_FLAGS --cc:$CC --mm:$MM --excessiveStackTrace:on"
+
+        if [[ "$MODE" == "debug" ]]; then
+            flags="$flags $DEBUG_FLAGS $SANITIZER_FLAGS -d:noSignalHandler"
+        else
+            flags="$flags $RELEASE_FLAGS"
+        fi
+
+        echo "==> $file"
+        eval nim c $flags -o:"$binary" "$file"
+
+        ASAN_OPTIONS="$ASAN_OPTIONS" \
+        LSAN_OPTIONS="$LSAN_OPTIONS" \
+            "$binary"
+    }
+
+    export -f run_test
+    export OUT_ROOT MM MODE CC ASAN_OPTIONS LSAN_OPTIONS
+    export BASE_FLAGS DEBUG_FLAGS SANITIZER_FLAGS RELEASE_FLAGS
+
+    if [[ "$PARALLEL" == "true" ]]; then
+        printf '%s\n' "${TEST_FILES[@]}" \
+            | xargs -P "$CORES" -I {} bash -c 'run_test "$1"' _ {}
+    else
+        for file in "${TEST_FILES[@]}"; do
+            run_test "$file"
+        done
+    fi
+
+_run-tests-arrow parallel cores mm mode leaks:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    TEST_ROOT="{{test_root}}/narrow"
+    OUT_ROOT="{{out_root}}/narrow-tests"
+    PARALLEL="{{parallel}}"
+    CORES="{{cores}}"
+    MM="{{mm}}"
+    MODE="{{mode}}"
+    CC="{{cc}}"
+
+    BASE_FLAGS="{{_base_flags}}"
+    DEBUG_FLAGS="{{_debug_flags}}"
+    SANITIZER_FLAGS="{{_sanitizer_flags}}"
+    RELEASE_FLAGS="{{_release_flags}}"
+
+    mkdir -p "$OUT_ROOT"
+    mapfile -t TEST_FILES < <(find "$TEST_ROOT" -name 'test_*.nim' | sort)
+
+    if [[ ${#TEST_FILES[@]} -eq 0 ]]; then
+        echo "No Arrow tests found in $TEST_ROOT/"
+        exit 0
+    fi
+
+    if [[ "{{leaks}}" == "true" ]]; then
+        ASAN_OPTIONS="detect_leaks=1"
+        LSAN_OPTIONS="suppressions=lsan.supp:print_suppressions=0"
+    else
+        ASAN_OPTIONS="detect_leaks=0"
+        LSAN_OPTIONS=""
+    fi
+
+    run_test() {
+        local file="$1"
+        local name outdir binary
+        name="$(basename "$file" .nim)"
+        outdir="$OUT_ROOT/$name"
+        binary="$outdir/$name"
+        mkdir -p "$outdir"
+
+        local flags="$BASE_FLAGS --cc:$CC --mm:$MM --excessiveStackTrace:on -d:features.nimdrake.arrow"
+
+        if [[ "$MODE" == "debug" ]]; then
+            flags="$flags $DEBUG_FLAGS $SANITIZER_FLAGS -d:noSignalHandler"
+        else
+            flags="$flags $RELEASE_FLAGS"
+        fi
+
+        echo "==> $file"
+        eval nim c $flags -o:"$binary" "$file"
+
+        ASAN_OPTIONS="$ASAN_OPTIONS" \
+        LSAN_OPTIONS="$LSAN_OPTIONS" \
+            "$binary"
+    }
+
+    export -f run_test
+    export OUT_ROOT MM MODE CC ASAN_OPTIONS LSAN_OPTIONS
+    export BASE_FLAGS DEBUG_FLAGS SANITIZER_FLAGS RELEASE_FLAGS
+
+    if [[ "$PARALLEL" == "true" ]]; then
+        printf '%s\n' "${TEST_FILES[@]}" \
+            | xargs -P "$CORES" -I {} bash -c 'run_test "$1"' _ {}
+    else
+        for file in "${TEST_FILES[@]}"; do
+            run_test "$file"
+        done
+    fi
+
+_run-tests-gcov:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    TEST_ROOT="{{test_root}}"
+    OUT_ROOT="{{out_root}}/tests"
+
+    find "$OUT_ROOT" -name "*.gcda" -delete 2>/dev/null || true
+    rm -f coverage.info
+
+    mkdir -p "$OUT_ROOT"
+    mapfile -t TEST_FILES < <(\
+        find "$TEST_ROOT" -name 'test_*.nim' -not -path "$TEST_ROOT/narrow/*" | sort \
+    )
+
+    for file in "${TEST_FILES[@]}"; do
+        name="$(basename "$file" .nim)"
+        outdir="$OUT_ROOT/$name"
+        cache_dir="$outdir/cache"
+        mkdir -p "$outdir"
+
+        echo "==> Compiling: $file"
+        nim c \
+            --cc:gcc \
+            {{_base_flags}} \
+            --mm:orc \
+            --debugger:native \
+            -d:debug --opt:none \
+            --passC:--coverage --passL:--coverage \
+            --nimcache:"$cache_dir" \
+            -o:"$outdir/$name" \
+            "$file"
+
+        echo "==> Running: $name"
+        "$outdir/$name" || true
+    done

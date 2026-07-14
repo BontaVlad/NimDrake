@@ -117,6 +117,27 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
 
 ---
 
+## P8 — Thread-safe Database via SharedPtr (threading package)
+
+- [x] 55. Add `threading` to `nimdrake.nimble` prod requires (`nimble install threading`). Import `threading/smartptrs` in `database.nim`.
+- [x] 56. Replace `Database.p: ref DbObj` and `ConnObj.db: ref DbObj` with `SharedPtr[DbObj]` (atomic refcounted, allocShared-based). Keep `Connection.p: ref ConnObj` as a per-thread fast ref (never shared across threads).
+- [x] 57. Update `rawHandle(db)` to use `db.p[].handle` (SharedPtr deref), `rawHandle(con)` unchanged. `newDatabase` uses `newSharedPtr(DbObj(handle: h))`; `connect` uses `db.p[].handle` for `duckdbConnect` + `result.p.db = db.p` (atomic copy keeps db alive).
+- [x] 58. Fix thread test worker signatures: `{.thread.}` procs must take a single tuple param matching `Thread[tuple[db: Database, id: int]]`, not separate params (was a latent bug — proc never got the `{.thread.}` pragma under Nim 2.2.10).
+- [x] 59. Fix thread worker INSERTs: `execute(con, query, args)` returns streaming result only (fails on DML); embed values directly in SQL string to use `execute(con, query): QResult[Materialized]`.
+- [x] 60. Activate & rewrite thread-safety assertions (5 threads insert + verify 4 columns via chunk API), uncomment "Multiple In-Memory DB Start Up and Shutdown" test (10 DBs × 100 connections).
+- [x] 61. Add "Database outlives main Database object via connections" test (workers' connections keep the SharedPtr alive after main `db` is destroyed).
+- [x] 62. Add "Move Database preserves handle, nils source, no double-close" test (verifies `=wasMoved` handoff via `SharedPtr` under ASan).
+
+**Trade-offs (documentation-only):**
+- `threading` is a nimble dep, not stdlib — adds one external moving part.
+- `SharedPtr` only protects the pointer/lifetime, not field data; mutation of `DbObj.handle` post-construction is the caller's responsibility (not relevant here — set once, read-only).
+- No weak pointers — self-referential SharedPtr graphs leak (irrelevant for the flat `DbObj`).
+- Nim maintainers frame atomic refcounting as a last resort vs. isolated subgraph moves; in practice the cost only hits on `connect()`/teardown, making it negligible here.
+
+**Commit + tests after P8.** ✅ All 8 database tests pass with ASan (orc + arc). Thread-safety, lifetime, and move semantics verified.
+
+---
+
 ## Progress Log
 
 - **P0 complete** — 11 correctness bugs fixed. All 147 tests pass with ASan. Files changed: `scalar_functions.nim`, `aggregate_functions.nim`, `value.nim`, `table_scan.nim`, `datachunk.nim`, `ffi.nim`, `database.nim`, `query.nim`.
@@ -126,3 +147,4 @@ Legend: `[ ]` pending · `[~]` in progress · `[x]` done
 - **P4 complete (partial)** — Code organization: field-name casing normalized across `vector.nim`, `value.nim`, `table_scan.nim`. Deferred: macro-generated boilerplate elimination (P4-30) and shared macro extraction (P4-32) as large refactorings. All 153 tests pass with ASan. Files changed: `vector.nim`, `value.nim`, `table_scan.nim`.
 - **P5 complete (partial)** — API design: fixed misleading `newValue` overloads that ignored `kind` parameter, added doc comments to `transaction`/`transient` templates. Deferred: narrow exports (P5-34, breaking), error taxonomy (P5-37, breaking), `newDuckType` consolidation (P5-36, macro refactoring). All 153 tests pass with ASan. Files changed: `value.nim`, `vector.nim`, `transaction.nim`, `test_value.nim`.
 - **P6 complete (partial)** — CI/hygiene: removed dead `GH_TOKEN` from CI, gitignored and deleted stray test binaries, deleted unused `logger.nim`, added compile-time warning for non-x86 decimal, updated README Contribution section. Deferred: DuckDB version alignment (P6-39), nph/doc CI step (P6-40), DuckDB version pin in README (P6-46). All 153 tests pass with ASan. Files changed: `.gitignore`, `.github/workflows/tests.yml`, `src/compatibility/decimal_compat.nim`, `README.md`, deleted `src/logger.nim`.
+- **P8 complete** — Threading migration: `Database.p`/`ConnObj.db` switched from `ref DbObj` to `threading/smartptrs.SharedPtr[DbObj]` for safe cross-thread sharing via atomic refcounting. Fixed latent `.thread.` proc signature bug (tuple param). Activated & rewrote thread-safety assertions (chunk API), uncommented 10-DB/100-connection test, added lifetime-invariant and move tests. 8 database tests pass with ASan (orc + arc). Files changed: `nimdrake.nimble`, `src/database.nim`, `tests/test_database.nim`, `WORKBOARD.md`.
