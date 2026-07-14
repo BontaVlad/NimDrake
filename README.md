@@ -215,61 +215,63 @@ echo duck.execute("SELECT * FROM prepared_table;")
 
 ### Example 6: Using UDF(user defined functions)
 
+NimDrake supports registering plain Nim procs as DuckDB scalar functions via
+the `registerScalar` macro. The macro introspects param/return types at compile
+time and generates a type-safe DuckDB wrapper with null propagation (any NULL
+input → NULL output without calling the body).
+
 ```nim
 let duck = newDatabase().connect()
 
-template powerTo(val, bar: int64): int64 {.scalar.} =
-  result = val * bar
+proc doubleValue(a, b: int64): int64 = a * b
 
-duck.register(powerTo)
+duck.registerScalar(doubleValue)
 
-duck.execute("CREATE TABLE test_table AS SELECT i FROM range(3, 9) t(i);")
-echo duck.execute("SELECT i, powerTo(i, i) as powerTo FROM test_table")
+let r = duck.execute("SELECT doubleValue(3::BIGINT, 4::BIGINT)")
+for chunk in r:
+  let v = chunk.vector(0).bindAs DuckType.BigInt
+  echo v[0]  # 7
 
-# output:
-# ┌─────┬─────────────────┬───────────┐
-# │  #  │     powerTo     │     i     │
-# ├─────┼─────────────────┼───────────┤
-# │  0  │     9           │     3     │
-# │  1  │     16          │     4     │
-# │  2  │     25          │     5     │
-# │  3  │     36          │     6     │
-# │  4  │     49          │     7     │
-# │  5  │     64          │     8     │
-# └─────┴─────────────────┴───────────┘
+# output (without loop):
+# ┌──────────────────────────┐
+# │ doubleValue(3, 4)        │
+# ├──────────────────────────┤
+# │ 7                        │
+# └──────────────────────────┘
 ```
+
+Supported param/return types: `bool`, `int8`–`int64`, `uint8`–`uint64`,
+`float32`, `float64`, `string`, `seq[byte]`, `DateTime`, `Time`,
+`TimeInterval`, `Int128`, `UInt128`, `Uuid`, `ZonedTime`.
 
 ### Example 7: Using UDF as table generators
 
-```nim
+Nim closure iterators can be registered as DuckDB table functions via the
+`registerTableFunction` macro. Two styles are available:
 
+**Style A — explicit macro call:**
+```nim
 let duck = newDatabase().connect()
 
-iterator countToN(count: int): int {.producer, closure.} =
-    for i in 0 ..< count:
-      yield i
+iterator countToN(count: int): int {.closure.} =
+  for i in 0 ..< count:
+    yield i
 
-iterator progress(count: int, sigil: string): string {.producer, closure.} =
-    var output = ""
-    for _ in 0 ..< count:
-      output &= sigil
-      yield output
-
-iterator floatCounter(): float {.producer, closure.} =
-    var counter = 0.0
-    while true:
-      yield counter
-      counter += 1.0
-
-duck.register(floatCounter)
-
-duck.register(progress)
-
-duck.register(countToN)
+duck.registerTableFunction(countToN)
 
 echo duck.execute("SELECT * FROM countToN(3)")
-echo duck.execute("SELECT * FROM progress(5, '#')")
-echo duck.execute("SELECT * FROM floatCounter() LIMIT 5;")
+```
+
+**Style B — `{.producer.}` pragma (auto-generates `registerXxx(con)` proc):**
+```nim
+iterator countToN(count: int): int {.producer, closure.} =
+  for i in 0 ..< count:
+    yield i
+
+# Auto-generated: registerCountToN(con: Connection)
+registerCountToN(duck)
+
+echo duck.execute("SELECT * FROM countToN(3)")
 
 # output:
 # ┌─────┬──────────────────┐
@@ -279,7 +281,19 @@ echo duck.execute("SELECT * FROM floatCounter() LIMIT 5;")
 # │  1  │     1            │
 # │  2  │     2            │
 # └─────┴──────────────────┘
-# 
+```
+
+Multi-param and multi-type iterators work naturally:
+```nim
+iterator progress(count: int, sigil: string): string {.producer, closure.} =
+  var output = ""
+  for _ in 0 ..< count:
+    output &= sigil
+    yield output
+
+registerProgress(duck)
+echo duck.execute("SELECT * FROM progress(5, '#')")
+
 # ┌─────┬──────────────────┐
 # │  #  │     progress     │
 # ├─────┼──────────────────┤
@@ -289,7 +303,19 @@ echo duck.execute("SELECT * FROM floatCounter() LIMIT 5;")
 # │  3  │     ####         │
 # │  4  │     #####        │
 # └─────┴──────────────────┘
-# 
+```
+
+Infinite iterators are supported (DuckDB applies `LIMIT` natively):
+```nim
+iterator floatCounter(): float {.producer, closure.} =
+  var counter = 0.0
+  while true:
+    yield counter
+    counter += 1.0
+
+registerFloatCounter(duck)
+echo duck.execute("SELECT * FROM floatCounter() LIMIT 5")
+
 # ┌─────┬──────────────────────┐
 # │  #  │     floatCounter     │
 # ├─────┼──────────────────────┤
@@ -299,6 +325,49 @@ echo duck.execute("SELECT * FROM floatCounter() LIMIT 5;")
 # │  3  │     3.0              │
 # │  4  │     4.0              │
 # └─────┴──────────────────────┘
+```
+
+### Example 8: Multi-column tables from tuple-yield iterators
+
+Iterators yielding Nim tuples produce multi-column output with automatic
+column names (from named tuples) or overridable names (from anonymous tuples).
+
+```nim
+let duck = newDatabase().connect()
+
+iterator namedTupleIter(n: int): tuple[idx: int, label: string] {.closure.} =
+  for i in 0 ..< n:
+    yield (idx: i, label: $i)
+
+duck.registerTableFunction(namedTupleIter)
+
+let r = duck.execute("SELECT * FROM namedTupleIter(3)")
+echo r.column(0).name   # "idx"
+echo r.column(1).name   # "label"
+# idx and label become DuckDB column names automatically
+```
+
+### Example 9: NULL handling and advanced options
+
+`Option[T]` return types produce NULL cells; `Option[T]` parameters accept
+nullable bind values. Named parameters, cardinality hints, and projection
+pushdown are configurable via extra macro arguments.
+
+```nim
+iterator withNulls(n: int): Option[int] {.closure.} =
+  for i in 0 ..< n:
+    if i == 0:
+      yield none(int)      # NULL in DuckDB
+    else:
+      yield some(i)
+
+iterator namedParams(a: int, b: Option[string]): string {.closure.} =
+  yield $a & b.get("default")
+
+let duck = newDatabase().connect()
+duck.registerTableFunction(withNulls)
+duck.registerTableFunction(namedParams, named = true)
+# Named params use SQL syntax: SELECT * FROM namedParams(a := 1, b := 'hello')
 ```
 ## DuckDB to Nim Type Mapping
 
