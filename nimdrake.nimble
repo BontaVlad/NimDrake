@@ -24,6 +24,9 @@ requires "nim >= 2.0.0", "nint128", "decimal >= 0.0.2",
 feature "arrow":
   requires "narrow >= 0.0.1"
 
+feature "tensor":
+  requires "arraymancer"
+
 # Dependencies - dev
 # Only used by tests, benchmarks, or wrapper regeneration (-d:useFuthark).
 # Activate with: nimble install --parser:declarative --features:dev

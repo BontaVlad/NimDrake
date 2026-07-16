@@ -13,9 +13,9 @@ type
     initProc: proc(info: InitInfo) {.cdecl.}
     initLocalProc: proc(info: InitInfo) {.cdecl.}
     mainProc: proc(info: FunctionInfo, chunk: duckdb_data_chunk) {.cdecl.}
+    extraData*: ref RootObj
 
   TableFunction* = ref object of TableFunctionBase
-    extraData*: ref RootObj
 
   BindInfo* = object
     handle*: duckdb_bind_info

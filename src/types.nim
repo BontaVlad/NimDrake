@@ -189,7 +189,29 @@ proc toDuckType*[T](t: typedesc[T]): DuckType =
     DuckType.Invalid
 
 proc newLogicalType*(i: duckdb_logical_type): LogicalType =
-  result = LogicalType(handle: i)
+  new(result)
+  result.handle = i
+  # Fix #1: Eagerly populate child/member names at construction time so
+  # structChildName/unionMemberName never lazily mutate a shared LogicalType
+  # ref during concurrent reads — that was a data race under ARC.  This
+  # one-time FFI cost is amortised over the whole QResult lifetime.
+  let kind = toDuckType(result)
+  if kind == DuckType.Struct:
+    let n = duckdb_struct_type_child_count(i).int
+    new(result.childNames)
+    result.childNames[] = newSeq[string](n)
+    for k in 0 ..< n:
+      let cs = duckdb_struct_type_child_name(i, k.idx_t)
+      result.childNames[k] = $cs
+      duckdb_free(cast[pointer](cs))
+  elif kind == DuckType.Union:
+    let n = duckdb_union_type_member_count(i).int
+    new(result.childNames)
+    result.childNames[] = newSeq[string](n)
+    for k in 0 ..< n:
+      let cs = duckdb_union_type_member_name(i, k.idx_t)
+      result.childNames[k] = $cs
+      duckdb_free(cast[pointer](cs))
 
 proc newLogicalType*(pt: DuckType): LogicalType =
   let tp = duckdb_type(pt.ord)

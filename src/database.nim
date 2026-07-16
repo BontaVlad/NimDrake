@@ -20,18 +20,27 @@ type
   Database* = object
     p: SharedPtr[DbObj]
 
-  ConnObj = object
+  ConnObj* = object
     handle: duckdbConnection
     db: SharedPtr[DbObj]      # keeps the database alive as long as this connection does
+    scanData*: ref RootObj    # set by table_scan.nim; opaque ExtraData ref
+    scanFnRegistered*: bool
 
   Connection* = object
-    p: ref ConnObj             # never shared across threads -> stays a plain (fast) ref
+    p*: ref ConnObj            # never shared across threads -> stays a plain (fast) ref
 
   QueryProgress* = object
     p: duckdb_query_progress_type
 
+proc rawDbHandle*(con: Connection): duckdb_database {.inline.} =
+  con.p.db[].handle
+
+var dbCloseHook*: proc(dbHandle: pointer) {.raises: [].} = nil
+
 proc `=destroy`(obj: var DbObj) =
   if obj.handle != nil:
+    if dbCloseHook != nil:
+      dbCloseHook(cast[pointer](obj.handle))
     duckdb_close(obj.handle.addr)
 
 proc `=destroy`(obj: var ConnObj) =

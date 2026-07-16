@@ -32,13 +32,38 @@
 ## `mapKeyType`, `mapValueType`, `unionMemberChild`, `unionMemberCount`,
 ## `unionMemberName`.  `Vector[kt].[]` does not exist for complex kinds.
 
-import std/[tables, math, times, strformat, macros]
+import std/[tables, math, times, strformat, macros, locks]
 import nint128
 import uuid4
 
 import /[ffi, types, codec]
 import /compatibility/decimal_compat
 import /tools/wrench
+
+# ---------------------------------------------------------------------------
+# Cardinality — variant: known count or unknown. No sentinel magic.
+# ---------------------------------------------------------------------------
+
+type
+  CardinalityKind* = enum
+    ckKnown
+    ckUnknown
+
+  Cardinality* = object
+    case kind*: CardinalityKind
+    of ckKnown:
+      count*: int
+      isExact*: bool
+    of ckUnknown:
+      discard
+
+  FillFn* = proc(chunk: duckdb_data_chunk): int {.closure, gcsafe.}
+
+proc knownCardinality*(count: int, isExact = true): Cardinality {.inline.} =
+  Cardinality(kind: ckKnown, count: count, isExact: isExact)
+
+proc unknownCardinality*(): Cardinality {.inline.} =
+  Cardinality(kind: ckUnknown)
 
 type
   QResultType* = enum
@@ -50,6 +75,9 @@ type
     name*: string
     kind*: DuckType
     ltype*: LogicalType
+    scale*: int8          ## valid iff kind == Decimal
+    width*: int8          ## valid iff kind == Decimal
+    enumWidth*: DuckType  ## valid iff kind == Enum
 
   ChunkMeta* = ref object
     columns*: seq[Column]
@@ -67,7 +95,7 @@ type
 
   # --- wrapper that gives =destroy/=/=wasMoved to raw duckdb_result ---
 
-  DuckdbResultHandle = object
+  DuckdbResultHandle* = object
     raw*: duckdb_result
 
   # --- QResult variants ---
@@ -107,7 +135,6 @@ type
     enumWidth*: DuckType
 
 # ---------------------------------------------------------------------------
-# =destroy / =wasMoved / =copy hooks
 # ---------------------------------------------------------------------------
 
 proc `=destroy`(d: DataChunkObj) =
@@ -127,10 +154,16 @@ proc `=destroy`(h: var DuckdbResultHandle) =
 proc `=wasMoved`(h: var DuckdbResultHandle) =
   h.raw.internal_data = nil
 
+proc takeHandle*(q: sink QResult[Streaming]): DuckdbResultHandle =
+  ## Moves the underlying duckdb_result handle out of `q`, neutering `q`'s
+  ## `=destroy` so the handle is freed exactly once (by the returned handle).
+  result.raw = q.handle.raw
+  q.handle.raw.internal_data = nil
+
 # ---------------------------------------------------------------------------
 # Construction
 # ---------------------------------------------------------------------------
-proc newChunkMeta(columns: sink seq[Column]): ChunkMeta =
+proc newChunkMeta*(columns: sink seq[Column]): ChunkMeta =
   new(result)
   result.columns = columns
   result.rlen = 0
@@ -147,7 +180,17 @@ proc newChunkMeta(handle: duckdb_result): ChunkMeta =
       kind = toDuckType(duckdb_column_type(handle.addr, i.idx_t))
       lhandle = duckdb_column_logical_type(handle.addr, i.idx_t)
       ltype = newLogicalType(lhandle)
-    result.columns[i] = Column(idx: i, name: name, kind: kind, ltype: ltype)
+    result.columns[i] = Column(
+      idx: i, name: name, kind: kind, ltype: ltype,
+      scale: if kind == DuckType.Decimal:
+               int8(duckdb_decimal_scale(lhandle))
+             else: 0'i8,
+      width: if kind == DuckType.Decimal:
+               int8(duckdb_decimal_width(lhandle))
+             else: 0'i8,
+      enumWidth: if kind == DuckType.Enum:
+               cast[DuckType](duckdb_enum_internal_type(lhandle))
+             else: DuckType.Invalid)
     result.nameIndex[name] = i
 
 proc newDataChunk*(
@@ -169,7 +212,18 @@ proc newDataChunk*(columns: sink seq[Column]): DataChunk =
   result.handle = duckdb_create_data_chunk(cast[ptr duckdb_logical_type](ltypes[0].addr), ncols.idx_t)
 
 proc newColumn*(name: string, ltype: LogicalType, idx = 0): Column =
-  Column(idx: idx, name: name, kind: toDuckType(ltype), ltype: ltype)
+  let kind = toDuckType(ltype)
+  Column(
+    idx: idx, name: name, kind: kind, ltype: ltype,
+    scale: if kind == DuckType.Decimal:
+             int8(duckdb_decimal_scale(ltype.handle))
+           else: 0'i8,
+    width: if kind == DuckType.Decimal:
+             int8(duckdb_decimal_width(ltype.handle))
+           else: 0'i8,
+    enumWidth: if kind == DuckType.Enum:
+             cast[DuckType](duckdb_enum_internal_type(ltype.handle))
+           else: DuckType.Invalid)
 
 proc newQResult*(_: typedesc[QResult[Materialized]], raw: duckdb_result): QResult[Materialized] =
   result.meta = newChunkMeta(raw)
@@ -221,6 +275,10 @@ proc columnCount*(c: DataChunk): int {.inline.} = c.meta.columns.len
 proc makeColumnView(
     vec: duckdb_vector, ltype: LogicalType, chunk: DataChunk, length: int
 ): ColumnView {.inline.} =
+  ## Build a ColumnView from a raw vector + a freshly-minted LogicalType.
+  ## Used by child descent procs (structChild, listChild, etc.) where there
+  ## is no precomputed Column to draw from — scale/width/enumWidth are
+  ## derived via FFI because the LogicalType is fresh and un-cached.
   result.kind = toDuckType(ltype)
   result.vec = vec
   result.ltype = ltype
@@ -237,8 +295,20 @@ proc makeColumnView(
 proc newColumnView(
     c: DataChunk, i: int, col: Column
 ): ColumnView {.inline.} =
+  ## Fix #2: Use cached Column fields (kind, scale, width, enumWidth)
+  ## instead of re-deriving them via FFI on every chunk.vector(i) call.
+  ## These are invariant for the life of the QResult.
   let vec = duckdb_data_chunk_get_vector(c.handle, i.idx_t)
-  makeColumnView(vec, col.ltype, c, c.len)
+  result.kind = col.kind
+  result.vec = vec
+  result.ltype = col.ltype
+  result.data = duckdb_vector_get_data(vec)
+  result.length = c.len
+  result.validity = cast[ptr UncheckedArray[uint64]](duckdb_vector_get_validity(vec))
+  result.chunk = c
+  result.scale = col.scale
+  result.width = col.width
+  result.enumWidth = col.enumWidth
 
 proc vector*(c: DataChunk, i: int): ColumnView {.inline.} =
   if i < 0 or i >= c.meta.columns.len:
@@ -269,7 +339,16 @@ proc columnIndex*(q: QResult, name: string): int {.inline.} = q.meta.nameIndex[n
 proc columnName*(q: QResult, i: int): string {.inline.} = q.meta.columns[i].name
 proc columnKind*(q: QResult, i: int): DuckType {.inline.} = q.meta.columns[i].kind
 
-iterator columns*(q: QResult): Column =
+proc columns*(q: QResult): seq[Column] =
+  q.meta.columns
+
+proc cardinality*(q: QResult[Materialized]): Cardinality =
+  knownCardinality(q.meta.rlen, true)
+
+proc cardinality*(q: QResult[Streaming]): Cardinality =
+  unknownCardinality()
+
+iterator columnItems*(q: QResult): Column =
   for c in q.meta.columns:
     yield c
 
@@ -334,6 +413,12 @@ proc initVector*[kt: static DuckType](
   result.length = length
   result.validity = cast[ptr UncheckedArray[uint64]](duckdb_vector_get_validity(vec))
   result.vec = vec
+
+proc vector*[kt: static DuckType](
+    chunk: duckdb_data_chunk, i: int, _: static DuckType,
+    length: int = VECTOR_SIZE
+): Vector[kt] {.inline.} =
+  initVector[kt](duckdb_data_chunk_get_vector(chunk, i.idx_t), length)
 
 # ---------------------------------------------------------------------------
 # Per-kind Nim type mapping
@@ -417,7 +502,7 @@ proc decodeDuckString*(s: ptr duckdb_string_t): string {.inline.} =
   result = newString(ln)
   copyMem(addr result[0], src, ln)
 
-proc decodeDuckBlob(s: ptr duckdb_string_t): seq[byte] {.inline.} =
+proc decodeDuckBlob*(s: ptr duckdb_string_t): seq[byte] {.inline.} =
   let (src, ln) = rawStringView(s)
   if ln <= 0:
     return @[]
@@ -565,6 +650,14 @@ proc `[]=`*[kt: static DuckType](v: var Vector[kt], i: int, val: nimOf(kt)) {.in
   elif kt in DuckComplexKind:
     {.error: "Vector[" & $kt & "] does not support `[]=`; use child writers.".}
 
+proc `[]=`*[kt: static DuckType](v: var Vector[kt], i: int, val: DuckStringRef) {.inline.} =
+  doAssert i >= 0 and i < v.length, "Vector index out of bounds: " & $i
+  when kt in DuckStringKind or kt in DuckBlobKind:
+    duckdb_vector_assign_string_element_len(v.vec, i.idx_t,
+      cast[cstring](val.data), val.length.idx_t)
+  else:
+    {.error: "DuckStringRef assignment only for string/blob kinds; got " & $kt.}
+
 proc setNull*[kt: static DuckType](v: var Vector[kt], i: int) {.inline.} =
   doAssert i >= 0 and i < v.length, "Vector index out of bounds: " & $i
   if v.validity.isNil:
@@ -625,6 +718,12 @@ proc newChunkBuilder*(columns: sink seq[Column]): ChunkBuilder =
   result.vectors = newSeq[ColumnView](columns.len)
   for i in 0 ..< columns.len:
     result.vectors[i] = result.chunk.vector(i)
+    # Fix #3: Eagerly ensure validity is writable so the isNil branch in
+    # setNull/setValid never fires during the hot append loop.
+    let vec = duckdb_data_chunk_get_vector(result.chunk.handle, i.idx_t)
+    duckdb_vector_ensure_validity_writable(vec)
+    result.vectors[i].validity =
+      cast[ptr UncheckedArray[uint64]](duckdb_vector_get_validity(vec))
 
 proc newChunkBuilder*(chunk: sink DataChunk): ChunkBuilder =
   result.chunk = chunk
@@ -634,6 +733,11 @@ proc newChunkBuilder*(chunk: sink DataChunk): ChunkBuilder =
   result.vectors = newSeq[ColumnView](chunk.columnCount)
   for i in 0 ..< chunk.columnCount:
     result.vectors[i] = result.chunk.vector(i)
+    # Fix #3: same as above
+    let vec = duckdb_data_chunk_get_vector(result.chunk.handle, i.idx_t)
+    duckdb_vector_ensure_validity_writable(vec)
+    result.vectors[i].validity =
+      cast[ptr UncheckedArray[uint64]](duckdb_vector_get_validity(vec))
 
 proc len*(b: ChunkBuilder): int {.inline.} =
   if b.colRows.len > 0: b.colRows[0] else: 0
@@ -767,6 +871,11 @@ proc borrowUuid*(v: Vector[DuckType.UUID], i: int): Int128 {.inline.} =
 
 # ---------------------------------------------------------------------------
 # Zero-copy descent procs — complex child kinds
+#
+# .. note:: Each descent proc (listChild, structChild, arrayChild,
+#   mapEntriesChild, unionMemberChild) mints a fresh `LogicalType` via FFI
+#   on every call.  Call them **once per chunk-vector** (not per row) to
+#   obtain the child `ColumnView`, then index that view by row.
 # ---------------------------------------------------------------------------
 
 proc listChild*(v: Vector[DuckType.List]): ColumnView {.inline.} =
@@ -791,22 +900,10 @@ proc arraySize*(v: Vector[DuckType.Array]): int {.inline.} =
 proc structChildCount*(v: Vector[DuckType.Struct]): int {.inline.} =
   duckdb_struct_type_child_count(v.ltype.handle).int
 
-proc duckStr(s: cstring): string {.inline.} =
-  ## Copies a DuckDB-allocated cstring into a Nim string and frees the backing buffer.
-  if s.isNil: return ""
-  result = $s
-  duckdb_free(cast[pointer](s))
-
 proc structChildName*(v: Vector[DuckType.Struct], j: int): string =
-  ## Returns the name of the j-th struct child. Child names are cached on the
-  ## `LogicalType` on first access, avoiding per-call DuckDB allocation + free.
-  if v.ltype.childNames.isNil:
-    let n = duckdb_struct_type_child_count(v.ltype.handle).int
-    new v.ltype.childNames
-    v.ltype.childNames[] = newSeq[string](n)
-    for k in 0 ..< n:
-      v.ltype.childNames[k] =
-        duckStr(duckdb_struct_type_child_name(v.ltype.handle, k.idx_t))
+  ## Returns the name of the j-th struct child. Names are populated eagerly at
+  ## `LogicalType` construction (single-threaded), so this is a plain read —
+  ## no FFI, no allocation, no lazy mutation of shared state.
   v.ltype.childNames[j]
 
 proc structChild*(v: Vector[DuckType.Struct], j: int): ColumnView {.inline.} =
@@ -836,15 +933,9 @@ proc unionMemberCount*(v: Vector[DuckType.Union]): int {.inline.} =
   duckdb_union_type_member_count(v.ltype.handle).int
 
 proc unionMemberName*(v: Vector[DuckType.Union], j: int): string =
-  ## Returns the name of the j-th union member. Member names are cached on the
-  ## `LogicalType` on first access, avoiding per-call DuckDB allocation + free.
-  if v.ltype.childNames.isNil:
-    let n = duckdb_union_type_member_count(v.ltype.handle).int
-    new v.ltype.childNames
-    v.ltype.childNames[] = newSeq[string](n)
-    for k in 0 ..< n:
-      v.ltype.childNames[k] =
-        duckStr(duckdb_union_type_member_name(v.ltype.handle, k.idx_t))
+  ## Returns the name of the j-th union member. Names are populated eagerly at
+  ## `LogicalType` construction (single-threaded), so this is a plain read —
+  ## no FFI, no allocation, no lazy mutation of shared state.
   v.ltype.childNames[j]
 
 proc unionMemberChild*(v: Vector[DuckType.Union], j: int): ColumnView {.inline.} =
@@ -927,3 +1018,33 @@ proc materialize*(q: sink QResult[Streaming]): QResult[Materialized] =
     result.meta.rlen += c.len
   duckdb_destroy_result(q.handle.raw.addr)
   q.handle.raw.internal_data = nil
+
+# ---------------------------------------------------------------------------
+# newFiller — QResult[Materialized] → FillFn (zero-copy)
+#
+# Each source chunk is *referenced* into the scan output chunk via
+# `duckdb_vector_reference_vector` — the output vector shares ownership of the
+# source vector's buffers and no data is moved or copied, exactly like the
+# Arrow path's `newMaterialized` filler.  This removes the per-column
+# `ColumnCopier`/`copyMem` pass entirely.
+#
+# The source `DataChunk`s live in `q.chunks` and stay ARC-alive for the life of
+# the filler closure (the closure captures `chunks` by ref), so the referenced
+# buffers remain valid for the duration of the scan.
+# ---------------------------------------------------------------------------
+
+proc newFiller*(q: QResult[Materialized]): FillFn =
+  let chunks = q.chunks
+  let nCols = q.meta.columns.len
+  var idx = 0
+  result = proc(chunk: duckdb_data_chunk): int {.closure, gcsafe.} =
+    if idx >= chunks.len: return 0
+    let src = chunks[idx]
+    inc idx
+    let n = src.len
+    for ci in 0 ..< nCols:
+      duckdb_vector_reference_vector(
+        duckdb_data_chunk_get_vector(chunk, ci.idx_t),
+        duckdb_data_chunk_get_vector(src.rawHandle, ci.idx_t))
+    return n
+
