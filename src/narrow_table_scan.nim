@@ -40,16 +40,6 @@ import /[database, ffi, types, qresult, arrow]
 import narrow/interop/cdata
 
 # ---------------------------------------------------------------------------
-# Types
-# ---------------------------------------------------------------------------
-
-type
-  NarrowBatch* = ref object
-    chunks: seq[DataChunk] ## one chunk per <= STANDARD_VECTOR_SIZE-row window
-    cols: seq[Column]
-    card: Cardinality
-
-# ---------------------------------------------------------------------------
 # Conversion primitives
 #
 # DuckDB's C API receives `struct ArrowSchema*` / `struct ArrowArray*` which
@@ -85,11 +75,16 @@ proc convertChunk(
 proc logicalTypeOf(vec: duckdb_vector): LogicalType =
   newLogicalType(duckdb_vector_get_column_type(vec))
 
-proc buildColumns(names: seq[string], chunk: duckdb_data_chunk): seq[Column] =
-  result = newSeq[Column](names.len)
-  for i in 0 ..< names.len:
+proc buildChunkMeta(schema: Schema, chunk: duckdb_data_chunk): ChunkMeta =
+  ## Derive a `ChunkMeta` (columns + name index) from the converted chunk's
+  ## DuckDB vectors, using the narrow `Schema` for column names.  Called once
+  ## per source; the meta is then shared by every window chunk.
+  let n = schema.nFields
+  var cols = newSeq[Column](n)
+  for i in 0 ..< n:
     let vec = duckdb_data_chunk_get_vector(chunk, i.idx_t)
-    result[i] = newColumn(names[i], logicalTypeOf(vec), i)
+    cols[i] = newColumn(schema[i].name, logicalTypeOf(vec), i)
+  result = newChunkMeta(cols)
 
 # ---------------------------------------------------------------------------
 # Batch conversion — windowed at STANDARD_VECTOR_SIZE rows
@@ -127,8 +122,11 @@ proc convertWindow(
   result = convertChunk(conn, cAbiArray, convSchema)
 
 proc convertBatchInto(
-    nb: NarrowBatch, conn: duckdb_connection, batch: RecordBatch
+    q: var QResult[Materialized], conn: duckdb_connection, batch: RecordBatch
 ) =
+  ## Convert one RecordBatch (windowed at STANDARD_VECTOR_SIZE) and append the
+  ## resulting DuckDB-owned DataChunks to `q`.  Column metadata is derived once
+  ## from the first window and stored on `q.meta`; it is shared by every chunk.
   let vecSize = duckdb_vector_size().int64
   let nRows = batch.nRows.int64
 
@@ -140,15 +138,14 @@ proc convertBatchInto(
   # Release the exported schema — it is no longer needed after conversion.
   releaseSchema(cSchema)
 
+  var haveCols = q.meta != nil and q.meta.columns.len > 0
+
   if nRows == 0:
     # Preserve column definitions (and EOF behaviour) for empty input.
     let rawChunk = convertWindow(conn, batch, convSchema)
-    if nb.cols.len == 0:
-      var names: seq[string] = @[]
-      for i in 0 ..< batch.schema.nFields:
-        names.add batch.schema[i].name
-      nb.cols = buildColumns(names, rawChunk)
-    nb.chunks.add newDataChunk(rawChunk, newChunkMeta(nb.cols))
+    if not haveCols:
+      q.meta = buildChunkMeta(batch.schema, rawChunk)
+    q.chunks.add newDataChunk(rawChunk, q.meta)
     return
 
   var off = 0'i64
@@ -158,52 +155,33 @@ proc convertBatchInto(
       if off == 0 and n == nRows: batch
       else: batch.slice(off, n)
     let rawChunk = convertWindow(conn, win, convSchema)
-    if nb.cols.len == 0:
-      var names: seq[string] = @[]
-      for i in 0 ..< batch.schema.nFields:
-        names.add batch.schema[i].name
-      nb.cols = buildColumns(names, rawChunk)
-    nb.chunks.add newDataChunk(rawChunk, newChunkMeta(nb.cols))
+    if not haveCols:
+      q.meta = buildChunkMeta(batch.schema, rawChunk)
+      haveCols = true
+    q.chunks.add newDataChunk(rawChunk, q.meta)
     off += n
 
 # ---------------------------------------------------------------------------
 # Constructors
 # ---------------------------------------------------------------------------
 
-proc newNarrowBatch*(batch: RecordBatch, conn: Connection): NarrowBatch =
-  result = NarrowBatch(card: knownCardinality(batch.nRows.int))
+proc newMaterialized*(batch: RecordBatch, conn: Connection): QResult[Materialized] =
+  ## Convert a single RecordBatch into a materialized DuckDB result.  The
+  ## returned `QResult[Materialized]` satisfies the `TableSource` concept, so
+  ## it can be registered directly: `conn.register(batch.newMaterialized(conn),
+  ## name = "v")`.  No data is copied at scan time (see module header).
   convertBatchInto(result, conn.rawHandle, batch)
+  result.meta.rlen = batch.nRows.int
 
-proc newNarrowBatch*(table: ArrowTable, conn: Connection): NarrowBatch =
-  result = NarrowBatch()
-  var totalRows = 0
+proc newMaterialized*(table: ArrowTable, conn: Connection): QResult[Materialized] =
+  ## Convert an ArrowTable (one or more RecordBatches) into a materialized
+  ## DuckDB result.  See `newMaterialized(RecordBatch, Connection)`.
   let reader = newRecordBatchReader(table)
+  var totalRows = 0
   for batch in reader.batches:
     convertBatchInto(result, conn.rawHandle, batch)
     totalRows += batch.nRows.int
-  result.card = knownCardinality(totalRows)
+  if result.meta == nil:
+    result.meta = newChunkMeta(newSeq[Column]())
+  result.meta.rlen = totalRows
 
-# ---------------------------------------------------------------------------
-# TableSource concept
-# ---------------------------------------------------------------------------
-
-proc columns*(nb: NarrowBatch): seq[Column] = nb.cols
-proc cardinality*(nb: NarrowBatch): Cardinality = nb.card
-
-proc newFiller*(nb: NarrowBatch): FillFn =
-  ## Zero-copy fill: the output vector is made to reference the converted
-  ## window's vector (`duckdb_vector_reference_vector` — shared ownership,
-  ## no data movement), one window per call.
-  let chunks = nb.chunks
-  let nCols = nb.cols.len
-  var idx = 0
-  result = proc(chunk: duckdb_data_chunk): int {.closure, gcsafe.} =
-    if idx >= chunks.len: return 0
-    let src = chunks[idx]
-    inc idx
-    let n = src.len
-    for ci in 0 ..< nCols:
-      duckdb_vector_reference_vector(
-        duckdb_data_chunk_get_vector(chunk, ci.idx_t),
-        duckdb_data_chunk_get_vector(src.rawHandle, ci.idx_t))
-    return n

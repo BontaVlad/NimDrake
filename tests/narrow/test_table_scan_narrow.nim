@@ -5,14 +5,14 @@ when defined(features.nimdrake.arrow):
   import narrow
   import ../../src/[database, query, qresult, types, table_scan, narrow_table_scan]
 
-  # Build a NarrowBatch from a RecordBatch and register it as a view on `conn`.
+  # Build a materialized DuckDB result from a RecordBatch and register it as a view.
   proc reg(conn: Connection, batch: RecordBatch, name: static string): QResult[Materialized] =
-    conn.register(newNarrowBatch(batch, conn), name = name)
+    conn.register(newMaterialized(batch, conn), name = name)
     conn.execute("SELECT * FROM " & name)
 
-  # Build a NarrowBatch from an ArrowTable and register it as a view on `conn`.
+  # Build a materialized DuckDB result from an ArrowTable and register it as a view.
   proc reg(conn: Connection, table: ArrowTable, name: static string): QResult[Materialized] =
-    conn.register(newNarrowBatch(table, conn), name = name)
+    conn.register(newMaterialized(table, conn), name = name)
     conn.execute("SELECT * FROM " & name)
 
   suite "narrow table scan — RecordBatch registered as DuckDB view":
@@ -321,78 +321,77 @@ when defined(features.nimdrake.arrow):
       let batch = newRecordBatch(schema, u8Arr, u16Arr)
 
       let conn = newDatabase().connect()
-      let nb = newNarrowBatch(batch, conn)
-      let cols = nb.columns()
+      let q = newMaterialized(batch, conn)
+      let cols = q.columns
       check cols[0].kind == DuckType.UTinyInt
       check cols[1].kind == DuckType.USmallInt
 
   suite "narrow table scan — ArrowTable registered as DuckDB view":
-    # NOTE: these tests are skipped because narrow's `newArrowTable(schema,
+    # NOTE: these tests are disabled because narrow's `newArrowTable(schema,
     # @[batches])` constructor crashes inside `arrow::Table::FromRecordBatches`
-    # (a SEGV in libarrow, independent of this module). The ArrowTable scan
-    # path itself is covered once that narrow bug is fixed; the RecordBatch
-    # path above already exercises the full Arrow -> DuckDB conversion.
-    test "ArrowTable from multiple RecordBatches concatenates":
-      skip()
-      let schema = newSchema([newField[int64]("x")])
-      let b1 = newRecordBatch(schema, newArray[int64](@[1'i64, 2'i64]))
-      let b2 = newRecordBatch(schema, newArray[int64](@[3'i64, 4'i64, 5'i64]))
+    # (a SEGV in libarrow, independent of this module). The bodies are kept
+    # below (under `when false`) as documentation of intended coverage; they
+    # are enabled once that narrow bug is fixed. The RecordBatch path above
+    # already exercises the full Arrow -> DuckDB conversion.
+    when false:
+      test "ArrowTable from multiple RecordBatches concatenates":
+        let schema = newSchema([newField[int64]("x")])
+        let b1 = newRecordBatch(schema, newArray[int64](@[1'i64, 2'i64]))
+        let b2 = newRecordBatch(schema, newArray[int64](@[3'i64, 4'i64, 5'i64]))
 
-      let table = newArrowTable(schema, @[b1, b2])
+        let table = newArrowTable(schema, @[b1, b2])
 
-      let conn = newDatabase().connect()
-      let r = conn.reg(table, "arrow_table")
-      check r.len == 5
-      var vals: seq[int64] = @[]
-      for chunk in r:
-        vals.add chunk.bindAs(0, DuckType.BigInt).toSeq
-      check vals == @[1'i64, 2'i64, 3'i64, 4'i64, 5'i64]
+        let conn = newDatabase().connect()
+        let r = conn.reg(table, "arrow_table")
+        check r.len == 5
+        var vals: seq[int64] = @[]
+        for chunk in r:
+          vals.add chunk.bindAs(0, DuckType.BigInt).toSeq
+        check vals == @[1'i64, 2'i64, 3'i64, 4'i64, 5'i64]
 
-    test "ArrowTable with multiple columns and nulls":
-      skip()
-      let schema = newSchema([
-        newField[int64]("id"),
-        newField[string]("name"),
-      ])
-      let b1 = newRecordBatch(
-        schema,
-        newArray[int64](@[1'i64, 2'i64]),
-        newArray[string](@["a", "b"]),
-      )
-      var builder = newRecordBatchBuilder(schema)
-      var c0 = columnBuilder[int64](builder, 0)
-      var c1 = columnBuilder[string](builder, 1)
-      c0.append(3'i64)
-      c0.appendNull()
-      c1.append("c")
-      c1.appendNull()
-      let b2 = builder.flush()
+      test "ArrowTable with multiple columns and nulls":
+        let schema = newSchema([
+          newField[int64]("id"),
+          newField[string]("name"),
+        ])
+        let b1 = newRecordBatch(
+          schema,
+          newArray[int64](@[1'i64, 2'i64]),
+          newArray[string](@["a", "b"]),
+        )
+        var builder = newRecordBatchBuilder(schema)
+        var c0 = columnBuilder[int64](builder, 0)
+        var c1 = columnBuilder[string](builder, 1)
+        c0.append(3'i64)
+        c0.appendNull()
+        c1.append("c")
+        c1.appendNull()
+        let b2 = builder.flush()
 
-      let table = newArrowTable(schema, @[b1, b2])
+        let table = newArrowTable(schema, @[b1, b2])
 
-      let conn = newDatabase().connect()
-      let r = conn.reg(table, "arrow_table_multi")
-      check r.len == 4
-      var ids: seq[int64] = @[]
-      var names: seq[string] = @[]
-      var nullNames = 0
-      for chunk in r:
-        ids.add chunk.bindAs(0, DuckType.BigInt).toSeq
-        let v = chunk.bindAs(1, DuckType.Varchar)
-        for i in 0 ..< v.len:
-          if v.valid(i): names.add v[i]
-          else: inc nullNames
-      check ids == @[1'i64, 2'i64, 3'i64]
-      check nullNames == 1
+        let conn = newDatabase().connect()
+        let r = conn.reg(table, "arrow_table_multi")
+        check r.len == 4
+        var ids: seq[int64] = @[]
+        var names: seq[string] = @[]
+        var nullNames = 0
+        for chunk in r:
+          ids.add chunk.bindAs(0, DuckType.BigInt).toSeq
+          let v = chunk.bindAs(1, DuckType.Varchar)
+          for i in 0 ..< v.len:
+            if v.valid(i): names.add v[i]
+            else: inc nullNames
+        check ids == @[1'i64, 2'i64, 3'i64]
+        check nullNames == 1
 
-    test "empty ArrowTable produces empty result":
-      skip()
-      let schema = newSchema([newField[int64]("x")])
-      let table = newArrowTable(schema, newSeq[RecordBatch]())
+      test "empty ArrowTable produces empty result":
+        let schema = newSchema([newField[int64]("x")])
+        let table = newArrowTable(schema, newSeq[RecordBatch]())
 
-      let conn = newDatabase().connect()
-      let r = conn.reg(table, "arrow_table_empty")
-      check r.len == 0
+        let conn = newDatabase().connect()
+        let r = conn.reg(table, "arrow_table_empty")
+        check r.len == 0
 
 else:
   echo "Skipping narrow table scan tests: arrow feature not enabled"
