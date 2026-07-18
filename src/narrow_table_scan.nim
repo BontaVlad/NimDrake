@@ -122,21 +122,16 @@ proc convertWindow(
   result = convertChunk(conn, cAbiArray, convSchema)
 
 proc convertBatchInto(
-    q: var QResult[Materialized], conn: duckdb_connection, batch: RecordBatch
+    q: var QResult[Materialized], conn: duckdb_connection,
+    batch: RecordBatch, convSchema: duckdb_arrow_converted_schema
 ) =
   ## Convert one RecordBatch (windowed at STANDARD_VECTOR_SIZE) and append the
-  ## resulting DuckDB-owned DataChunks to `q`.  Column metadata is derived once
-  ## from the first window and stored on `q.meta`; it is shared by every chunk.
+  ## resulting DuckDB-owned DataChunks to `q`.  `convSchema` is the Arrow schema
+  ## already converted by the caller (once per ArrowTable) and shared by all of
+  ## its batches.  Column metadata is derived from the first window of the
+  ## first batch and stored on `q.meta`; it is then shared by every chunk.
   let vecSize = duckdb_vector_size().int64
   let nRows = batch.nRows.int64
-
-  # One converted schema per batch; identical for all of its windows.
-  let cSchema = exportSchema(batch.schema)
-  let convSchema = convertSchema(conn, cSchema)
-  defer: duckdb_destroy_arrow_converted_schema(convSchema.addr)
-
-  # Release the exported schema — it is no longer needed after conversion.
-  releaseSchema(cSchema)
 
   var haveCols = q.meta != nil and q.meta.columns.len > 0
 
@@ -170,18 +165,36 @@ proc newMaterialized*(batch: RecordBatch, conn: Connection): QResult[Materialize
   ## returned `QResult[Materialized]` satisfies the `TableSource` concept, so
   ## it can be registered directly: `conn.register(batch.newMaterialized(conn),
   ## name = "v")`.  No data is copied at scan time (see module header).
-  convertBatchInto(result, conn.rawHandle, batch)
-  result.meta.rlen = batch.nRows.int
+  let cSchema = exportSchema(batch.schema)
+  let convSchema = convertSchema(conn.rawHandle, cSchema)
+  defer: duckdb_destroy_arrow_converted_schema(convSchema.addr)
+  releaseSchema(cSchema)
+  convertBatchInto(result, conn.rawHandle, batch, convSchema)
+  result.rlen = batch.nRows.int
 
 proc newMaterialized*(table: ArrowTable, conn: Connection): QResult[Materialized] =
   ## Convert an ArrowTable (one or more RecordBatches) into a materialized
   ## DuckDB result.  See `newMaterialized(RecordBatch, Connection)`.
+  ##
+  ## The Arrow schema is converted to DuckDB's converted schema **once** for
+  ## the whole table and shared by every batch (all batches of an ArrowTable
+  ## share the identical schema), eliminating a redundant export+convert+release
+  ## cycle per batch.
   let reader = newRecordBatchReader(table)
   var totalRows = 0
+  var convSchema: duckdb_arrow_converted_schema
+  var schemaConverted = false
   for batch in reader.batches:
-    convertBatchInto(result, conn.rawHandle, batch)
+    if not schemaConverted:
+      let cSchema = exportSchema(batch.schema)
+      convSchema = convertSchema(conn.rawHandle, cSchema)
+      releaseSchema(cSchema)
+      schemaConverted = true
+    convertBatchInto(result, conn.rawHandle, batch, convSchema)
     totalRows += batch.nRows.int
+  if schemaConverted:
+    duckdb_destroy_arrow_converted_schema(convSchema.addr)
   if result.meta == nil:
     result.meta = newChunkMeta(newSeq[Column]())
-  result.meta.rlen = totalRows
+  result.rlen = totalRows
 

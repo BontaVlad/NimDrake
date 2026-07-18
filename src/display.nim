@@ -93,6 +93,6 @@ proc `$`*(q: QResult[Materialized]): string =
         t.addRow(row)
         inc rowCount
 
-  if q.meta.rlen > previewMaxRows:
+  if q.rlen > previewMaxRows:
     t.addRow(newSeq[string](colCount))
   result = t.render()

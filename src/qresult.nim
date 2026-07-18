@@ -18,9 +18,14 @@
 ## Element access via `[]` is zero-allocation for primitive, temporal,
 ## hugeint, enum, and interval kinds (it returns value types constructed from
 ## the raw buffer).  For varchar/bit/blob it **allocates and copies** per row;
-## use `borrow()` for a true zero-copy pointer view into the duckdb buffer.
-## UUID and Decimal `[]` allocate intermediate strings.  `toSeq` and `items`
-## are explicit bulk materialize operations and always copy.
+## use `borrow()` (or the `borrowItems` iterator) for a true zero-copy pointer
+## view into the duckdb buffer.  UUID `[]` copies a 16-byte value; Decimal `[`
+## **allocates an intermediate string** — for hot decimal paths prefer
+## `borrowDecimal`, which returns the raw `(Int128, width, scale)` triple with no
+## allocation, and `borrowUuid` for the raw 128-bit UUID.  `toSeq`, `items`,
+## `toSeqOpt`, and `itemsOpt` are explicit bulk operations; `items`/`toSeq` copy
+## (NULL rows become `default(T)`), while the `Opt` variants preserve null-ness
+## via `Option[T]` at no per-row allocation cost for primitive kinds.
 ##
 ## A `ColumnView` is the *type-erased* intermediate you get from
 ## `chunk.vector(i)` or `chunk["name"]`; it carries a runtime `kind` and
@@ -32,7 +37,7 @@
 ## `mapKeyType`, `mapValueType`, `unionMemberChild`, `unionMemberCount`,
 ## `unionMemberName`.  `Vector[kt].[]` does not exist for complex kinds.
 
-import std/[tables, math, times, strformat, macros, locks]
+import std/[tables, math, times, strformat, macros, locks, options]
 import nint128
 import uuid4
 
@@ -82,7 +87,6 @@ type
   ChunkMeta* = ref object
     columns*: seq[Column]
     nameIndex*: Table[string, int]
-    rlen*: int
 
   # --- owning ref: ARC-managed via =destroy on the underlying object ---
 
@@ -106,6 +110,11 @@ type
       handle*: DuckdbResultHandle
     when T == Materialized:
       chunks*: seq[DataChunk]
+      rlen*: int               ## Total row count across `chunks`. Lives on the
+                               ## QResult (not on ChunkMeta) because it is the
+                               ## result's property and is mutated while the
+                               ## immutable `columns`/`nameIndex` payload is
+                               ## shared by reference with the source.
 
   # --- views: non-owning, carry a DataChunk back-ref for ARC safety ---
 
@@ -166,7 +175,6 @@ proc takeHandle*(q: sink QResult[Streaming]): DuckdbResultHandle =
 proc newChunkMeta*(columns: sink seq[Column]): ChunkMeta =
   new(result)
   result.columns = columns
-  result.rlen = 0
   for i in 0 ..< columns.len:
     result.nameIndex[result.columns[i].name] = i
 
@@ -232,14 +240,13 @@ proc newQResult*(_: typedesc[QResult[Materialized]], raw: duckdb_result): QResul
     if chunk == nil: break
     let c = newDataChunk(chunk, result.meta)
     result.chunks.add(c)
-    result.meta.rlen += duckdb_data_chunk_get_size(chunk).int
+    result.rlen += duckdb_data_chunk_get_size(chunk).int
   duckdb_destroy_result(raw.addr)
 
 proc newQResult*(_: typedesc[QResult[Streaming]], raw: duckdb_result): QResult[Streaming] =
   result.meta = newChunkMeta(raw)
   doAssert duckdb_result_is_streaming(raw) == true,
     "QResult[Streaming] requires a streaming result"
-  result.meta.rlen = -1
   result.handle = DuckdbResultHandle(raw: raw)
 
 # ---------------------------------------------------------------------------
@@ -343,7 +350,7 @@ proc columns*(q: QResult): seq[Column] =
   q.meta.columns
 
 proc cardinality*(q: QResult[Materialized]): Cardinality =
-  knownCardinality(q.meta.rlen, true)
+  knownCardinality(q.rlen, true)
 
 proc cardinality*(q: QResult[Streaming]): Cardinality =
   unknownCardinality()
@@ -362,13 +369,22 @@ proc `$`*(q: QResult[Streaming]): string =
 # ColumnView / Vector[kt] — binding & validity
 # ---------------------------------------------------------------------------
 
+template validBit*(validity: ptr UncheckedArray[uint64], i: int): bool =
+  ## Single source of truth for the DuckDB validity bit test.
+  (validity[i shr 6] and (1'u64 shl (i and 63))) != 0
+
 proc valid*(v: ColumnView, i: int): bool {.inline.} =
-  if v.validity.isNil: return true
-  (v.validity[i shr 6] and (1'u64 shl (i and 63))) != 0
+  v.validity.isNil or validBit(v.validity, i)
 
 proc valid*[kt: static DuckType](v: Vector[kt], i: int): bool {.inline.} =
-  if v.validity.isNil: return true
-  (v.validity[i shr 6] and (1'u64 shl (i and 63))) != 0
+  v.validity.isNil or validBit(v.validity, i)
+
+proc setNullBit*(v: var ColumnView, i: int) {.inline.} =
+  ## Marks row `i` as NULL, ensuring the validity mask is writable first.
+  if v.validity.isNil:
+    duckdb_vector_ensure_validity_writable(v.vec)
+    v.validity = cast[ptr UncheckedArray[uint64]](duckdb_vector_get_validity(v.vec))
+  duckdb_validity_set_row_invalid(cast[ptr uint64](v.validity), i.idx_t)
 
 proc len*(v: ColumnView): int {.inline.} = v.length
 proc len*[kt: static DuckType](v: Vector[kt]): int {.inline.} = v.length
@@ -415,8 +431,7 @@ proc initVector*[kt: static DuckType](
   result.vec = vec
 
 proc vector*[kt: static DuckType](
-    chunk: duckdb_data_chunk, i: int, _: static DuckType,
-    length: int = VECTOR_SIZE
+    chunk: duckdb_data_chunk, i: int, length: int = VECTOR_SIZE
 ): Vector[kt] {.inline.} =
   initVector[kt](duckdb_data_chunk_get_vector(chunk, i.idx_t), length)
 
@@ -511,10 +526,10 @@ proc decodeDuckBlob*(s: ptr duckdb_string_t): seq[byte] {.inline.} =
 
 type
   DuckStringRef* = object
+    ## Non-owning view of a VARCHAR/BLOB cell's buffer. `data` points into the
+    ## DuckDB-managed vector and is only valid for the lifetime of the chunk.
     data: pointer
     length*: int
-
-  DuckBlobRef* = DuckStringRef
 
 proc len*(r: DuckStringRef): int {.inline.} = r.length
 proc data*(r: DuckStringRef): pointer {.inline.} = r.data
@@ -538,6 +553,12 @@ proc borrow*(s: ptr duckdb_string_t): DuckStringRef {.inline.} =
 # ---------------------------------------------------------------------------
 # Vector[kt] indexing — compile-time dispatch
 # ---------------------------------------------------------------------------
+#
+# Zero-copy (no allocation, no copy) for primitive/temporal/hugeint/enum/interval
+# kinds.  VARCHAR/BIT/BLOB and UUID return value types built by copying the
+# cell's bytes.  DECIMAL goes through an intermediate string allocation — for
+# hot decimal columns use `borrowDecimal` to read the raw `(Int128, width,
+# scale)` triple without allocating.
 
 proc `[]`*[kt: static DuckType](v: Vector[kt], i: int): nimOf(kt) {.inline.} =
   doAssert i >= 0 and i < v.length, "Vector index out of bounds: " & $i
@@ -576,7 +597,7 @@ proc `[]`*[kt: static DuckType](v: Vector[kt], i: int): nimOf(kt) {.inline.} =
   elif kt == DuckType.Decimal:
     fromDuckDecimal(v.scale, v.width, v.data, i)
   elif kt == DuckType.Enum:
-    fromDuckEnum(v.enumWidth, v.data, i)
+    fromDuckEnum(v.data, i, v.enumWidth)
   elif kt in DuckComplexKind:
     {.error: "Vector[" & $kt & "] does not support `[]`; use listChild/" &
             "structChild/mapEntriesChild/unionMemberChild descent procs".}
@@ -623,18 +644,15 @@ proc `[]=`*[kt: static DuckType](v: var Vector[kt], i: int, val: nimOf(kt)) {.in
     cast[ptr UncheckedArray[int64]](v.data)[i] = toDuckTimestampTz(val)
   elif kt == DuckType.Decimal:
     let huge = toHugeInt(toDuckDecimal(val, v.width, v.scale))
+    # `huge.lower` is the low 64 bits of the (sign-extended) unscaled value;
+    # the smaller column widths take their low bytes directly. Reinterpreting
+    # the uint64 as int64 avoids a redundant copyMem per write.
     if v.width <= 4:
-      var s64: int64
-      copyMem(addr s64, addr huge.lower, sizeof(int64))
-      cast[ptr UncheckedArray[int16]](v.data)[i] = int16(s64)
+      cast[ptr UncheckedArray[int16]](v.data)[i] = int16(cast[int64](huge.lower))
     elif v.width <= 9:
-      var s64: int64
-      copyMem(addr s64, addr huge.lower, sizeof(int64))
-      cast[ptr UncheckedArray[int32]](v.data)[i] = int32(s64)
+      cast[ptr UncheckedArray[int32]](v.data)[i] = int32(cast[int64](huge.lower))
     elif v.width <= 18:
-      var s64: int64
-      copyMem(addr s64, addr huge.lower, sizeof(int64))
-      cast[ptr UncheckedArray[int64]](v.data)[i] = s64
+      cast[ptr UncheckedArray[int64]](v.data)[i] = cast[int64](huge.lower)
     else:
       cast[ptr UncheckedArray[duckdb_hugeint]](v.data)[i] = huge
   elif kt == DuckType.Enum:
@@ -752,16 +770,25 @@ proc append*[kt: static DuckType](
     b: var ChunkBuilder, col: int, val: sink nimOf(kt)) =
   doAssert col in 0 ..< b.colRows.len, "column out of range"
   doAssert b.colRows[col] < b.capacity, "chunk capacity exceeded"
-  var w = b.vectors[col].bindAs(kt)
-  w[b.colRows[col]] = val
+  let row = b.colRows[col]
+  let cv = b.vectors[col]
+  when kt in DuckPrimitiveKind:
+    cast[ptr UncheckedArray[nimOf(kt)]](cv.data)[row] = val
+  elif kt == DuckType.Boolean:
+    cast[ptr UncheckedArray[uint8]](cv.data)[row] = uint8(val)
+  elif kt in DuckStringKind or kt in DuckBlobKind:
+    duckdb_vector_assign_string_element_len(cv.vec, row.idx_t, val.cstring, val.len.idx_t)
+  else:
+    var w = cv.bindAs(kt)
+    w[row] = val
   inc b.colRows[col]
 
 proc appendNull*[kt: static DuckType](
     b: var ChunkBuilder, col: int) =
   doAssert col in 0 ..< b.colRows.len, "column out of range"
   doAssert b.colRows[col] < b.capacity, "chunk capacity exceeded"
-  var w = b.vectors[col].bindAs(kt)
-  w.setNull(b.colRows[col])
+  let row = b.colRows[col]
+  b.vectors[col].setNullBit(row)
   inc b.colRows[col]
 
 proc appendValues*[kt: static DuckType](
@@ -848,6 +875,19 @@ proc borrow*[kt: static DuckType](v: Vector[kt], i: int): DuckStringRef {.inline
     borrow(addr cast[ptr UncheckedArray[duckdb_string_t]](v.data)[i])
   else:
     {.error: "borrow() only defined for string/blob kinds; got " & $kt.}
+
+iterator borrowItems*[kt: static DuckType](v: Vector[kt]): DuckStringRef =
+  ## Zero-copy bulk iteration for VARCHAR/BIT/BLOB columns.  Yields a
+  ## `DuckStringRef` view into each row's buffer (no per-row `string`/seq
+  ## allocation).  NULL rows yield an empty (nil data, length 0) ref.
+  when kt in DuckStringKind or kt in DuckBlobKind:
+    for i in 0 ..< v.length:
+      if v.valid(i):
+        yield borrow(addr cast[ptr UncheckedArray[duckdb_string_t]](v.data)[i])
+      else:
+        yield DuckStringRef(data: nil, length: 0)
+  else:
+    {.error: "borrowItems() only defined for string/blob kinds; got " & $kt.}
 
 proc borrowDecimal*(v: Vector[DuckType.Decimal], i: int): (Int128, int8, int8) {.inline.} =
   ## Non-allocating raw view of a DECIMAL cell. Returns `(rawValue, width, scale)`
@@ -969,9 +1009,14 @@ iterator items*[kt: static DuckType](v: Vector[kt]): nimOf(kt) =
   ##   preserve null-ness, check `valid(i) <`` `v[i]` individually, or use
   ##   `complex.toNimValue` which returns `NimValue(kind: nvNull)` for nulls.
   let n = v.length
-  for i in 0 ..< n:
-    if v.valid(i): yield v[i]
-    else: yield default(nimOf(kt))
+  if v.validity.isNil:
+    # Fully-valid column: branchless fast path, no per-row validity load.
+    for i in 0 ..< n:
+      yield v[i]
+  else:
+    for i in 0 ..< n:
+      if v.valid(i): yield v[i]
+      else: yield default(nimOf(kt))
 
 
 # ---------------------------------------------------------------------------
@@ -987,37 +1032,67 @@ proc toSeq*[kt: static DuckType](v: Vector[kt]): seq[nimOf(kt)] =
   ##   preserve null-ness, check `valid(i) <`` `v[i]` individually, or use
   ##   `complex.toNimValues` which returns `NimValue(kind: nvNull)` for nulls.
   result = newSeq[nimOf(kt)](v.length)
-  for i in 0 ..< v.length:
-    if v.valid(i): result[i] = v[i] else: result[i] = default(nimOf(kt))
+  if v.validity.isNil:
+    # Fully-valid column: branchless fast path.
+    for i in 0 ..< v.length:
+      result[i] = v[i]
+  else:
+    for i in 0 ..< v.length:
+      if v.valid(i): result[i] = v[i] else: result[i] = default(nimOf(kt))
+
+# ---------------------------------------------------------------------------
+# itemsOpt / toSeqOpt — null-preserving variants
+# ---------------------------------------------------------------------------
+#
+# Unlike `items`/`toSeq`, these yield `Option[nimOf(kt)]` (or `none` for NULL
+# rows) so null-ness is preserved with no allocation for primitive kinds.  Prefer
+# these when the result may contain NULLs and you need to distinguish them from
+# a real zero/empty value.
+
+iterator itemsOpt*[kt: static DuckType](v: Vector[kt]): Option[nimOf(kt)] =
+  let n = v.length
+  if v.validity.isNil:
+    for i in 0 ..< n:
+      yield some(v[i])
+  else:
+    for i in 0 ..< n:
+      if v.valid(i): yield some(v[i]) else: yield none(nimOf(kt))
+
+proc toSeqOpt*[kt: static DuckType](v: Vector[kt]): seq[Option[nimOf(kt)]] =
+  result = newSeq[Option[nimOf(kt)]](v.length)
+  if v.validity.isNil:
+    for i in 0 ..< v.length:
+      result[i] = some(v[i])
+  else:
+    for i in 0 ..< v.length:
+      if v.valid(i): result[i] = some(v[i]) else: result[i] = none(nimOf(kt))
 
 # ---------------------------------------------------------------------------
 # materialize — drain a streaming result into a materialized one
 # ---------------------------------------------------------------------------
 
 proc len*(q: QResult[Materialized]): int {.inline.} =
-  q.meta.rlen
+  q.rlen
 
 proc materialize*(q: sink QResult[Streaming]): QResult[Materialized] =
   ## Drain all remaining chunks from a streaming result and return a
   ## fully materialized `QResult[Materialized]`.
   ##
-  ## A fresh `ChunkMeta` ref is allocated so that mutating `rlen` during
-  ## accumulation does not clobber the source's `meta.rlen` (the `columns`
-  ## and `nameIndex` payloads are shared, being immutable post-construction).
-  new(result.meta)
-  result.meta.columns = q.meta.columns
-  result.meta.nameIndex = q.meta.nameIndex
-  result.meta.rlen = 0
+  ## `meta` (its immutable `columns`/`nameIndex` payload) is shared by
+  ## reference with the source; only `rlen` — the result's own property — is
+  ## accumulated locally, so no fresh `ChunkMeta` ref is needed.
+  result.meta = q.meta
   result.chunks = @[]
+  result.rlen = 0
+  let h = takeHandle(q)
   while true:
-    let raw = duckdb_fetch_chunk(q.handle.raw)
+    let raw = duckdb_fetch_chunk(h.raw)
     if raw == nil:
       break
     let c = newDataChunk(raw, result.meta)
     result.chunks.add(c)
-    result.meta.rlen += c.len
-  duckdb_destroy_result(q.handle.raw.addr)
-  q.handle.raw.internal_data = nil
+    result.rlen += c.len
+  duckdb_destroy_result(h.raw.addr)
 
 # ---------------------------------------------------------------------------
 # newFiller — QResult[Materialized] → FillFn (zero-copy)
