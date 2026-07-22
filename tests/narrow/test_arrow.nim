@@ -2,7 +2,7 @@ import unittest2
 
 when defined(features.nimdrake.arrow):
   import narrow
-  import ../../src/[database, query, arrow]
+  import ../../src/[database, query, arrow, display, narrow_table_scan]
 
   suite "QResult — Arrow toArrowStream":
     test "basic streaming converts int column correctly":
@@ -217,4 +217,5 @@ when defined(features.nimdrake.arrow):
       """
       let conn = newDatabase().connect()
       let stmt = conn.newStatement(query)
-      echo conn.execute(stmt).toArrowTable()
+      echo "/n"
+      echo conn.execute(stmt).toArrowTable().newMaterialized(conn)

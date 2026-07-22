@@ -6,12 +6,12 @@ when defined(features.nimdrake.arrow):
   import ../../src/[database, query, qresult, types, table_scan, narrow_table_scan]
 
   # Build a materialized DuckDB result from a RecordBatch and register it as a view.
-  proc reg(conn: Connection, batch: RecordBatch, name: static string): QResult[Materialized] =
+  proc register(conn: Connection, batch: RecordBatch, name: static string): QResult[Materialized] =
     conn.register(newMaterialized(batch, conn), name = name)
     conn.execute("SELECT * FROM " & name)
 
   # Build a materialized DuckDB result from an ArrowTable and register it as a view.
-  proc reg(conn: Connection, table: ArrowTable, name: static string): QResult[Materialized] =
+  proc register(conn: Connection, table: ArrowTable, name: static string): QResult[Materialized] =
     conn.register(newMaterialized(table, conn), name = name)
     conn.execute("SELECT * FROM " & name)
 
@@ -22,7 +22,7 @@ when defined(features.nimdrake.arrow):
       let batch = newRecordBatch(schema, arr)
 
       let conn = newDatabase().connect()
-      let r = conn.reg(batch, "arrow_ints")
+      let r = conn.register(batch, "arrow_ints")
       check r.len == 3
       var vals: seq[int64] = @[]
       for chunk in r:
@@ -35,7 +35,7 @@ when defined(features.nimdrake.arrow):
       let batch = newRecordBatch(schema, arr)
 
       let conn = newDatabase().connect()
-      let r = conn.reg(batch, "arrow_int32")
+      let r = conn.register(batch, "arrow_int32")
       check r.len == 3
       var vals: seq[int32] = @[]
       for chunk in r:
@@ -48,7 +48,7 @@ when defined(features.nimdrake.arrow):
       let batch = newRecordBatch(schema, arr)
 
       let conn = newDatabase().connect()
-      let r = conn.reg(batch, "arrow_f64")
+      let r = conn.register(batch, "arrow_f64")
       check r.len == 3
       var vals: seq[float64] = @[]
       for chunk in r:
@@ -61,7 +61,7 @@ when defined(features.nimdrake.arrow):
       let batch = newRecordBatch(schema, arr)
 
       let conn = newDatabase().connect()
-      let r = conn.reg(batch, "arrow_f32")
+      let r = conn.register(batch, "arrow_f32")
       check r.len == 3
       var vals: seq[float32] = @[]
       for chunk in r:
@@ -74,7 +74,7 @@ when defined(features.nimdrake.arrow):
       let batch = newRecordBatch(schema, arr)
 
       let conn = newDatabase().connect()
-      let r = conn.reg(batch, "arrow_bool")
+      let r = conn.register(batch, "arrow_bool")
       check r.len == 3
       var vals: seq[bool] = @[]
       for chunk in r:
@@ -87,7 +87,7 @@ when defined(features.nimdrake.arrow):
       let batch = newRecordBatch(schema, arr)
 
       let conn = newDatabase().connect()
-      let r = conn.reg(batch, "arrow_str")
+      let r = conn.register(batch, "arrow_str")
       check r.len == 3
       var vals: seq[string] = @[]
       for chunk in r:
@@ -110,7 +110,7 @@ when defined(features.nimdrake.arrow):
       let batch = newRecordBatch(schema, idArr, scoreArr, labelArr, activeArr)
 
       let conn = newDatabase().connect()
-      let r = conn.reg(batch, "arrow_multi")
+      let r = conn.register(batch, "arrow_multi")
       check r.len == 3
       var ids: seq[int64] = @[]
       var scores: seq[float64] = @[]
@@ -138,7 +138,7 @@ when defined(features.nimdrake.arrow):
       let batch = builder.flush()
 
       let conn = newDatabase().connect()
-      let r = conn.reg(batch, "arrow_null_builder")
+      let r = conn.register(batch, "arrow_null_builder")
       check r.len == 5
       var nullCount = 0
       var presentCount = 0
@@ -160,7 +160,7 @@ when defined(features.nimdrake.arrow):
       let batch = builder.flush()
 
       let conn = newDatabase().connect()
-      let r = conn.reg(batch, "arrow_str_null_builder")
+      let r = conn.register(batch, "arrow_str_null_builder")
       check r.len == 3
       var nullCount = 0
       var presentCount = 0
@@ -183,7 +183,7 @@ when defined(features.nimdrake.arrow):
       let batch = builder.flush()
 
       let conn = newDatabase().connect()
-      let r = conn.reg(batch, "arrow_bool_null")
+      let r = conn.register(batch, "arrow_bool_null")
       check r.len == 4
       var nullCount = 0
       var presentCount = 0
@@ -205,7 +205,7 @@ when defined(features.nimdrake.arrow):
       let batch = builder.flush()
 
       let conn = newDatabase().connect()
-      let r = conn.reg(batch, "arrow_f64_null")
+      let r = conn.register(batch, "arrow_f64_null")
       check r.len == 3
       var nullCount = 0
       var presentCount = 0
@@ -227,7 +227,7 @@ when defined(features.nimdrake.arrow):
       let batch = newRecordBatch(schema, valArr, tagArr)
 
       let conn = newDatabase().connect()
-      let r = conn.reg(batch, "arrow_filter")
+      let r = conn.register(batch, "arrow_filter")
       check r.len == 3
       var tags: seq[string] = @[]
       for chunk in r:
@@ -248,8 +248,8 @@ when defined(features.nimdrake.arrow):
       let connA = dbA.connect()
       let connB = dbB.connect()
 
-      discard connA.reg(batchA, "na")
-      discard connB.reg(batchB, "nb")
+      discard connA.register(batchA, "na")
+      discard connB.register(batchB, "nb")
 
       let rA = connA.execute("SELECT x FROM na")
       let rB = connB.execute("SELECT y FROM nb")
@@ -272,7 +272,7 @@ when defined(features.nimdrake.arrow):
       let batch = newRecordBatch(schema, smallArr, tinyArr)
 
       let conn = newDatabase().connect()
-      let r = conn.reg(batch, "arrow_small")
+      let r = conn.register(batch, "arrow_small")
       check r.len == 2
       var smalls: seq[int16] = @[]
       var tinies: seq[int8] = @[]
@@ -292,7 +292,7 @@ when defined(features.nimdrake.arrow):
       let batch = newRecordBatch(schema, u32Arr, u64Arr)
 
       let conn = newDatabase().connect()
-      let r = conn.reg(batch, "arrow_unsigned")
+      let r = conn.register(batch, "arrow_unsigned")
       check r.len == 2
       var u32s: seq[uint32] = @[]
       var u64s: seq[uint64] = @[]
@@ -308,7 +308,7 @@ when defined(features.nimdrake.arrow):
       let batch = newRecordBatch(schema, arr)
 
       let conn = newDatabase().connect()
-      let r = conn.reg(batch, "arrow_empty")
+      let r = conn.register(batch, "arrow_empty")
       check r.len == 0
 
     test "UTinyInt and USmallInt type mapping is correct":
@@ -342,7 +342,7 @@ when defined(features.nimdrake.arrow):
         let table = newArrowTable(schema, @[b1, b2])
 
         let conn = newDatabase().connect()
-        let r = conn.reg(table, "arrow_table")
+        let r = conn.register(table, "arrow_table")
         check r.len == 5
         var vals: seq[int64] = @[]
         for chunk in r:
@@ -371,7 +371,7 @@ when defined(features.nimdrake.arrow):
         let table = newArrowTable(schema, @[b1, b2])
 
         let conn = newDatabase().connect()
-        let r = conn.reg(table, "arrow_table_multi")
+        let r = conn.register(table, "arrow_table_multi")
         check r.len == 4
         var ids: seq[int64] = @[]
         var names: seq[string] = @[]
@@ -390,7 +390,7 @@ when defined(features.nimdrake.arrow):
         let table = newArrowTable(schema, newSeq[RecordBatch]())
 
         let conn = newDatabase().connect()
-        let r = conn.reg(table, "arrow_table_empty")
+        let r = conn.register(table, "arrow_table_empty")
         check r.len == 0
 
 else:
