@@ -1,4 +1,4 @@
-import std/[tables, strformat, strutils, locks, macros]
+import std/[tables, strformat, locks, macros]
 import /[ffi, database, types, qresult, table_functions, query]
 
 # ---------------------------------------------------------------------------
