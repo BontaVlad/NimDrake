@@ -562,6 +562,15 @@ proc borrow*(s: ptr duckdb_string_t): DuckStringRef {.inline.} =
 
 proc `[]`*[kt: static DuckType](v: Vector[kt], i: int): nimOf(kt) {.inline.} =
   doAssert i >= 0 and i < v.length, "Vector index out of bounds: " & $i
+  when kt in DuckStringKind or kt in DuckBlobKind:
+    # DuckDB does not initialize the string_t cell of NULL rows; its length and
+    # pointer fields are garbage. Dereferencing them wild-reads arbitrary
+    # memory (crash under ASan). Read NULLs as empty values.
+    if not v.valid(i):
+      when kt in DuckStringKind:
+        return ""
+      else:
+        return @[]
   when kt in DuckPrimitiveKind:
     cast[ptr UncheckedArray[nimOf(kt)]](v.data)[i]
   elif kt == DuckType.Boolean:
