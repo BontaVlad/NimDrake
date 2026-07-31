@@ -15,6 +15,7 @@ cores    := "4"
 mm       := "orc"      # orc | arc
 mode     := "debug"    # debug | release
 leaks    := "true"     # true | false
+asan     := "true"     # true | false
 cc       := "gcc"
 
 # =============================================================================
@@ -38,16 +39,16 @@ default:
     @just --choose --justfile {{justfile()}}
 
 # Run tests with current settings
-test: (_run-tests parallel cores mm mode leaks)
+test: (_run-tests parallel cores mm mode leaks asan)
 
 # Convenience presets
-test-debug: (_run-tests "false" "4" "orc" "debug" "true")
-test-debug-par: (_run-tests "true" "8" "orc" "debug" "true")
-test-release: (_run-tests "false" "4" "orc" "release" "false")
-test-arc: (_run-tests "false" "4" "arc" "debug" "true")
+test-debug: (_run-tests "false" "4" "orc" "debug" "true" "true")
+test-debug-par: (_run-tests "true" "8" "orc" "debug" "true" "true")
+test-release: (_run-tests "false" "4" "orc" "release" "false" "false")
+test-arc: (_run-tests "false" "4" "arc" "debug" "true" "true")
 
 # Run narrow/Arrow tests (requires -d:features.nimdrake.arrow)
-test-arrow: (_run-tests-arrow parallel cores mm mode leaks)
+test-arrow: (_run-tests-arrow parallel cores mm mode leaks asan)
 
 # Generate lcov coverage report
 coverage: (_run-tests-gcov)
@@ -310,7 +311,7 @@ clean:
 # Internal targets
 # =============================================================================
 
-_run-tests parallel cores mm mode leaks:
+_run-tests parallel cores mm mode leaks asan:
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -321,6 +322,7 @@ _run-tests parallel cores mm mode leaks:
     MM="{{mm}}"
     MODE="{{mode}}"
     CC="{{cc}}"
+    ASAN="{{asan}}"
 
     BASE_FLAGS="{{_base_flags}}"
     DEBUG_FLAGS="{{_debug_flags}}"
@@ -359,7 +361,10 @@ _run-tests parallel cores mm mode leaks:
         local flags="$BASE_FLAGS --cc:$CC --mm:$MM --excessiveStackTrace:on"
 
         if [[ "$MODE" == "debug" ]]; then
-            flags="$flags $DEBUG_FLAGS $SANITIZER_FLAGS -d:noSignalHandler"
+            flags="$flags $DEBUG_FLAGS -d:noSignalHandler"
+            if [[ "$ASAN" == "true" ]]; then
+                flags="$flags $SANITIZER_FLAGS"
+            fi
         else
             flags="$flags $RELEASE_FLAGS"
         fi
@@ -385,7 +390,7 @@ _run-tests parallel cores mm mode leaks:
         done
     fi
 
-_run-tests-arrow parallel cores mm mode leaks:
+_run-tests-arrow parallel cores mm mode leaks asan:
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -396,6 +401,7 @@ _run-tests-arrow parallel cores mm mode leaks:
     MM="{{mm}}"
     MODE="{{mode}}"
     CC="{{cc}}"
+    ASAN="{{asan}}"
 
     BASE_FLAGS="{{_base_flags}}"
     DEBUG_FLAGS="{{_debug_flags}}"
@@ -437,7 +443,10 @@ _run-tests-arrow parallel cores mm mode leaks:
         local flags="$BASE_FLAGS --cc:$CC --mm:$MM --excessiveStackTrace:on -d:features.nimdrake.arrow"
 
         if [[ "$MODE" == "debug" ]]; then
-            flags="$flags $DEBUG_FLAGS $SANITIZER_FLAGS -d:noSignalHandler"
+            flags="$flags $DEBUG_FLAGS -d:noSignalHandler"
+            if [[ "$ASAN" == "true" ]]; then
+                flags="$flags $SANITIZER_FLAGS"
+            fi
         else
             flags="$flags $RELEASE_FLAGS"
         fi
