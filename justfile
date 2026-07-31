@@ -338,9 +338,11 @@ _run-tests parallel cores mm mode leaks asan:
     )
 
     LEAKS="{{leaks}}"
-    if [[ "$(uname -s)" == "Darwin" ]]; then
-        LEAKS="false"
-    fi
+    EXEEXT=""
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) EXEEXT=".exe";;
+        Darwin) LEAKS="false";;
+    esac
 
     if [[ "$LEAKS" == "true" ]]; then
         ASAN_OPTIONS="detect_leaks=1"
@@ -355,7 +357,7 @@ _run-tests parallel cores mm mode leaks asan:
         local name outdir binary
         name="$(basename "$file" .nim)"
         outdir="$OUT_ROOT/$name"
-        binary="$outdir/$name"
+        binary="$outdir/$name$EXEEXT"
         mkdir -p "$outdir"
 
         local flags="$BASE_FLAGS --cc:$CC --mm:$MM --excessiveStackTrace:on"
@@ -378,7 +380,7 @@ _run-tests parallel cores mm mode leaks asan:
     }
 
     export -f run_test
-    export OUT_ROOT MM MODE CC ASAN_OPTIONS LSAN_OPTIONS
+    export OUT_ROOT MM MODE CC ASAN_OPTIONS LSAN_OPTIONS EXEEXT
     export BASE_FLAGS DEBUG_FLAGS SANITIZER_FLAGS RELEASE_FLAGS
 
     if [[ "$PARALLEL" == "true" ]]; then
@@ -420,9 +422,11 @@ _run-tests-arrow parallel cores mm mode leaks asan:
     fi
 
     LEAKS="{{leaks}}"
-    if [[ "$(uname -s)" == "Darwin" ]]; then
-        LEAKS="false"
-    fi
+    EXEEXT=""
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) EXEEXT=".exe";;
+        Darwin) LEAKS="false";;
+    esac
 
     if [[ "$LEAKS" == "true" ]]; then
         ASAN_OPTIONS="detect_leaks=1"
@@ -437,7 +441,7 @@ _run-tests-arrow parallel cores mm mode leaks asan:
         local name outdir binary
         name="$(basename "$file" .nim)"
         outdir="$OUT_ROOT/$name"
-        binary="$outdir/$name"
+        binary="$outdir/$name$EXEEXT"
         mkdir -p "$outdir"
 
         local flags="$BASE_FLAGS --cc:$CC --mm:$MM --excessiveStackTrace:on -d:features.nimdrake.arrow"
@@ -460,7 +464,7 @@ _run-tests-arrow parallel cores mm mode leaks asan:
     }
 
     export -f run_test
-    export OUT_ROOT MM MODE CC ASAN_OPTIONS LSAN_OPTIONS
+    export OUT_ROOT MM MODE CC ASAN_OPTIONS LSAN_OPTIONS EXEEXT
     export BASE_FLAGS DEBUG_FLAGS SANITIZER_FLAGS RELEASE_FLAGS
 
     if [[ "$PARALLEL" == "true" ]]; then
