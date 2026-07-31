@@ -335,7 +335,12 @@ _run-tests parallel cores mm mode leaks:
         find "$TEST_ROOT" -name 'test_*.nim' -not -path "$TEST_ROOT/narrow/*" | sort \
     )
 
-    if [[ "{{leaks}}" == "true" ]]; then
+    LEAKS="{{leaks}}"
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        LEAKS="false"
+    fi
+
+    if [[ "$LEAKS" == "true" ]]; then
         ASAN_OPTIONS="detect_leaks=1"
         LSAN_OPTIONS="suppressions=lsan.supp:print_suppressions=0"
     else
@@ -408,7 +413,12 @@ _run-tests-arrow parallel cores mm mode leaks:
         exit 0
     fi
 
-    if [[ "{{leaks}}" == "true" ]]; then
+    LEAKS="{{leaks}}"
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        LEAKS="false"
+    fi
+
+    if [[ "$LEAKS" == "true" ]]; then
         ASAN_OPTIONS="detect_leaks=1"
         LSAN_OPTIONS="suppressions=lsan.supp:print_suppressions=0"
     else
