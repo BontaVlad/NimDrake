@@ -328,7 +328,10 @@ _run-tests parallel cores mm mode leaks:
     RELEASE_FLAGS="{{_release_flags}}"
 
     mkdir -p "$OUT_ROOT"
-    mapfile -t TEST_FILES < <(\
+    TEST_FILES=()
+    while IFS= read -r file; do
+        TEST_FILES+=("$file")
+    done < <(\
         find "$TEST_ROOT" -name 'test_*.nim' -not -path "$TEST_ROOT/narrow/*" | sort \
     )
 
@@ -395,7 +398,10 @@ _run-tests-arrow parallel cores mm mode leaks:
     RELEASE_FLAGS="{{_release_flags}}"
 
     mkdir -p "$OUT_ROOT"
-    mapfile -t TEST_FILES < <(find "$TEST_ROOT" -name 'test_*.nim' | sort)
+    TEST_FILES=()
+    while IFS= read -r file; do
+        TEST_FILES+=("$file")
+    done < <(find "$TEST_ROOT" -name 'test_*.nim' | sort)
 
     if [[ ${#TEST_FILES[@]} -eq 0 ]]; then
         echo "No Arrow tests found in $TEST_ROOT/"
@@ -458,7 +464,10 @@ _run-tests-gcov:
     rm -f coverage.info
 
     mkdir -p "$OUT_ROOT"
-    mapfile -t TEST_FILES < <(\
+    TEST_FILES=()
+    while IFS= read -r file; do
+        TEST_FILES+=("$file")
+    done < <(\
         find "$TEST_ROOT" -name 'test_*.nim' -not -path "$TEST_ROOT/narrow/*" | sort \
     )
 
