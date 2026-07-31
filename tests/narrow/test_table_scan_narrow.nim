@@ -227,12 +227,15 @@ when defined(features.nimdrake.arrow):
       let batch = newRecordBatch(schema, valArr, tagArr)
 
       let conn = newDatabase().connect()
-      let r = conn.reg(batch, "arrow_filter")
-      check r.len == 3
+      conn.register(newMaterialized(batch, conn), name = "arrow_filter")
+      let r = conn.execute(
+        "SELECT tag FROM arrow_filter WHERE val > 10 ORDER BY val")
+      check r.len == 2
+      check r.columnCount == 1
       var tags: seq[string] = @[]
       for chunk in r:
-        tags.add chunk.bindAs(1, DuckType.Varchar).toSeq
-      check tags == @["low", "mid", "high"]
+        tags.add chunk.bindAs(0, DuckType.Varchar).toSeq
+      check tags == @["mid", "high"]
 
     test "two independent databases do not cross-contaminate":
       let schemaA = newSchema([newField[int64]("x")])

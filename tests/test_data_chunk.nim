@@ -492,6 +492,23 @@ when defined(i386) or defined(amd64):
       check raw1 == toDuckDecimal(newDecimal("-6.789"), 6'i8, 3'i8)
       check raw2 == toDuckDecimal(newDecimal("0.001"), 6'i8, 3'i8)
 
+    test "decimal appendValues round-trip":
+      let conn = newDatabase().connect()
+      conn.execute("CREATE TABLE dec_app (d DECIMAL(6, 3))")
+      var app = newAppender(conn, "dec_app")
+      let chunk = newDataChunk(app)
+      chunk.setSize(3)
+      var w = chunk.bindAs(0, DuckType.Decimal)
+      w.appendValues(@[newDecimal("12.345"), newDecimal("-6.789"), newDecimal("0.001")])
+      app.append(chunk)
+      app.close()
+      let r = conn.execute("SELECT * FROM dec_app ORDER BY d")
+      for ck in r:
+        let v = ck.bindAs(0, DuckType.Decimal)
+        check $(v[0]) == "-6.789"
+        check $(v[1]) == "0.001"
+        check $(v[2]) == "12.345"
+
 # ---------------------------------------------------------------------------
 # setSize edges
 # ---------------------------------------------------------------------------
@@ -954,3 +971,97 @@ suite "newChunk(tuple) multi-column macro":
       check ck.bindAs(0, DuckType.Integer).toSeq == @[1'i32, 2, 3]
       check ck.bindAs(1, DuckType.Double).toSeq == @[1.1, 2.2, 3.3]
       check ck.bindAs(2, DuckType.Varchar).toSeq == @["a", "b", "c"]
+
+# ---------------------------------------------------------------------------
+# Temporal variant writes
+# ---------------------------------------------------------------------------
+suite "DataChunk write []= — temporal variants":
+  test "TimestampTz round-trip":
+    let cols = @[newColumn("t", newLogicalType(DuckType.TimestampTz))]
+    let c = newDataChunk(cols)
+    c.setSize(2)
+    var w = c.bindAs(0, DuckType.TimestampTz)
+    let z1 = ZonedTime(time: initTime(3600, 0), utcOffset: 60, isDst: false)
+    let z2 = ZonedTime(time: initTime(7200, 500_000_000), utcOffset: -120, isDst: false)
+    w[0] = z1
+    w[1] = z2
+    # The write path converts local wall-clock → UTC via utcOffset:
+    #   01:00:00 +01 → 00:00:00 UTC
+    #   02:00:00.5 −02 → 04:00:00.5 UTC
+    check w[0].time == initTime(0, 0)
+    check w[0].utcOffset == 0
+    check w[1].time == initTime(4 * 3600, 500_000_000)
+    check w[1].utcOffset == 0
+
+  test "TimestampS round-trip":
+    let cols = @[newColumn("t", newLogicalType(DuckType.TimestampS))]
+    let c = newDataChunk(cols)
+    c.setSize(1)
+    var w = c.bindAs(0, DuckType.TimestampS)
+    let dt = dateTime(2020, mJan, 1, 12, 0, 0, zone = utc())
+    w[0] = dt
+    check $w[0] == $dt
+
+  test "TimestampMs round-trip":
+    let cols = @[newColumn("t", newLogicalType(DuckType.TimestampMs))]
+    let c = newDataChunk(cols)
+    c.setSize(1)
+    var w = c.bindAs(0, DuckType.TimestampMs)
+    let dt = dateTime(2020, mJun, 15, 9, 30, 0, 123, zone = utc())
+    w[0] = dt
+    check $w[0] == $dt
+
+  test "TimestampNs round-trip":
+    let cols = @[newColumn("t", newLogicalType(DuckType.TimestampNs))]
+    let c = newDataChunk(cols)
+    c.setSize(1)
+    var w = c.bindAs(0, DuckType.TimestampNs)
+    let dt = dateTime(2021, mMar, 1, 18, 0, 0, 456_789, zone = utc())
+    w[0] = dt
+    check $w[0] == $dt
+
+suite "Empty / boundary cases":
+  test "Appending a zero-row DataChunk is a no-op":
+    let conn = newDatabase().connect()
+    conn.execute("CREATE TABLE empty_test (i BIGINT)")
+    var appender = conn.newAppender("empty_test")
+    let empty = newDataChunk(appender)
+    appender.append(empty)
+    appender.close()
+    # A zero-row chunk appends nothing: table stays empty
+    var count = -1'i64
+    for chunk in conn.execute("SELECT count(*)::BIGINT FROM empty_test"):
+      count = chunk.bindAs(0, DuckType.BigInt)[0]
+    check count == 0
+    # The table accepts real rows after the empty append + close
+    conn.execute("INSERT INTO empty_test VALUES (1)")
+    let r = conn.execute("SELECT count(*)::BIGINT FROM empty_test")
+    for chunk in r:
+      check chunk.bindAs(0, DuckType.BigInt)[0] == 1
+    for chunk in r:
+      check chunk.bindAs(0, DuckType.BigInt)[0] == 1
+
+  test "DataChunk with setSize(0) and back to non-zero":
+    let cols = @[newColumn("x", newLogicalType(DuckType.BigInt))]
+    var c = newDataChunk(cols)
+    c.setSize(5)
+    c.setSize(0)
+    check c.len == 0
+    c.setSize(3)
+    check c.len == 3
+
+  test "Empty VARCHAR string via chunk write":
+    let cols = @[newColumn("s", newLogicalType(DuckType.Varchar))]
+    var c = newDataChunk(cols)
+    c.setSize(1)
+    var w = c.bindAs(0, DuckType.Varchar)
+    w[0] = ""
+    check w[0] == ""
+
+  test "Very large DataChunk setSize (100k rows)":
+    let cols = @[newColumn("i", newLogicalType(DuckType.BigInt))]
+    var c = newDataChunk(cols)
+    c.setSize(100_000)
+    check c.len == 100_000
+    let w = c.bindAs(0, DuckType.BigInt)
+    check w.len == 100_000

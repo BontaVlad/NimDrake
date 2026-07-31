@@ -1,5 +1,6 @@
 import std/[tables, strutils]
 import unittest2
+import nint128
 import ../src/[types, database, query, qresult, complex]
 
 proc normalize(x: string): string =
@@ -462,3 +463,111 @@ suite "Complex — $ formatting":
       NimValue(kind: nvInt, intVal: 2),
     ])
     check $nv == "[1, 2]"
+
+# ---------------------------------------------------------------------------
+# Advanced NimValue materialization
+# ---------------------------------------------------------------------------
+suite "Complex — toNimValue type coverage":
+  test "toNimValue Timestamp":
+    let conn = newDatabase().connect()
+    let r = conn.execute("SELECT TIMESTAMP '2020-06-15 12:30:00.123456'")
+    for chunk in r:
+      let nv = chunk.vector(0).toNimValue(0)
+      check nv.kind == nvString
+      check "2020-06-15" in $nv
+
+  test "toNimValue Date":
+    let conn = newDatabase().connect()
+    let r = conn.execute("SELECT DATE '2023-12-25'")
+    for chunk in r:
+      let nv = chunk.vector(0).toNimValue(0)
+      check nv.kind == nvString
+      check "2023-12-25" in $nv
+
+  test "toNimValue Time":
+    let conn = newDatabase().connect()
+    let r = conn.execute("SELECT TIME '01:02:03'")
+    for chunk in r:
+      let nv = chunk.vector(0).toNimValue(0)
+      check nv.kind == nvString
+
+  test "toNimValue Interval":
+    let conn = newDatabase().connect()
+    let r = conn.execute("SELECT INTERVAL '1 year 2 months'")
+    for chunk in r:
+      let nv = chunk.vector(0).toNimValue(0)
+      check nv.kind == nvString
+
+  test "toNimValue Blob":
+    let conn = newDatabase().connect()
+    let r = conn.execute("SELECT 'hello'::BLOB")
+    for chunk in r:
+      let nv = chunk.vector(0).toNimValue(0)
+      check nv.kind == nvBlob
+
+  test "toNimValue HugeInt":
+    let conn = newDatabase().connect()
+    discard conn.execute("CREATE TABLE hi_nv (h HUGEINT)")
+    let val = i128("12345678901234567890")
+    conn.executeMaterialized("INSERT INTO hi_nv VALUES (?)", (val,))
+    let r = conn.execute("SELECT h FROM hi_nv")
+    for chunk in r:
+      let nv = chunk.vector(0).toNimValue(0)
+      check nv.kind == nvString
+      check nv.strVal == "12345678901234567890"
+
+  test "NimValue equality for struct":
+    let a = NimValue(kind: nvStruct, fields: @[("a", NimValue(kind: nvInt, intVal: 1))])
+    let b = NimValue(kind: nvStruct, fields: @[("a", NimValue(kind: nvInt, intVal: 1))])
+    check a == b
+
+  test "NimValue equality for null":
+    let a = NimValue(kind: nvNull)
+    let b = NimValue(kind: nvNull)
+    check a == b
+
+  test "Struct child null round-trip":
+    let conn = newDatabase().connect()
+    let r = conn.execute("""
+      SELECT {'a': 1, 'b': NULL}::STRUCT(a INTEGER, b VARCHAR)
+    """)
+    for chunk in r:
+      let nv = chunk.vector(0).toNimValue(0)
+      check nv.kind == nvStruct
+      check nv.fields[0][0] == "a"
+      check nv.fields[0][1].kind == nvInt
+      check nv.fields[0][1].intVal == 1
+      check nv.fields[1][0] == "b"
+      check nv.fields[1][1].kind == nvNull
+
+  test "Map with null value round-trip":
+    let conn = newDatabase().connect()
+    let r = conn.execute("""
+      SELECT MAP {'a': 1, 'b': NULL, 'c': 3}
+    """)
+    for chunk in r:
+      let nv = chunk.vector(0).toNimValue(0)
+      check nv.kind == nvMap
+      check nv.mapVal.len == 3
+      check nv.mapVal[0][1].kind == nvInt
+      check nv.mapVal[1][1].kind == nvNull
+      check nv.mapVal[2][1].kind == nvInt
+
+  test "Empty List<Int> round-trips correctly":
+    let conn = newDatabase().connect()
+    let r = conn.execute("SELECT []::INTEGER[]")
+    for chunk in r:
+      let nv = chunk.vector(0).toNimValue(0)
+      check nv.kind == nvList
+      check nv.listVal.len == 0
+
+  test "List with null element via toNimValue":
+    let conn = newDatabase().connect()
+    let r = conn.execute("SELECT [1, NULL, 3]")
+    for chunk in r:
+      let nv = chunk.vector(0).toNimValue(0)
+      check nv.kind == nvList
+      check nv.listVal.len == 3
+      check nv.listVal[0].kind == nvInt
+      check nv.listVal[1].kind == nvNull
+      check nv.listVal[2].kind == nvInt

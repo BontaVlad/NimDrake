@@ -1,4 +1,4 @@
-import std/[times, strformat]
+import std/[times, strformat, math]
 import unittest2
 import nint128
 import ../src/[types, database, query, qresult, codec]
@@ -208,3 +208,198 @@ suite "Test result types":
       check chunk.bindAs(0, DuckType.TimestampNs)[0]
         .format("yyyy-MM-dd HH:mm:ss'.'ffffff") ==
         "1992-09-20 11:30:00.123456"
+
+# ---------------------------------------------------------------------------
+# Codec matrix — extended type coverage
+# ---------------------------------------------------------------------------
+
+test "TimestampTz round-trip (codec: fromDuckTimestampTz / toDuckTimestampTz)":
+  let conn = newDatabase().connect()
+  # 12:30 at +05 == 07:30 UTC. The wrapper stores UTC only (offset is not part
+  # of DuckDB's TIMESTAMPTZ value), so the read-back time-of-day is 07:30.
+  let r = conn.execute("SELECT TIMESTAMPTZ '2020-06-15 12:30:00+05'")
+  for chunk in r:
+    let v = chunk.vector(0).bindAs DuckType.TimestampTz
+    let z = v[0]
+    check z.time == initTime(7 * 3600 + 30 * 60, 0)
+    check z.utcOffset == 0
+    check z.isDst == false
+
+test "TimestampS / Ms / Ns sub-second preservation (codec: fromDuckTimestamp*)":
+  let conn = newDatabase().connect()
+  let r = conn.execute("""
+    SELECT
+      TIMESTAMP_S '2020-01-01 12:00:00.999'          AS s,
+      TIMESTAMP_MS '2020-01-01 12:00:00.999'         AS ms,
+      TIMESTAMP_NS '2020-01-01 12:00:00.999888777'   AS ns
+  """)
+  for chunk in r:
+    let s = chunk.vector(0).bindAs(DuckType.TimestampS)[0]
+    check s.year == 2020
+    let ms = chunk.vector(1).bindAs(DuckType.TimestampMs)[0]
+    check ms.year == 2020
+    let ns = chunk.vector(2).bindAs(DuckType.TimestampNs)[0]
+    check ns.year == 2020
+
+test "UHugeInt round-trip (codec: toUHugeInt / fromUHugeInt)":
+  let conn = newDatabase().connect()
+  discard conn.execute("CREATE TABLE uhi_test (u UHUGEINT)")
+  let val = not zero(UInt128)
+  conn.executeMaterialized("INSERT INTO uhi_test VALUES (?)", (val,))
+  let r = conn.execute("SELECT u FROM uhi_test")
+  for chunk in r:
+    let v = chunk.vector(0).bindAs DuckType.UHugeInt
+    check v[0] == val
+
+test "UUID round-trip (codec: toDuckUuid / fromDuckUuid)":
+  let conn = newDatabase().connect()
+  conn.execute("CREATE TABLE uuid_test (u UUID)")
+  let uStr = "550e8400-e29b-41d4-a716-446655440000"
+  conn.executeMaterialized("INSERT INTO uuid_test VALUES (?::UUID)", (uStr,))
+  let r = conn.execute("SELECT u FROM uuid_test")
+  for chunk in r:
+    let v = chunk.vector(0).bindAs DuckType.UUID
+    check $v[0] == uStr
+    check $v[0] == $fromDuckUuid(toDuckUuid(v[0]))
+
+test "Decimal width buckets (codec: fromDuckDecimal width branches ≤4, ≤9, ≤18, >18)":
+  let conn = newDatabase().connect()
+  let r = conn.execute("""
+    SELECT
+      CAST(1.234 AS DECIMAL(4,3))       AS w4,    -- width ≤4 → int16
+      CAST(12345.67 AS DECIMAL(9,2))     AS w9,    -- width ≤9 → int32
+      CAST(123456789.1 AS DECIMAL(18,1)) AS w18,   -- width ≤18 → int64
+      CAST(1.234567890123456789 AS DECIMAL(38,18)) AS w38  -- width >18 → hugeint
+  """)
+  for chunk in r:
+    check $chunk.bindAs(0, DuckType.Decimal)[0] == "1.234"
+    check $chunk.bindAs(1, DuckType.Decimal)[0] == "12345.67"
+    check $chunk.bindAs(2, DuckType.Decimal)[0] == "123456789.1"
+    check $chunk.bindAs(3, DuckType.Decimal)[0] == "1.234567890123456789"
+
+test "Double NaN / ±Inf round-trip (codec: double NaN path)":
+  let conn = newDatabase().connect()
+  discard conn.execute("CREATE TABLE float_edge (d DOUBLE)")
+  conn.execute("INSERT INTO float_edge VALUES ('NaN'::DOUBLE)")
+  conn.execute("INSERT INTO float_edge VALUES ('Infinity'::DOUBLE)")
+  conn.execute("INSERT INTO float_edge VALUES ('-Infinity'::DOUBLE)")
+  let r = conn.execute("SELECT d FROM float_edge")
+  var foundNaN, foundInf, foundNegInf = false
+  for chunk in r:
+    let v = chunk.vector(0).bindAs DuckType.Double
+    for i in 0 ..< v.len:
+      if v[i] != v[i]: foundNaN = true  # NaN is the only value not equal to itself
+      elif v[i] > 1e300: foundInf = true
+      elif v[i] < -1e300: foundNegInf = true
+  check foundNaN and foundInf and foundNegInf
+
+test "Interval full-field round-trip (codec: fromInterval all components)":
+  let conn = newDatabase().connect()
+  let r = conn.execute("""
+    SELECT INTERVAL '1 year 2 months 3 days 4 hours 5 minutes 6 seconds' AS iv
+  """)
+  for chunk in r:
+    let iv = chunk.vector(0).bindAs(DuckType.Interval)[0]
+    check iv.years == 1
+    check iv.months == 2
+    check iv.days == 3
+    check iv.hours == 4
+    check iv.minutes == 5
+    check iv.seconds == 6
+
+test "Time with fractional seconds (codec: fromTime modulo)":
+  let conn = newDatabase().connect()
+  let r = conn.execute("SELECT TIME '01:02:03.123456'")
+  for chunk in r:
+    let t = chunk.vector(0).bindAs(DuckType.Time)[0]
+    check t == initTime(3723, 123_456_000)
+
+test "Blob with embedded zero bytes (codec: blob path)":
+  let conn = newDatabase().connect()
+  let r = conn.execute("SELECT '\\x00\\x01\\x00\\xFF'::BLOB")
+  for chunk in r:
+    check chunk.bindAs(0, DuckType.Blob)[0] ==
+      @[byte 0, 1, 0, 255]
+
+test "VARCHAR with Unicode and emoji (codec: string path)":
+  let conn = newDatabase().connect()
+  discard conn.execute("CREATE TABLE unicode_test (s VARCHAR)")
+  let emoji = "héllo wörld 😊"
+  conn.executeMaterialized("INSERT INTO unicode_test VALUES (?)", (emoji,))
+  let r = conn.execute("SELECT s FROM unicode_test")
+  for chunk in r:
+    let s = chunk.vector(0).bindAs(DuckType.Varchar)[0]
+    check s == emoji
+
+suite "Null edge cases":
+  test "Null TimestampTz round-trips correctly":
+    let conn = newDatabase().connect()
+    conn.execute("CREATE TABLE tstz (t TIMESTAMPTZ)")
+    conn.execute("INSERT INTO tstz VALUES (NULL), ('2024-01-15 10:30:00+00'::TIMESTAMPTZ), (NULL)")
+    for chunk in conn.execute("SELECT t FROM tstz ORDER BY t NULLS LAST"):
+      let v = chunk.bindAs(0, DuckType.TimestampTz)
+      check v.valid(0)
+      check not v.valid(1)
+      check not v.valid(2)
+
+  test "Null Interval round-trips correctly":
+    let conn = newDatabase().connect()
+    conn.execute("CREATE TABLE ivs (i INTERVAL)")
+    conn.execute("INSERT INTO ivs VALUES (NULL), ('2 days'::INTERVAL), (NULL)")
+    for chunk in conn.execute("SELECT i FROM ivs ORDER BY i NULLS LAST"):
+      let v = chunk.bindAs(0, DuckType.Interval)
+      check v.valid(0)
+      check not v.valid(1)
+      check not v.valid(2)
+
+  test "Null HugeInt round-trips correctly":
+    let conn = newDatabase().connect()
+    conn.execute("CREATE TABLE hi (h HUGEINT)")
+    conn.execute("INSERT INTO hi VALUES (NULL), (42), (NULL)")
+    for chunk in conn.execute("SELECT h FROM hi ORDER BY h NULLS LAST"):
+      let v = chunk.bindAs(0, DuckType.HugeInt)
+      check v.valid(0)
+      check not v.valid(1)
+      check not v.valid(2)
+
+  test "Null UHugeInt round-trips correctly":
+    let conn = newDatabase().connect()
+    conn.execute("CREATE TABLE uhi (u UHUGEINT)")
+    conn.execute("INSERT INTO uhi VALUES (NULL), (42), (NULL)")
+    for chunk in conn.execute("SELECT u FROM uhi ORDER BY u NULLS LAST"):
+      let v = chunk.bindAs(0, DuckType.UHugeInt)
+      check v.valid(0)
+      check not v.valid(1)
+      check not v.valid(2)
+
+  test "Null Decimal round-trips correctly":
+    let conn = newDatabase().connect()
+    conn.execute("CREATE TABLE decs (d DECIMAL(10,2))")
+    conn.execute("INSERT INTO decs VALUES (NULL), (3.14), (NULL)")
+    for chunk in conn.execute("SELECT d FROM decs ORDER BY d NULLS LAST"):
+      let v = chunk.vector(0)
+      check v.valid(0)
+      check not v.valid(1)
+      check not v.valid(2)
+
+suite "Type mapping edge cases":
+  test "Enum type creates and reads correctly":
+    let conn = newDatabase().connect()
+    conn.execute("CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy')")
+    conn.execute("CREATE TABLE enums (m mood)")
+    conn.execute("INSERT INTO enums VALUES ('sad'), ('ok'), ('happy')")
+    # Raw enum codec path: bindAs(DuckType.Enum) yields the enum indices
+    for chunk in conn.execute("SELECT m FROM enums ORDER BY m"):
+      let v = chunk.vector(0).bindAs(DuckType.Enum)
+      check v.toSeq == @[0'u, 1, 2]
+    # DuckDB's enum→varchar cast path
+    for chunk in conn.execute("SELECT m::VARCHAR FROM enums ORDER BY m"):
+      check chunk.vector(0).bindAs(DuckType.Varchar).toSeq == @["sad", "ok", "happy"]
+
+  test "Interval string representation":
+    let conn = newDatabase().connect()
+    for chunk in conn.execute("SELECT '2 days 3 hours'::INTERVAL"):
+      let iv = chunk.vector(0).bindAs(DuckType.Interval)[0]
+      check iv.days == 2
+      check iv.hours == 3
+      check $iv == "2 days and 3 hours"

@@ -220,9 +220,28 @@ test "T10g: destroy state mismatch rejected":
   check not compiles(conn.registerAggregate("x", goodInit, goodUpd,
     goodComb, goodFin, destroy = badDestroy))
 
-test "T10h: Option[T] args auto-enable special handling":
-  # Option[T] args are auto-detected; no explicit flag needed.
-  # This is already covered by T6 — just verify the compile succeeds.
+test "T11: Tier A aggregate with GROUP BY HAVING":
   let conn = newDatabase().connect()
-  check compiles(conn.registerAggregate("x", goodInit, goodUpd,
-    goodComb, goodFin))
+  conn.registerAggregate("wsum_h", winit, wupd, wcomb, wfin)
+  var got: int64 = 0
+  for chunk in conn.execute(
+    "SELECT wsum_h(i, 2) FROM range(100) t(i) WHERE i > 0 " &
+    "HAVING wsum_h(i, 2) > 1000"):
+    let c = chunk.vector(0).bindAs DuckType.BigInt
+    got = c[0]
+  # range(100) filtered to 1..99 → sum = 4950, weighted by 2 → 9900.
+  # HAVING (>1000) keeps the single group.
+  check got == 9900
+
+test "T12: Exception in finalize → OperationError":
+  type BoomFin = object
+    x: int64
+  proc binit(s: var BoomFin) = s.x = 0
+  proc bupd(s: var BoomFin, v: int64) = s.x += v
+  proc bcomb(dest: var BoomFin, src: BoomFin) = dest.x += src.x
+  proc bfin(s: BoomFin): int64 =
+    raise newException(ValueError, "finalize boom")
+  let conn = newDatabase().connect()
+  conn.registerAggregate("boomfin", binit, bupd, bcomb, bfin)
+  expect(OperationError):
+    discard conn.execute("SELECT boomfin(i) FROM range(3) t(i)")

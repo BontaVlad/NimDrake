@@ -1,4 +1,4 @@
-import std/[options, times]
+import std/[options, times, sequtils, strutils]
 import ../src/[ffi, database, query, table_functions, qresult, types, exceptions]
 import unittest2
 
@@ -14,6 +14,7 @@ test "T1: low-level manual table function":
       count: int
     InitData = ref object
       pos: int
+      count: int
 
   proc destroyBind(p: pointer) {.cdecl.} =
     `=destroy`(cast[BindData](p))
@@ -31,7 +32,8 @@ test "T1: low-level manual table function":
     info.setBindData(cast[pointer](data), destroyBind)
 
   proc initProc(info: InitInfo) {.cdecl.} =
-    let data = InitData(pos: 0)
+    let bindData = cast[BindData](info.getBindData())
+    let data = InitData(pos: 0, count: bindData.count)
     GC_ref(data)
     info.setInitData(cast[pointer](data), destroyInit)
 
@@ -41,9 +43,8 @@ test "T1: low-level manual table function":
     let raw = duckdb_vector_get_data(vec)
     var resultArray = cast[ptr UncheckedArray[int32]](raw)
     var count = 0
-    let maxCount = 2048
-    while initData.pos < maxCount and count < maxCount:
-      resultArray[count] = 42 + int32(count)
+    while initData.pos < initData.count:
+      resultArray[count] = 42 + int32(initData.pos)
       inc count
       inc initData.pos
     duckdb_data_chunk_set_size(rawChunk, count.idx_t)
@@ -57,9 +58,12 @@ test "T1: low-level manual table function":
   )
   conn.register(tf)
   let outcome = conn.execute("SELECT * FROM my_function(5::BIGINT)")
+  var collected: seq[int32] = @[]
   for chunk in outcome:
     let v = chunk.vector(0).bindAs DuckType.Integer
-    check v.len > 0
+    for i in 0 ..< v.len:
+      collected.add v[i]
+  check collected == @[42'i32, 43, 44, 45, 46]
 
 # ── T2: registerTableFunction countToN (1 param, int output) ──────────────────
 
@@ -312,6 +316,12 @@ test "T20: cardinality hint via macro argument":
   for chunk in r:
     let v = chunk.vector(0).bindAs DuckType.BigInt
     check v.len == 5
+  # The hint must reach the planner, not just be accepted at registration.
+  var plan = ""
+  for chunk in conn.execute("EXPLAIN (FORMAT JSON) SELECT * FROM countToN(5)"):
+    let v = chunk.bindAs(1, DuckType.Varchar)
+    for i in 0 ..< v.len: plan.add v[i]
+  check "\"Estimated Cardinality\": \"10\"" in plan
 
 # ═══ v3: Local init hook ═══════════════════════════════════════════════════════
 
@@ -362,6 +372,11 @@ test "T25: exact cardinality hint":
   for chunk in r:
     let v = chunk.vector(0).bindAs DuckType.BigInt
     check v.len == 3
+  var plan = ""
+  for chunk in conn.execute("EXPLAIN (FORMAT JSON) SELECT * FROM countToN(3)"):
+    let v = chunk.bindAs(1, DuckType.Varchar)
+    for i in 0 ..< v.len: plan.add v[i]
+  check "\"Estimated Cardinality\": \"10\"" in plan
 
 # ═══ Column name override ══════════════════════════════════════════════════════
 
@@ -380,8 +395,69 @@ test "T26: columnNames override for anonymous tuple":
 # ═══ ZonedTime type support ════════════════════════════════════════════════════
 
 iterator zonedIter(): ZonedTime {.closure.} =
-  yield ZonedTime()
+  yield ZonedTime(time: initTime(3723, 0), utcOffset: 60, isDst: false)
 
 test "T27: registerTableFunction accepts ZonedTime return type":
   let conn = newDatabase().connect()
   check compiles(conn.registerTableFunction(zonedIter))
+  conn.registerTableFunction(zonedIter)
+  let r = conn.execute("SELECT * FROM zonedIter()")
+  check r.column(0).kind == DuckType.TimeTz
+  var total = 0
+  for chunk in r:
+    let v = chunk.bindAs(0, DuckType.TimeTz)
+    check v[0].time == initTime(3723, 0)
+    check v[0].utcOffset == 60
+    total += chunk.len
+  check total == 1
+
+when false:
+  # Disabled (known limitation): raising a Nim exception inside an `initProc`
+  # C callback propagates the raw exception instead of converting to
+  # OperationError. Tracked in WORKBOARD "Known Limitations". Re-enable when
+  # the callback trampoline wraps init-callback exceptions.
+  test "T28: Exception in init callback → OperationError":
+    type CrashInit = ref object
+    proc crashInit(info: InitInfo) {.cdecl.} =
+      raise newException(ValueError, "init crash")
+    proc crashBind(info: BindInfo) {.cdecl.} =
+      info.addResultColumn("x", DuckType.Integer)
+    proc crashMain(info: FunctionInfo, output: duckdb_data_chunk) {.cdecl.} =
+      discard
+    let conn = newDatabase().connect()
+    let tf = newTableFunction("crash_init",
+      parameters = @[],
+      bindProc = crashBind,
+      initProc = crashInit,
+      mainProc = crashMain)
+    conn.register(tf)
+    expect(OperationError):
+      discard conn.execute("SELECT * FROM crash_init()")
+
+test "T29: Same table function on two databases (isolation)":
+  let connA = newDatabase().connect()
+  let connB = newDatabase().connect()
+  connA.registerTableFunction(countToN)
+  connB.registerTableFunction(countToN)
+  var valsA: seq[int64]
+  for chunk in connA.execute("SELECT * FROM countToN(3)"):
+    let v = chunk.vector(0).bindAs DuckType.BigInt
+    for i in 0 ..< v.len: valsA.add v[i]
+  check valsA == @[0'i64, 1'i64, 2'i64]
+  var valsB: seq[int64]
+  for chunk in connB.execute("SELECT * FROM countToN(4)"):
+    let v = chunk.vector(0).bindAs DuckType.BigInt
+    for i in 0 ..< v.len: valsB.add v[i]
+  check valsB == @[0'i64, 1'i64, 2'i64, 3'i64]
+
+test "T30: Same table function used across multiple connections sequentially":
+  let db = newDatabase()
+  let mainConn = db.connect()
+  mainConn.registerTableFunction(countToN)
+  for n in [2, 5, 10]:
+    let c = db.connect()
+    var vals: seq[int64]
+    for chunk in c.execute("SELECT * FROM countToN(" & $n & ")"):
+      let v = chunk.vector(0).bindAs DuckType.BigInt
+      for i in 0 ..< v.len: vals.add v[i]
+    check vals == toSeq(0 ..< n).mapIt(it.int64)

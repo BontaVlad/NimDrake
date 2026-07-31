@@ -217,4 +217,10 @@ when defined(features.nimdrake.arrow):
       """
       let conn = newDatabase().connect()
       let stmt = conn.newStatement(query)
-      echo conn.execute(stmt).toArrowTable()
+      let table = conn.execute(stmt).toArrowTable()
+      check table.nRows == 2
+      check table.nColumns == 7
+      check @(table[0, int64]) == @[1'i64, 2]
+      check @(table[1, string]) == @["hello", "world"]
+      check @(table[2, float64]) == @[3.14, 2.71]
+      check @(table[3, bool]) == @[true, false]

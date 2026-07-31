@@ -232,3 +232,33 @@ suite "Catalog in bind callbacks":
       discard
     check gResult.found
     check gResult.entryName == "duckdb"
+
+suite "TableDescription — additional coverage":
+  test "TableDescription with composite column types":
+    let conn = newDatabase().connect()
+    conn.execute("CREATE TABLE td_composite (i INT, s STRUCT(a INT, b VARCHAR), l INTEGER[])")
+    let td = newTableDescription(conn, "td_composite")
+    check td.columnCount == 3
+    check td.columnName(0) == "i"
+    check td.columnName(1) == "s"
+    check td.columnName(2) == "l"
+    check toDuckType(td.columnType(0)) == DuckType.Integer
+    check toDuckType(td.columnType(1)) == DuckType.Struct
+    check toDuckType(td.columnType(2)) == DuckType.List
+
+  test "TableDescription explicit schema (non-default)":
+    let conn = newDatabase().connect()
+    conn.execute("CREATE SCHEMA custom_schema")
+    conn.execute("CREATE TABLE custom_schema.td_custom (x BIGINT, y VARCHAR)")
+    let td = newTableDescription(conn, "td_custom", schema = "custom_schema")
+    check td.columnCount == 2
+    check td.columnName(0) == "x"
+    check td.columnName(1) == "y"
+
+  test "TableDescription with DEFAULT 42 — columnHasDefault returns true":
+    let conn = newDatabase().connect()
+    conn.execute("CREATE TABLE td_def (a INT DEFAULT 42, b INT, c VARCHAR DEFAULT 'x')")
+    let td = newTableDescription(conn, "td_def")
+    check td.columnHasDefault(0) == true
+    check td.columnHasDefault(1) == false
+    check td.columnHasDefault(2) == true

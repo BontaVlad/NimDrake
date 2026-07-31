@@ -1,6 +1,5 @@
 import unittest2
-import std/[strutils, tables]
-import decimal
+import std/[strutils, tables, math, times]
 import ../src/[database, query, qresult, codec, table, types, complex, display]
 
 suite "QResult zero-copy API":
@@ -298,13 +297,139 @@ suite "QResult zero-copy API":
   test "execute (raw query) returns QResult[Materialized]":
     let duck = newDatabase().connect()
     let r = duck.execute("SELECT 1 AS i")
-    check $typedesc(r) == $typedesc(QResult[Materialized])
+    # Compile-time type assertion: assignment fails to compile if `execute`
+    # does not return the materialized variant for a raw SQL string.
+    let _: QResult[Materialized] = r
+    check r.columnCount == 1
 
   test "execute (prepared stmt) returns QResult[Streaming]":
     let duck = newDatabase().connect()
     var stmt = duck.newStatement("SELECT seq FROM generate_series(1, 5) AS t(seq)")
     var r = duck.execute(stmt)
-    check $typedesc(r) == $typedesc(QResult[Streaming])
+    let _: QResult[Streaming] = r
+    var sum = 0
+    for chunk in r:
+      let v = chunk.bindAs(0, DuckType.BigInt)
+      for i in 0 ..< v.len:
+        sum += v[i]
+    check sum == 15
+
+  test "cross-chunk borrow on multi-chunk Table":
+    let duck = newDatabase().connect()
+    let r = duck.execute(
+      "SELECT 's' || seq::VARCHAR AS s FROM generate_series(1, 4100) AS t(seq)"
+    )
+    let t = initTable(r)
+    let v = t.bindAs("s", DuckType.Varchar)
+    check v.borrow(0).toString() == "s1"
+    check v.borrow(2048).toString() == "s2049"
+    check v.borrow(4099).toString() == "s4100"
+
+  test "Nulls in specific chunks (chunks 1 and 3 have nulls)":
+    let duck = newDatabase().connect()
+    let r = duck.execute("""
+      SELECT CASE
+        WHEN seq >= 2049 AND seq <= 4096 THEN NULL
+        WHEN seq >= 6145 THEN NULL
+        ELSE seq
+      END AS maybe
+      FROM generate_series(1, 8000) AS t(seq)
+    """)
+    let t = initTable(r)
+    let v = t.bindAs("maybe", DuckType.BigInt)
+    var nullCount, okCount = 0
+    for i in 0 ..< v.len:
+      if v.valid(i): inc okCount
+      else: inc nullCount
+    check okCount == 2048 + 2048  # chunks 0 and 2 have no nulls
+    check nullCount == 2048 + 1856  # chunks 1 and 3 have nulls
+
+  test "toSeq default-fill on nulls in middle chunk":
+    let duck = newDatabase().connect()
+    let r = duck.execute("""
+      SELECT CASE WHEN seq % 2 = 0 THEN seq ELSE NULL END AS maybe
+      FROM generate_series(1, 5000) AS t(seq)
+    """)
+    let t = initTable(r)
+    let v = t.bindAs("maybe", DuckType.BigInt)
+    let seq = v.toSeq
+    check seq.len == 5000
+    check seq[0] == 0  # default fill
+    check seq[1] == 2  # non-null
+    check seq[4999] == 5000  # last is even
+
+  test "cross-chunk Table — Decimal toSeq across chunk boundary":
+    let duck = newDatabase().connect()
+    let r = duck.execute(
+      "SELECT (seq % 100)::DECIMAL(18,3) AS d FROM generate_series(1, 4100) AS t(seq)"
+    )
+    let t = initTable(r)
+    let v = t.bindAs("d", DuckType.Decimal)
+    check v.len == 4100
+    check $v[0] == "1.000"
+    check $v[2048] == "49.000"
+    check $v[4099] == "0.000"
+
+  test "cross-chunk Table — Date random access":
+    let duck = newDatabase().connect()
+    let r = duck.execute(
+      "SELECT (DATE '2000-01-01' + seq::INTEGER) AS d FROM generate_series(0, 4099) AS t(seq)"
+    )
+    let t = initTable(r)
+    let v = t.bindAs("d", DuckType.Date)
+    check v.len == 4100
+    check v[0].year == 2000
+    check v[0].monthday == 1
+    check v[2048].year == 2005
+    check v[4099].year == 2011
+
+  test "cross-chunk Table — UUID toSeq":
+    let duck = newDatabase().connect()
+    let r = duck.execute(
+      "SELECT gen_random_uuid() AS u FROM generate_series(1, 5) AS t(seq)"
+    )
+    let t = initTable(r)
+    let v = t.bindAs("u", DuckType.Uuid)
+    check v.len == 5
+    let seq = v.toSeq
+    check seq.len == 5
+
+  test "cross-chunk Table — Interval toSeq":
+    let duck = newDatabase().connect()
+    let r = duck.execute(
+      "SELECT INTERVAL (seq || ' days') AS iv FROM generate_series(1, 4100) AS t(seq)"
+    )
+    let t = initTable(r)
+    let v = t.bindAs("iv", DuckType.Interval)
+    check v.len == 4100
+    check v[0].days == 1
+    check v[2048].days == 2049
+    check v[4099].days == 4100
+
+  test "cross-chunk Table — Blob toSeq":
+    let duck = newDatabase().connect()
+    let r = duck.execute(
+      "SELECT from_hex('DEADBEEF' || lpad(seq::VARCHAR, 2, '0')) AS b FROM generate_series(1, 4100) AS t(seq)"
+    )
+    let t = initTable(r)
+    let v = t.bindAs("b", DuckType.Blob)
+    check v.len == 4100
+    let seq = v.toSeq
+    check seq.len == 4100
+    check seq[0] == @[byte 0xDE, 0xAD, 0xBE, 0xEF, 0x01]
+    check seq[2048][0] == 0xDE
+
+  test "cross-chunk Table — Time toSeq":
+    let duck = newDatabase().connect()
+    let r = duck.execute(
+      "SELECT TIME '12:00:00' AS tm FROM generate_series(1, 4100) AS t(seq)"
+    )
+    let t = initTable(r)
+    let v = t.bindAs("tm", DuckType.Time)
+    check v.len == 4100
+    check v[0] == initTime(12 * 3600, 0)
+    check v[2048] == initTime(12 * 3600, 0)
+    check v[4099] == initTime(12 * 3600, 0)
 
 # ---------------------------------------------------------------------------
 # Boolean
@@ -347,6 +472,9 @@ suite "QResult — TimestampTz":
     for chunk in r:
       let v = chunk.vector(0).bindAs DuckType.TimestampTz
       let z = v[0]
+      # DuckDB stores TIMESTAMPTZ as UTC microseconds only; the offset is not
+      # part of the value (display applies the session TimeZone).
+      check z.time == initTime(12 * 3600, 0)
       check z.utcOffset == 0
       check z.isDst == false
       check v.toSeq.len == 1
@@ -502,3 +630,123 @@ test "scalar() — static":
   let duck = newDatabase().connect()
   let v = duck.execute("SELECT 42").scalar(DuckType.Integer)
   check v == 42
+
+# ---------------------------------------------------------------------------
+# Empty / zero-column results
+# ---------------------------------------------------------------------------
+suite "Empty & edge results":
+  test "Empty result set — columns present, zero rows":
+    let conn = newDatabase().connect()
+    let r = conn.execute("SELECT 1 AS x, 'a' AS s WHERE 1=0")
+    check r.columnCount == 2
+    check r.columnName(0) == "x"
+    check r.columnName(1) == "s"
+    var rows = 0
+    for chunk in r:
+      rows += chunk.len
+    check rows == 0
+
+  test "Empty result materializes to empty Table":
+    let conn = newDatabase().connect()
+    let r = conn.execute("SELECT 1::BIGINT AS x WHERE 1=0")
+    let t = initTable(r)
+    let v = t.bindAs("x", DuckType.BigInt)
+    check v.len == 0
+
+# ---------------------------------------------------------------------------
+# Cross-chunk Vector coverage — remaining types
+# ---------------------------------------------------------------------------
+suite "Vector[kt] — type coverage":
+  test "Blob decode":
+    let conn = newDatabase().connect()
+    let r = conn.execute("SELECT 'hello'::BLOB")
+    for chunk in r:
+      let v = chunk.vector(0).bindAs DuckType.Blob
+      check v[0] == @[byte 104, 101, 108, 108, 111]
+
+  test "UUID decode":
+    let conn = newDatabase().connect()
+    let r = conn.execute("SELECT uuid() AS u")
+    for chunk in r:
+      let v = chunk.vector(0).bindAs DuckType.UUID
+      check v.len == 1
+
+  test "UHugeInt decode":
+    let conn = newDatabase().connect()
+    discard conn.execute("CREATE TABLE uhi (u UHUGEINT)")
+    let val = not zero(UInt128)
+    conn.executeMaterialized("INSERT INTO uhi VALUES (?)", (val,))
+    let r = conn.execute("SELECT u FROM uhi")
+    for chunk in r:
+      let v = chunk.vector(0).bindAs DuckType.UHugeInt
+      check v[0] == val
+
+  test "Date vector decode":
+    let conn = newDatabase().connect()
+    let r = conn.execute("SELECT DATE '2023-12-25' AS d")
+    for chunk in r:
+      let v = chunk.vector(0).bindAs DuckType.Date
+      check v[0].year == 2023
+      check v[0].month == mDec
+      check v[0].monthday == 25
+
+  test "Time vector decode":
+    let conn = newDatabase().connect()
+    let r = conn.execute("SELECT TIME '01:02:03.123456' AS t")
+    for chunk in r:
+      let v = chunk.vector(0).bindAs DuckType.Time
+      check initTime(3723, 123_456_000) == v[0]
+
+  test "Interval vector decode":
+    let conn = newDatabase().connect()
+    let r = conn.execute("SELECT INTERVAL '1 year 2 months 3 days' AS iv")
+    for chunk in r:
+      let iv = chunk.vector(0).bindAs(DuckType.Interval)[0]
+      check iv.years == 1
+      check iv.months == 2
+      check iv.days == 3
+
+  test "structChild by index":
+    let conn = newDatabase().connect()
+    let r = conn.execute("SELECT {'a': 10, 'b': 'x'} AS s")
+    for chunk in r:
+      let v = chunk.vector(0).bindAs DuckType.Struct
+      let child0 = v.structChild(0).bindAs DuckType.Integer
+      let child1 = v.structChild(1).bindAs DuckType.Varchar
+      check child0[0] == 10
+      check child1[0] == "x"
+
+  test "3-level nesting — List of Struct of List":
+    let conn = newDatabase().connect()
+    let r = conn.execute("SELECT [{'xs': [1, 2]}, {'xs': [3, 4]}] AS nested")
+    for chunk in r:
+      let outer = chunk.vector(0).bindAs DuckType.List
+      let mid = outer.listChild.bindAs DuckType.Struct
+      let (off0, len0) = outer.listEntry(0)
+      check int(len0) == 2  # list has 2 struct elements
+      check mid.structChildCount >= 1
+      let inner = mid.structChild("xs").bindAs DuckType.List
+      let innerVals = inner.listChild.bindAs DuckType.Integer
+      let (off1, len1) = inner.listEntry(0)
+      check int(len1) == 2  # first struct's list has 2 elements
+      check innerVals[int(off1)] == 1'i32
+      check innerVals[int(off1) + 1] == 2'i32
+      let (off2, len2) = inner.listEntry(1)
+      check int(len2) == 2  # second struct's list has 2 elements
+      check innerVals[int(off2)] == 3'i32
+      check innerVals[int(off2) + 1] == 4'i32
+
+  test "cross-chunk Validity mask reset between chunks":
+    let conn = newDatabase().connect()
+    let r = conn.execute("""
+      SELECT CASE WHEN seq % 2 = 0 THEN seq ELSE NULL END AS maybe
+      FROM generate_series(1, 5000) AS t(seq)
+    """)
+    var nullCount, okCount = 0
+    for chunk in r:
+      let v = chunk.vector(0).bindAs DuckType.BigInt
+      for i in 0 ..< v.len:
+        if v.valid(i): inc okCount
+        else: inc nullCount
+    check nullCount == 2500
+    check okCount == 2500
