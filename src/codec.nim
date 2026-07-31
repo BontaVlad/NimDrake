@@ -152,8 +152,10 @@ proc fromDuckTimestampTz*(raw: int64): ZonedTime {.inline.} =
   ZonedTime(time: initTime(s, us * 1_000), utcOffset: 0, isDst: false)
 
 proc fromDuckUuid*(raw: duckdb_hugeint): Uuid {.inline.} =
+  ## DuckDB flips bit 63 of the upper half so that `ORDER BY uuid` matches
+  ## `ORDER BY uuid::varchar` (see DuckDB `BaseUUID::FromString`). Undo it.
   var bytes: array[16, uint8]
-  let hi = cast[uint64](raw.upper)
+  let hi = cast[uint64](raw.upper) xor 0x8000_0000_0000_0000'u64
   let lo = raw.lower
   for b in 0 .. 7:
     bytes[b] = uint8((hi shr ((7 - b) * 8)) and 0xFF)
@@ -215,15 +217,24 @@ proc toDuckTimeTz*(val: ZonedTime): int64 {.inline.} =
   cast[int64](packed.bits)
 
 proc toDuckTimestampTz*(val: ZonedTime): int64 {.inline.} =
-  val.time.toUnix * 1_000_000 + (val.time.nanosecond div 1_000)
+  ## DuckDB TIMESTAMPTZ stores microseconds since epoch in UTC; the offset is
+  ## not part of the value. Convert the local wall-clock time to its UTC
+  ## instant by subtracting the offset (minutes). The codec is time-of-day
+  ## based (date 1970-01-01), so the result is floored into a day.
+  let wallMicros = val.time.toUnix * 1_000_000 + (val.time.nanosecond div 1_000)
+  floorMod(wallMicros - val.utcOffset * 60 * 1_000_000, 86_400_000_000'i64)
 
 proc toDuckUuid*(val: Uuid): duckdb_hugeint {.inline.} =
+  ## Inverse of `fromDuckUuid`: flips bit 63 of the upper half back on.
   var hi: uint64 = 0
   var lo: uint64 = 0
   for b in 0 .. 7:
     hi = hi or (uint64(val.bytes[b]) shl ((7 - b) * 8))
     lo = lo or (uint64(val.bytes[8 + b]) shl ((7 - b) * 8))
-  duckdb_hugeint(upper: cast[int64](hi), lower: lo)
+  duckdb_hugeint(
+    upper: cast[int64](hi xor 0x8000_0000_0000_0000'u64),
+    lower: lo,
+  )
 
 proc toDuckDecimal*(val: DecimalType, width: int8, scale: int8): Int128 {.inline.} =
   let s = $val
