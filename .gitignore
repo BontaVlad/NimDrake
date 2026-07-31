@@ -10,9 +10,23 @@ benchmarks/nim-heaptrack/
 nimble/
 src/lib/
 # Stray compiled test binaries (no file extension)
-tests/test_data_chunk
-tests/test_logical_type
+tests/test_aggregate_functions
 tests/test_catalog
+tests/test_complex
+tests/test_data_chunk
+tests/test_database
+tests/test_dataframe
+tests/test_isolate
+tests/test_logical_type
+tests/test_parquet
+tests/test_qresult
+tests/test_query
+tests/test_replacement_scan
+tests/test_result_type
+tests/test_scalar_functions
+tests/test_table_functions
+tests/test_table_scan
+tests/test_tensor
 
 # CI cache for DuckDB downloads (macOS/Windows)
 .duckdb-cache/
