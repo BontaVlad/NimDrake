@@ -1,4 +1,5 @@
 import unittest2
+import std/strutils
 import ../src/[database, qresult, query, types, display]
 import utils
 
@@ -38,3 +39,53 @@ suite "Test QResult display":
 │     20      │     b       │
 └─────────────┴─────────────┘
 """
+
+  test "Display of empty result set":
+    let duck2 = newDatabase().connect()
+    let empty = duck2.execute("SELECT 1 AS x WHERE 1=0")
+    let output = $empty
+    check output.contains("x")
+
+  test "Display of single-column result":
+    let duck2 = newDatabase().connect()
+    let sc = duck2.execute("SELECT 42 AS answer")
+    let output = $sc
+    check output.contains("answer")
+    check output.contains("42")
+
+  test "Display renders NULL cells":
+    let duck2 = newDatabase().connect()
+    let r = duck2.execute("SELECT NULL::BIGINT AS n, 5::BIGINT AS v")
+    let output = $r
+    check output.contains("NULL")
+    check output.contains("5")
+
+  test "Display renders Decimal with scale":
+    let duck2 = newDatabase().connect()
+    let r = duck2.execute("SELECT 12.34::DECIMAL(18,2) AS d")
+    let output = $r
+    check output.contains("12.34")
+
+  test "Display renders Double NaN and Infinity":
+    let duck2 = newDatabase().connect()
+    let r = duck2.execute("SELECT 'NaN'::DOUBLE AS a, 'Infinity'::DOUBLE AS b")
+    let output = $r
+    check output.contains("nan") or output.contains("NaN")
+    check output.contains("inf") or output.contains("Inf")
+
+  test "Display of >20 rows is clipped with a footer row":
+    let duck2 = newDatabase().connect()
+    let r = duck2.execute("SELECT seq AS i FROM generate_series(1, 50) AS t(seq)")
+    let output = $r
+    check output.contains("1")
+    check output.contains("20")
+    check not output.contains("21")
+
+  test "Display renders full varchar cell values":
+    let duck2 = newDatabase().connect()
+    let longStr = repeat('x', 100)
+    let r = duck2.executeMaterialized("SELECT ? AS s", (longStr,))
+    let output = $r
+    check output.contains(longStr)
+    # The column header is clipped, but the cell value is not
+    check output.contains("s")

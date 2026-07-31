@@ -283,3 +283,26 @@ test "custom tables on two independent databases do not cross-contaminate":
   for c in rB: yb.add c.bindAs(0, DuckType.BigInt).toSeq
   check xa == @[100'i64]
   check yb == @[999'i64]
+
+test "custom table with >2048 rows (crosses chunk boundary)":
+  let t = newCustomTable(("n", DuckType.BigInt))
+  for i in 0 ..< 5000:
+    t.addRow(cell($i))
+  let conn = newDatabase().connect()
+  conn.register(t, name = "large_t")
+  let r = conn.execute("SELECT COUNT(*)::BIGINT as cnt FROM large_t")
+  for chunk in r:
+    check chunk.bindAs(0, DuckType.BigInt)[0] == 5000'i64
+
+test "re-registration of same name replaces existing table":
+  let t1 = newCustomTable(("val", DuckType.BigInt))
+  t1.addRow(cell("1"))
+  t1.addRow(cell("2"))
+  let t2 = newCustomTable(("val", DuckType.BigInt))
+  t2.addRow(cell("100"))
+  let conn = newDatabase().connect()
+  conn.register(t1, name = "replace_me")
+  conn.register(t2, name = "replace_me")
+  let r = conn.execute("SELECT val FROM replace_me ORDER BY val")
+  for chunk in r:
+    check chunk.bindAs(0, DuckType.BigInt).toSeq == @[100'i64]

@@ -1,4 +1,5 @@
 import unittest2
+
 import ../src/[ffi, types]
 
 suite "Test logical type":
@@ -22,3 +23,21 @@ suite "Test logical type":
 
     assert $logicalBooleanType == "Boolean"
     assert $logicalVarCharType == "Varchar"
+
+  test "Composite logical type — List(BigInt)":
+    let
+      inner = newLogicalType(DuckType.BigInt)
+      listType = duckdb_create_list_type(cast[duckdb_logical_type](inner.handle))
+      lt = newLogicalType(listType)
+    check $lt == "List"
+
+  test "Composite logical type — Struct(a Int, b Varchar)":
+    let
+      inner1 = newLogicalType(DuckType.Integer)
+      inner2 = newLogicalType(DuckType.Varchar)
+      memberTypes = [cast[duckdb_logical_type](inner1.handle),
+                     cast[duckdb_logical_type](inner2.handle)]
+      names = [cstring("a"), cstring("b")]
+      raw = duckdb_create_struct_type(addr memberTypes[0], addr names[0], 2)
+      lt = newLogicalType(raw)
+    check $lt == "Struct"

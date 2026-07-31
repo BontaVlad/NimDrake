@@ -161,3 +161,24 @@ test "T8: non-proc symbol rejected":
   let duck = newDatabase().connect()
   # use a type as the second argument instead of a proc
   check not compiles(duck.registerScalar(int64))
+
+# ── Additional UDF macro coverage ─────────────────────────────────────────────
+
+test "T13: NULL in middle of input row propagates to output":
+  proc threeParams(a, b, c: int64): int64 = a + b + c
+  let duck = newDatabase().connect()
+  duck.registerScalar(threeParams)
+  let r = duck.execute(
+    "SELECT threeParams(1::BIGINT, NULL::BIGINT, 3::BIGINT)")
+  for chunk in r:
+    let v = chunk.vector(0).bindAs DuckType.BigInt
+    check not v.valid(0)
+
+test "T14: UDF called twice on same connection":
+  proc doubler(x: int64): int64 = x * 2
+  let conn = newDatabase().connect()
+  conn.registerScalar(doubler)
+  for chunk in conn.execute("SELECT doubler(5::BIGINT)"):
+    check chunk.bindAs(0, DuckType.BigInt)[0] == 10'i64
+  for chunk in conn.execute("SELECT doubler(7::BIGINT)"):
+    check chunk.bindAs(0, DuckType.BigInt)[0] == 14'i64
