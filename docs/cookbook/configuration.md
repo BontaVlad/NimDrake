@@ -27,6 +27,7 @@ echo r
 └───────────┘
 ```
 
+
 ## Set memory limit
 
 Cap memory usage for embedded or shared environments:
@@ -49,6 +50,7 @@ echo r
 │     488.2 MiB     │
 └───────────────────┘
 ```
+
 
 ## Multiple settings at once
 
@@ -79,6 +81,7 @@ echo r
 └─────────────────┴──────────────────────┘
 ```
 
+
 ## Invalid settings raise errors
 
 ```nim test
@@ -94,4 +97,5 @@ except OperationError as e:
 ```
 
 ```
+
 

@@ -24,6 +24,7 @@ for chunk in r:
 42 hello
 ```
 
+
 ## Access columns by name
 
 Use `chunk["name"]` for named access:
@@ -44,6 +45,7 @@ for chunk in r:
 3
 ```
 
+
 ## Collect all values into a seq
 
 `toSeq` materializes a column into a Nim sequence:
@@ -63,6 +65,7 @@ for chunk in r:
 ```
 @[1, 2, 3, 4, 5]
 ```
+
 
 ## Check for NULL values
 
@@ -85,6 +88,7 @@ NULL? true
 NULL? false
 ```
 
+
 ## Cross-chunk random access with Table API
 
 For random access across all chunks, use the `Table` API:
@@ -105,4 +109,5 @@ echo col[4999]  # last row
 1
 5000
 ```
+
 

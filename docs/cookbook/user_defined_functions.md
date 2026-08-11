@@ -28,6 +28,7 @@ echo r
 └──────────────────────────────────┘
 ```
 
+
 ## Scalar function with string processing
 
 ```nim test
@@ -51,6 +52,7 @@ echo r
 └──────────────────────────────────┘
 ```
 
+
 ## NULL propagation
 
 NULL inputs automatically produce NULL output — no extra code needed:
@@ -72,6 +74,7 @@ for chunk in r:
 ```
 Is NULL? true
 ```
+
 
 ## Table functions
 
@@ -111,6 +114,7 @@ echo r
 └───────────┴─────────────┘
 ```
 
+
 ## Table function with multiple parameters
 
 ```nim test
@@ -139,6 +143,7 @@ echo r
 │     15            │
 └───────────────────┘
 ```
+
 
 ## Aggregate functions
 
@@ -170,6 +175,7 @@ echo r
 │     5050          │
 └───────────────────┘
 ```
+
 
 ## Aggregate with GROUP BY
 
@@ -206,4 +212,5 @@ echo r
 │     2            │     15        │
 └──────────────────┴───────────────┘
 ```
+
 

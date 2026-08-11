@@ -34,7 +34,7 @@ tables from inside your binary.
 
 > NimDrake is pre-alpha. APIs and behavior may change.
 
-**[Cookbook](docs/cookbook/cookbook.html)** — recipes for common tasks.
+**[Cookbook](https://bontavlad.github.io/NimDrake/cookbook/cookbook.html)** — recipes for common tasks.
 
 ---
 
@@ -365,16 +365,13 @@ Uses [just](https://github.com/casey/just) for build orchestration.
 
 ```bash
 just test                     # all tests, debug + ASan
-just test isParallel=true cores=8  # parallel
-just test-release             # release mode, no leak checks
-just test-arc                 # ARC memory management
-just test-arrow               # include Arrow tests
-just coverage                 # lcov → coverage/index.html
-just benchmark                # run benchmarks
-just format src               # format with nph
+just test cores=8             # parallel
+just test features="arrow"    # include Arrow tests
+just cookbook                 # run cookbook snippets; fail if any break
+just docs                     # render cookbook markdown to HTML
+just fetch-lib                # vendor libduckdb.so + duckdb.h into src/include/
 just generate                 # regenerate FFI from duckdb.h via Futhark
-just debug nim_file="tests/test_query.nim"
-just valgrind nim_file="..."
+just clean                    # remove build artifacts
 ```
 
 See [WORKBOARD.md](WORKBOARD.md) for project status and TODO list.

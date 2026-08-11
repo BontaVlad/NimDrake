@@ -32,6 +32,7 @@ echo r
 └────────────┴─────────────────┘
 ```
 
+
 ## Rollback on exception
 
 If an exception occurs, changes are automatically rolled back:
@@ -62,6 +63,7 @@ echo r
 └───────────┘
 ```
 
+
 ## Transaction with readback
 
 Changes inside a transaction are visible to subsequent queries on the same
@@ -87,4 +89,5 @@ echo "after commit: ", r2.scalar
 inside: 10
 after commit: 10
 ```
+
 

@@ -31,6 +31,7 @@ echo r
 └────────────┴───────────────┴────────────────┘
 ```
 
+
 ## Named parameters
 
 Use `$name` syntax for named parameters:
@@ -48,6 +49,7 @@ echo "Parameter index: ", idx
 ```
 Parameter index: 1
 ```
+
 
 ## Inspect parameter types
 
@@ -69,6 +71,7 @@ for param in stmt.parameters:
 2 -> Varchar
 3 -> Boolean
 ```
+
 
 ## DML statements use executeMaterialized
 
@@ -94,4 +97,5 @@ echo r
 │     0     │
 └───────────┘
 ```
+
 

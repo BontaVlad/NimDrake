@@ -26,6 +26,7 @@ echo r
 └────────────────┘
 ```
 
+
 ## Create a persistent database
 
 Pass a file path to create a database that survives restarts:
@@ -58,6 +59,7 @@ echo r
 └───────────────┴───────────────┘
 ```
 
+
 ## Configure thread count and memory limit
 
 ```nim test
@@ -84,6 +86,7 @@ echo r
 └───────────┘
 ```
 
+
 ## Multiple connections to one database
 
 A single `Database` can serve multiple connections — they share the same data:
@@ -109,4 +112,5 @@ echo r
 │     1     │
 └───────────┘
 ```
+
 

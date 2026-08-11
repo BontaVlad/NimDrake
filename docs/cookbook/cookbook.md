@@ -17,8 +17,3 @@ import nimdrake
 * [Complex Types](complex_types.html)
 * [Transactions](transactions.html)
 * [Configuration](configuration.html)
-
----
-
-### Indices and tables
-* [Index](theindex.html)

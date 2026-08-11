@@ -28,6 +28,7 @@ for chunk in r:
 30
 ```
 
+
 ## Query map values
 
 Access map keys and values:
@@ -51,6 +52,7 @@ Key type: Varchar
 Value type: Integer
 ```
 
+
 ## Query struct values
 
 Access struct fields by name:
@@ -72,6 +74,7 @@ for chunk in r:
 Alice is 30 years old
 ```
 
+
 ## Recursive materialization with NimValue
 
 For ad-hoc queries where schema is unknown at compile time:
@@ -89,4 +92,5 @@ echo "NimValue kind: ", nv.kind
 ```
 NimValue kind: nvList
 ```
+
 

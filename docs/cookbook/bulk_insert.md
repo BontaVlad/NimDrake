@@ -34,6 +34,7 @@ echo r
 └─────────────┘
 ```
 
+
 ## Appender with typed columns
 
 Match the column types in your table:
@@ -76,6 +77,7 @@ echo r
 └────────────┴───────────────┴──────────────────┴────────────────┘
 ```
 
+
 ## Appender from a sequence of tuples
 
 Bulk insert from existing data:
@@ -106,4 +108,5 @@ echo r
 │     3     │     three     │
 └───────────┴───────────────┘
 ```
+
 
