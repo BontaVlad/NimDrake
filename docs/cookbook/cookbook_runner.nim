@@ -5,7 +5,12 @@ const DefaultCookbookDir = "docs/cookbook"
 proc getProjectFlags(): string =
   let srcPath = getCurrentDir() / "src"
   let includePath = getCurrentDir() / "src" / "include"
-  result = fmt"--path:{srcPath.quoteShell} --passL:-L{includePath.quoteShell} --passL:-lduckdb --passL:-Wl,-rpath,{includePath.quoteShell}"
+  # --mm:arc avoids the ORC cycle-collector path that segfaulted inside
+  # lib/system/orc.nim's unregisterCycle when the generated destroyInit
+  # hook on DuckDB table-functions ran at query end on newer Nim 2.x.
+  # Cookbook snippets are short-lived subprocesses, so leak tracing is
+  # not needed and ARC is fine.
+  result = fmt"--mm:arc --path:{srcPath.quoteShell} --passL:-L{includePath.quoteShell} --passL:-lduckdb --passL:-Wl,-rpath,{includePath.quoteShell}"
 
 proc runSnippet(code: string, flags: string): tuple[ok: bool, output: string] =
   let tmpFile = getTempDir() / "cookbook_snippet.nim"
