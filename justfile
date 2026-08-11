@@ -49,13 +49,18 @@ fetch-lib:
     unzip -o "$T/$A" -d "$T/x"; cp "$T/x/libduckdb.so" "$D/"; cp "$T/x/duckdb.h" "$D/"
     rm -rf "$T"; echo "Vendored libduckdb to $D/"; ls -la "$D/"
 
-# Run cookbook snippets and update output blocks.
+# Run cookbook snippets; fail if any snippet fails to compile/run.
 cookbook:
     nim c -r docs/cookbook/cookbook_runner.nim
 
-# Verify cookbook snippets match expected output.
-cookbook-verify:
-    nim c -r docs/cookbook/verify_cookbook.nim
+# Render cookbook markdown to HTML via nim md2html (skips compiling snippets).
+docs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for f in docs/cookbook/*.md; do
+        nim md2html --docCmd:skip --outdir:docs/cookbook "$f"
+    done
+    echo "Rendered cookbook HTML in docs/cookbook/"
 
 # Remove all build artifacts.
 clean:

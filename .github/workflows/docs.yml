@@ -17,9 +17,6 @@ concurrency:
 jobs:
   docs:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -51,11 +48,20 @@ jobs:
       - name: Install Nim dependencies
         run: nimble install -y
 
+      - name: Run cookbook snippets
+        run: nim c -r docs/cookbook/cookbook_runner.nim
+
       - name: Generate API docs
         run: |
           nimble doc --project --outdir:docs src/nimdrake.nim
           mv docs/theindex.html docs/index.html
           touch docs/.nojekyll
+
+      - name: Render cookbook HTML
+        run: |
+          for f in docs/cookbook/*.md; do
+            nim md2html --docCmd:skip --outdir:docs/cookbook "$f"
+          done
 
       - uses: actions/configure-pages@v4
 

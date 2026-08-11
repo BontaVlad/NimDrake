@@ -100,3 +100,9 @@ let col = tbl.bindAs(0, DuckType.BigInt)
 echo col[0]     # first row
 echo col[4999]  # last row
 ```
+
+```
+1
+5000
+```
+

@@ -122,3 +122,11 @@ try:
 except OperationError as e:
   echo "Caught error: ", e.msg
 ```
+
+```
+Caught error: execute query: Parser Error: syntax error at or near "THIS"
+
+LINE 1: THIS IS NOT VALID SQL
+        ^
+```
+

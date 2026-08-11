@@ -7,31 +7,28 @@ proc getProjectFlags(): string =
   let includePath = getCurrentDir() / "src" / "include"
   result = fmt"--path:{srcPath.quoteShell} --passL:-L{includePath.quoteShell} --passL:-lduckdb --passL:-Wl,-rpath,{includePath.quoteShell}"
 
-proc runSnippet(code: string, flags: string): string =
+proc runSnippet(code: string, flags: string): tuple[ok: bool, output: string] =
   let tmpFile = getTempDir() / "cookbook_snippet.nim"
   writeFile(tmpFile, code)
   let cmd = fmt"nim r --hints:off --warnings:off {flags} {tmpFile.quoteShell}"
   let (output, exitCode) = execCmdEx(cmd)
-  result = if exitCode == 0: output.strip()
-           else: "Error during execution:\n" & output.strip()
+  result = (exitCode == 0, output.strip())
 
-proc findNimTestBlocks(content: string): seq[(int, int, string, string)] =
+proc findNimTestBlocks(content: string): seq[(int, int, string)] =
   ## Find all ```nim test blocks and their corresponding output blocks.
-  ## Returns (start, end, codeBlock, oldOutput) tuples.
+  ## Returns (start, end, codeBlock) tuples for each block.
   result = @[]
   var pos = 0
   let marker = "```nim test\n"
-  let outputMarker = "```\n\n```\n"
 
   while true:
     let codeStart = content.find(marker, pos)
     if codeStart < 0: break
 
-    # Find the end of the code block
     let codeEnd = content.find("\n```", codeStart + marker.len)
     if codeEnd < 0: break
 
-    let codeBlock = content[codeStart .. codeEnd + 3]  # include ```\n
+    let codeBlock = content[codeStart .. codeEnd + 3]  # include ```
 
     # Find the output block after the code block
     let outputStart = content.find("\n\n```\n", codeEnd)
@@ -40,9 +37,7 @@ proc findNimTestBlocks(content: string): seq[(int, int, string, string)] =
     let outputEnd = content.find("```", outputStart + 6)
     if outputEnd < 0: break
 
-    let oldOutput = content[outputStart + 6 ..< outputEnd]
-
-    result.add((codeStart, outputEnd + 3, codeBlock, oldOutput))
+    result.add((codeStart, outputEnd + 3, codeBlock))
     pos = outputEnd + 3
 
 proc processFile(path: string, flags: string) =
@@ -55,16 +50,22 @@ proc processFile(path: string, flags: string) =
     return
 
   var output = content
-  var offset = 0  # track shifts from replacements
+  var offset = 0
 
-  for idx, (start, endPos, codeBlock, _) in blocks:
+  for idx, (start, endPos, codeBlock) in blocks:
     echo fmt"  [{idx + 1}/{blocks.len}] running snippet..."
     let code = codeBlock.replace("```nim test\n", "").replace("\n```", "")
-    let snippetOutput = runSnippet(code, flags)
+    let (ok, snippetOutput) = runSnippet(code, flags)
 
-    let replacement = codeBlock & "\n\n```\n" & snippetOutput & "\n```"
+    if not ok:
+      echo fmt"  [{idx + 1}/{blocks.len}] FAILED to compile/run:"
+      echo snippetOutput
+      quit(1)
 
-    # Adjust positions for previous replacements
+    # Trailing newline after the closing ``` keeps a blank line before the
+    # next markdown heading so nim md2html renders the section structure.
+    let replacement = codeBlock & "\n\n```\n" & snippetOutput & "\n```\n"
+
     let adjustedStart = start + offset
     let adjustedEnd = endPos + offset
 

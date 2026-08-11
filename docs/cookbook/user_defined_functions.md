@@ -81,7 +81,8 @@ Register a `{.closure.}` iterator as a table function:
 import nimdrake
 
 iterator fibonacci(n: int): tuple[i: int, fib: int] {.closure.} =
-  var a, b = 0
+  var a = 0
+  var b = 1
   for idx in 0 ..< n:
     yield (idx, a)
     let next = a + b
@@ -100,13 +101,13 @@ echo r
 │     i     │     fib     │
 ├───────────┼─────────────┤
 │     0     │     0       │
-│     1     │     0       │
-│     2     │     0       │
-│     3     │     0       │
-│     4     │     0       │
-│     5     │     0       │
-│     6     │     0       │
-│     7     │     0       │
+│     1     │     1       │
+│     2     │     1       │
+│     3     │     2       │
+│     4     │     3       │
+│     5     │     5       │
+│     6     │     8       │
+│     7     │     13      │
 └───────────┴─────────────┘
 ```
 
@@ -195,3 +196,14 @@ let r = con.execute("""
 """)
 echo r
 ```
+
+```
+┌──────────────────┬───────────────┐
+│     group_id     │     total     │
+├──────────────────┼───────────────┤
+│     0            │     9         │
+│     1            │     12        │
+│     2            │     15        │
+└──────────────────┴───────────────┘
+```
+

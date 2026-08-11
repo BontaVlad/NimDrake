@@ -79,10 +79,19 @@ import nimdrake
 
 let con = newDatabase().connect()
 con.execute("CREATE TABLE counters (id INTEGER, val INTEGER)")
-con.executeMaterialized("INSERT INTO counters VALUES (1, 100)")
-con.executeMaterialized("UPDATE counters SET val = 200 WHERE id = 1")
-con.executeMaterialized("DELETE FROM counters WHERE id = 1")
+con.executeMaterialized("INSERT INTO counters VALUES (1, 100)", ())
+con.executeMaterialized("UPDATE counters SET val = 200 WHERE id = 1", ())
+con.executeMaterialized("DELETE FROM counters WHERE id = 1", ())
 
 let r = con.execute("SELECT count(*)::BIGINT AS n FROM counters")
 echo r
 ```
+
+```
+┌───────────┐
+│     n     │
+├───────────┤
+│     0     │
+└───────────┘
+```
+

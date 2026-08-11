@@ -4,7 +4,8 @@ htmldocs/
 docs/*
 !docs/cookbook/
 docs/cookbook/cookbook_runner
-docs/cookbook/verify_cookbook
+docs/cookbook/*.html
+docs/cookbook/nimdoc.out.css
 testresults/
 src/nimdrake
 benchmarks/benchmark_vector

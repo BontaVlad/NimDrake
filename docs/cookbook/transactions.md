@@ -62,7 +62,10 @@ echo r
 └───────────┘
 ```
 
-## Nested transactions
+## Transaction with readback
+
+Changes inside a transaction are visible to subsequent queries on the same
+connection before commit:
 
 ```nim test
 import nimdrake
@@ -72,10 +75,16 @@ con.execute("CREATE TABLE counter (val INTEGER)")
 con.execute("INSERT INTO counter VALUES (0)")
 
 con.transaction:
-  con.execute("UPDATE counter SET val = val + 1")
-  con.transaction:
-    con.execute("UPDATE counter SET val = val + 10")
+  con.execute("UPDATE counter SET val = val + 10")
+  let r = con.execute("SELECT val FROM counter")
+  echo "inside: ", r.scalar
 
-let r = con.execute("SELECT val FROM counter")
-echo r
+let r2 = con.execute("SELECT val FROM counter")
+echo "after commit: ", r2.scalar
 ```
+
+```
+inside: 10
+after commit: 10
+```
+

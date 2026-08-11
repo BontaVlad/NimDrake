@@ -87,12 +87,23 @@ let con = newDatabase().connect()
 con.execute("CREATE TABLE pairs (a INTEGER, b VARCHAR)")
 
 let data = @[
-  (1, "one"),
-  (2, "two"),
-  (3, "three"),
+  @["1", "one"],
+  @["2", "two"],
+  @["3", "three"],
 ]
 con.newAppender("pairs", data)
 
 let r = con.execute("SELECT * FROM pairs ORDER BY a")
 echo r
 ```
+
+```
+┌───────────┬───────────────┐
+│     a     │     b         │
+├───────────┼───────────────┤
+│     1     │     one       │
+│     2     │     two       │
+│     3     │     three     │
+└───────────┴───────────────┘
+```
+

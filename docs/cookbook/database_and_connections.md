@@ -26,16 +26,6 @@ echo r
 └────────────────┘
 ```
 
-```
-┌────────────────┐
-│     answer     │
-├────────────────┤
-│     42         │
-└────────────────┘
-```
-
-```
-
 ## Create a persistent database
 
 Pass a file path to create a database that survives restarts:
@@ -68,16 +58,6 @@ echo r
 └───────────────┴───────────────┘
 ```
 
-```
-Error during execution:
-/tmp/cookbook_snippet.nim(8) cookbook_snippet
-/mnt/c/Users/Vlad/Sandbox/NimDrake/src/query.nim(60) execute
-Error: unhandled exception: execute query: Catalog Error: Table with name "settings" already exists! [OperationError]
-Error: execution of an external program failed: '/home/vlad/.cache/nim/cookbook_snippet_d/cookbook_snippet_393D3217F8A50B9BC257A91AD71334592602E713'
-```
-
-```
-
 ## Configure thread count and memory limit
 
 ```nim test
@@ -102,16 +82,6 @@ echo r
 ├───────────┤
 │     4     │
 └───────────┘
-```
-
-```
-┌───────────┐
-│     t     │
-├───────────┤
-│     4     │
-└───────────┘
-```
-
 ```
 
 ## Multiple connections to one database
@@ -140,10 +110,3 @@ echo r
 └───────────┘
 ```
 
-```
-┌───────────┐
-│     i     │
-├───────────┤
-│     1     │
-└───────────┘
-```
