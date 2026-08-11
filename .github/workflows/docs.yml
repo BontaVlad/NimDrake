@@ -53,7 +53,7 @@ jobs:
 
       - name: Generate API docs
         run: |
-          nimble doc --project --outdir:docs src/nimdrake.nim
+          nimble doc --docCmd:skip --project --outdir:docs src/nimdrake.nim
           mv docs/theindex.html docs/index.html
           touch docs/.nojekyll
 
