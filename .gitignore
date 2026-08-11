@@ -1,7 +1,10 @@
 nimcache/
 nimblecache/
 htmldocs/
-docs/
+docs/*
+!docs/cookbook/
+docs/cookbook/cookbook_runner
+docs/cookbook/verify_cookbook
 testresults/
 src/nimdrake
 benchmarks/benchmark_vector

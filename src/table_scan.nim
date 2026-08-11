@@ -47,20 +47,6 @@ type
 #   columns(s): seq[Column]
 #   cardinality(s): Cardinality
 #   newFiller(s): FillFn
-#
-# Two things were required to make this concept work in Nim 2.2:
-#
-# 1. `mixin columns, cardinality, newFiller` inside the concept body.
-#    Without it, Nim resolves these free-proc calls at the concept's
-#    definition scope (this module), so overloads a user defines in another
-#    module are invisible and the concept silently fails to match.
-#
-# 2. The `columns` iterator that previously shared the name `columns` with
-#    the `proc columns*(q: QResult): seq[Column]` was renamed to
-#    `columnItems`.  Nim's concept matcher cannot disambiguate a proc/iterator
-#    name clash — it picks the iterator, sees yield type `Column` (not
-#    `seq[Column]`), and rejects the match even for `QResult` itself.
-# ---------------------------------------------------------------------------
 
 type
   TableSource* = concept s
