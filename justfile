@@ -18,7 +18,11 @@ test cores="1" features="":
     fi
 
     ASAN="detect_leaks=1"; LSAN="suppressions=lsan.supp:print_suppressions=0"
-    [[ "$(uname -s)" == "Darwin" ]] && ASAN="detect_leaks=0" && LSAN=""
+    EXEEXT=""
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) EXEEXT=".exe";;
+        Darwin) ASAN="detect_leaks=0"; LSAN="";;
+    esac
     [[ "{{leaks}}" == "0" || "{{leaks}}" == "false" ]] && ASAN="detect_leaks=0" && LSAN=""
 
     run() {
@@ -32,15 +36,15 @@ test cores="1" features="":
             -d:useMalloc -d:noSignalHandler $FLAG \
             --passC:-O0 --passC:-g3 \
             $SAN \
-            -o:"$OUT/$n/$n" "$f"
+            -o:"$OUT/$n/$n$EXEEXT" "$f"
         if [[ "{{asan}}" == "1" || "{{asan}}" == "true" ]]; then
-            ASAN_OPTIONS="$ASAN" LSAN_OPTIONS="$LSAN" "$OUT/$n/$n"
+            ASAN_OPTIONS="$ASAN" LSAN_OPTIONS="$LSAN" "$OUT/$n/$n$EXEEXT"
         else
-            "$OUT/$n/$n"
+            "$OUT/$n/$n$EXEEXT"
         fi
     }
     export -f run
-    export OUT ASAN LSAN
+    export OUT ASAN LSAN EXEEXT
 
     if [[ "{{cores}}" == "1" ]]; then
         for f in "${FILES[@]}"; do run "$f"; done
