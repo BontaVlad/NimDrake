@@ -17,5 +17,11 @@ leak:allocImpl
 leak:reallocImpl
 leak:rawAlloc
 
+# === Arrow / arrow-glib C++ internal allocations (upstream `narrow` package) ===
+# narrow's RecordBatchBuilder GObject is never finalized, leaking the C++
+# RecordBatchBuilder and its internal column builders. Third-party, matches
+# the same treatment given to DuckDB internals above.
+leak:libarrow
+
 # === Test infrastructure ===
 leak:unittest2

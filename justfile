@@ -3,10 +3,17 @@ asan := "1"
 leaks := "1"
 
 # Run all tests. Sequential by default, parallel with `just test 8`.
-# Pass features="arrow" to also run narrow/Arrow tests.
+# Pass --features=arrow to also run narrow/Arrow tests.
+[arg('features', long='features', help='Pass arrow to also run narrow/Arrow tests')]
 test cores="1" features="":
     #!/usr/bin/env bash
     set -euo pipefail
+
+    if [[ ! "{{cores}}" =~ ^[0-9]+$ ]]; then
+        echo "error: cores must be a positive integer, got '{{cores}}'" >&2
+        echo "hint: just test 8 --features=arrow" >&2
+        exit 2
+    fi
 
     OUT="nimcache/tests"; mkdir -p "$OUT"
     FLAG=""
