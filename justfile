@@ -1,3 +1,7 @@
+# ASan and leak detection on/off (overridable with `just --set asan 0 --set leaks false test`).
+asan := "1"
+leaks := "1"
+
 # Run all tests. Sequential by default, parallel with `just test 8`.
 # Pass features="arrow" to also run narrow/Arrow tests.
 test cores="1" features="":
@@ -8,23 +12,32 @@ test cores="1" features="":
     FLAG=""
     if [[ "{{features}}" == "arrow" ]]; then
         FLAG="-d:features.nimdrake.arrow"
-        mapfile -t FILES < <(find tests -name 'test_*.nim' | sort)
+        FILES=(); while IFS= read -r f; do FILES+=("$f"); done < <(find tests -name 'test_*.nim' | sort)
     else
-        mapfile -t FILES < <(find tests -name 'test_*.nim' -not -path 'tests/narrow/*' | sort)
+        FILES=(); while IFS= read -r f; do FILES+=("$f"); done < <(find tests -name 'test_*.nim' -not -path 'tests/narrow/*' | sort)
     fi
 
     ASAN="detect_leaks=1"; LSAN="suppressions=lsan.supp:print_suppressions=0"
     [[ "$(uname -s)" == "Darwin" ]] && ASAN="detect_leaks=0" && LSAN=""
+    [[ "{{leaks}}" == "0" || "{{leaks}}" == "false" ]] && ASAN="detect_leaks=0" && LSAN=""
 
     run() {
         local f="$1" n; n="$(basename "$f" .nim)"; mkdir -p "$OUT/$n"
+        local SAN=""
+        if [[ "{{asan}}" == "1" || "{{asan}}" == "true" ]]; then
+            SAN="--passC:-fsanitize=address --passL:-fsanitize=address"
+        fi
         nim c --verbosity:0 --hints:off --mm:orc --excessiveStackTrace:on \
             -d:debug -d:nimDebugDlOpen --opt:none --debuginfo:on --debugger:native \
             -d:useMalloc -d:noSignalHandler $FLAG \
             --passC:-O0 --passC:-g3 \
-            --passC:-fsanitize=address --passL:-fsanitize=address \
+            $SAN \
             -o:"$OUT/$n/$n" "$f"
-        ASAN_OPTIONS="$ASAN" LSAN_OPTIONS="$LSAN" "$OUT/$n/$n"
+        if [[ "{{asan}}" == "1" || "{{asan}}" == "true" ]]; then
+            ASAN_OPTIONS="$ASAN" LSAN_OPTIONS="$LSAN" "$OUT/$n/$n"
+        else
+            "$OUT/$n/$n"
+        fi
     }
     export -f run
     export OUT ASAN LSAN

@@ -1,0 +1,34 @@
+name: 'Setup Nim'
+description: 'Install Nim stable, cache nimble packages, install project dependencies'
+
+inputs:
+  repo-token:
+    description: 'GITHUB_TOKEN for downloading Nim binaries'
+    required: true
+  msys2-shell:
+    description: 'Use the msys2 shell for commands (Windows only)'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Cache Nimble packages
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.nimble
+          ~/.cache/nim
+        key: ${{ runner.os }}-nimble-${{ hashFiles('*.nimble') }}
+        restore-keys: |
+          ${{ runner.os }}-nimble-
+
+    - name: Install Nim
+      uses: jiro4989/setup-nim-action@v2
+      with:
+        nim-version: stable
+        repo-token: ${{ inputs.repo-token }}
+
+    - name: Install Nim dependencies
+      shell: ${{ inputs.msys2-shell == 'true' && 'msys2 {0}' || 'bash' }}
+      run: nimble install -y --useSystemNim

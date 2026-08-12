@@ -3,7 +3,20 @@ name: Docs
 on:
   push:
     branches: [main]
+    paths:
+      - 'src/**'
+      - 'docs/**'
+      - '*.nimble'
+      - '.github/workflows/docs.yml'
+      - '.github/actions/**'
   pull_request:
+    paths:
+      - 'src/**'
+      - 'docs/**'
+      - '*.nimble'
+      - '.github/workflows/docs.yml'
+      - '.github/actions/**'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,41 +28,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  docs:
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install DuckDB
-        run: |
-          wget -q https://github.com/duckdb/duckdb/releases/download/v1.5.4/libduckdb-linux-amd64.zip
-          unzip -o libduckdb-linux-amd64.zip -d duckdb-install
-          sudo cp duckdb-install/libduckdb.so /usr/lib/
-          sudo cp duckdb-install/duckdb.h /usr/include/
-          sudo ldconfig
-
-      - name: Cache Nim
-        uses: actions/cache@v4
+        uses: ./.github/actions/install-duckdb
         with:
-          path: |
-            ~/nimdir
-            ~/.nimble
-            ~/.cache/nim
-          key: ${{ runner.os }}-nim-docs-${{ hashFiles('*.nimble') }}
-          restore-keys: |
-            ${{ runner.os }}-nim-docs-
+          cache-suffix: docs
 
-      - uses: iffy/install-nim@v5
+      - name: Setup Nim
+        uses: ./.github/actions/setup-nim
         with:
-          version: binary:stable
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Nim dependencies
-        run: nimble install -y
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run cookbook snippets
         run: nim c -r docs/cookbook/cookbook_runner.nim
@@ -72,7 +64,14 @@ jobs:
         with:
           path: docs
 
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         uses: actions/deploy-pages@v4

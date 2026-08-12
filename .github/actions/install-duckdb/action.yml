@@ -1,0 +1,88 @@
+name: 'Install DuckDB'
+description: 'Download, cache, and install libduckdb (v1.5.4) for the current OS'
+
+inputs:
+  cache-suffix:
+    description: 'Suffix for cache keys so tests/docs use distinct entries'
+    required: false
+    default: 'default'
+  msys2-shell:
+    description: 'Use the msys2 shell for commands (Windows only)'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Cache DuckDB (Linux — src/include/)
+      if: runner.os == 'Linux'
+      id: cache-duckdb-linux
+      uses: actions/cache@v4
+      with:
+        path: src/include
+        key: Linux-duckdb-v1.5.4-${{ inputs.cache-suffix }}-${{ hashFiles('justfile') }}
+        restore-keys: |
+          Linux-duckdb-v1.5.4-
+
+    - name: Cache DuckDB (macOS — extracted zip)
+      if: runner.os == 'macOS'
+      id: cache-duckdb-macos
+      uses: actions/cache@v4
+      with:
+        path: .duckdb-cache
+        key: macOs-duckdb-v1.5.4-${{ inputs.cache-suffix }}
+        restore-keys: |
+          macOs-duckdb-v1.5.4-
+
+    - name: Cache DuckDB (Windows — extracted zip)
+      if: runner.os == 'Windows'
+      id: cache-duckdb-windows
+      uses: actions/cache@v4
+      with:
+        path: .duckdb-cache
+        key: Windows-duckdb-v1.5.4-${{ inputs.cache-suffix }}
+        restore-keys: |
+          Windows-duckdb-v1.5.4-
+
+    - name: Vendor DuckDB (Linux)
+      if: steps.cache-duckdb-linux.outputs.cache-hit != 'true' && runner.os == 'Linux'
+      shell: bash
+      run: |
+        set -euo pipefail
+        D="src/include"; V="v1.5.4"; A="libduckdb-linux-amd64.zip"
+        T="$(mktemp -d)"; mkdir -p "$D"
+        wget -q "https://github.com/duckdb/duckdb/releases/download/$V/$A" -O "$T/$A"
+        unzip -o "$T/$A" -d "$T/x"; cp "$T/x/libduckdb.so" "$D/"; cp "$T/x/duckdb.h" "$D/"
+        rm -rf "$T"; echo "Vendored libduckdb to $D/"; ls -la "$D/"
+
+    - name: Download & extract DuckDB (macOS)
+      if: steps.cache-duckdb-macos.outputs.cache-hit != 'true' && runner.os == 'macOS'
+      shell: bash
+      run: |
+        mkdir -p .duckdb-cache
+        wget -q https://github.com/duckdb/duckdb/releases/download/v1.5.4/libduckdb-osx-universal.zip -O .duckdb-cache/libduckdb.zip
+        unzip -o .duckdb-cache/libduckdb.zip -d .duckdb-cache/
+
+    - name: Install DuckDB (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        sudo mkdir -p /usr/local/lib /usr/local/include
+        sudo cp .duckdb-cache/libduckdb.dylib /usr/local/lib/
+        sudo cp .duckdb-cache/duckdb.h /usr/local/include/
+
+    - name: Download & extract DuckDB (Windows)
+      if: steps.cache-duckdb-windows.outputs.cache-hit != 'true' && runner.os == 'Windows'
+      shell: ${{ inputs.msys2-shell == 'true' && 'msys2 {0}' || 'bash' }}
+      run: |
+        mkdir -p .duckdb-cache
+        curl -sL -o .duckdb-cache/libduckdb.zip https://github.com/duckdb/duckdb/releases/download/v1.5.4/libduckdb-windows-amd64.zip
+        unzip -o .duckdb-cache/libduckdb.zip -d .duckdb-cache/
+
+    - name: Install DuckDB (Windows)
+      if: runner.os == 'Windows'
+      shell: ${{ inputs.msys2-shell == 'true' && 'msys2 {0}' || 'bash' }}
+      run: |
+        cp .duckdb-cache/duckdb.dll C:/msys64/mingw64/bin/
+        cp .duckdb-cache/duckdb.h C:/msys64/mingw64/include/
+        cp .duckdb-cache/duckdb.lib C:/msys64/mingw64/lib/libduckdb.lib
