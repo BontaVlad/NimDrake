@@ -528,7 +528,15 @@ macro registerTableFunction*(con: typed, iterSym: typed,
     nnkCast.newTree(initDataName,
       newCall(bindSym"duckdb_function_get_init_data", ident"info"))))
 
-  mainBody.add(newVarStmt(itSym,
+  # `.cursor`: borrow the iterator without owning a ref to its closure env.
+  # mainProc runs on a DuckDB worker thread; an owning copy would incRef the
+  # env here and decRef it at scope end. The non-last decrement calls
+  # registerCycle(), writing rootIdx into the worker's thread-local ORC roots.
+  # destroyInit later runs on the Nim thread and calls unregisterCycle() with
+  # that rootIdx against a different roots array -> SIGSEGV. See
+  # notes/orc-cross-thread-table-functions.md for the full investigation.
+  mainBody.add(newVarStmt(
+    nnkPragmaExpr.newTree(itSym, nnkPragma.newTree(ident"cursor")),
     newDotExpr(ident"initData", ident"iter")))
 
   let sizeSym = genSym(nskLet, "size")
