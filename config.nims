@@ -57,11 +57,15 @@ when not defined(nimsuggest) and not defined(useFuthark):
     elif defined(linux):
       sysOk = gorge("ldconfig -p 2>/dev/null | grep -qi libduckdb && echo yes || echo no").strip == "yes"
     elif defined(windows):
-      sysOk = fileExists("C:/msys64/mingw64/lib/libduckdb.lib") or
-              fileExists("C:/msys64/mingw64/lib/duckdb.lib")
+      # MSYS2 root is not fixed: setup-msys2 extracts to a versioned
+      # hostedtoolcache dir. CI exports MINGW_PREFIX_WIN (e.g. C:/.../mingw64);
+      # fall back to the conventional C:/msys64 for local installs.
+      let mingwLib = getEnv("MINGW_PREFIX_WIN") / "lib"
+      sysOk = fileExists(mingwLib / "libduckdb.lib") or
+              fileExists(mingwLib / "duckdb.lib")
     if pcOk or sysOk:
       when defined(windows):
-        switch("passL", "-LC:/msys64/mingw64/lib")
+        switch("passL", "-L" & getEnv("MINGW_PREFIX_WIN", "C:/msys64/mingw64") / "lib")
       switch("passL", "-lduckdb")
       when defined(macosx):
         switch("passL", "-Wl,-rpath,/usr/local/lib")

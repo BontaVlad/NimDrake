@@ -83,6 +83,11 @@ runs:
       if: runner.os == 'Windows'
       shell: ${{ inputs.msys2-shell == 'true' && 'msys2 {0}' || 'bash' }}
       run: |
-        cp .duckdb-cache/duckdb.dll C:/msys64/mingw64/bin/
-        cp .duckdb-cache/duckdb.h C:/msys64/mingw64/include/
-        cp .duckdb-cache/duckdb.lib C:/msys64/mingw64/lib/libduckdb.lib
+        set -euo pipefail
+        P="$(cygpath -w "$MINGW_PREFIX")"
+        echo "MINGW_PREFIX=$MINGW_PREFIX"
+        echo "MINGW_PREFIX_WIN=$P"
+        cp .duckdb-cache/duckdb.dll "$MINGW_PREFIX/bin/"
+        cp .duckdb-cache/duckdb.h "$MINGW_PREFIX/include/"
+        cp .duckdb-cache/duckdb.lib "$MINGW_PREFIX/lib/libduckdb.lib"
+        echo "MINGW_PREFIX_WIN=$P" >> "$GITHUB_ENV"
