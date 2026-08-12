@@ -167,6 +167,7 @@ type
 proc `=destroy`(d: DataChunkObj) =
   if d.handle != nil and not d.nonOwning:
     duckdb_destroy_data_chunk(d.handle.addr)
+  `=destroy`(d.meta)
 
 proc rawHandle*(d: DataChunk): duckdb_data_chunk {.inline.} =
   d.handle

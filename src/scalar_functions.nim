@@ -12,6 +12,7 @@ type
 proc `=destroy`(s: ScalarFunctionBase) =
   if s.handle != nil:
     duckdb_destroy_scalar_function(s.handle.addr)
+  `=destroy`(s.name)
 
 proc `=wasMoved`(s: var ScalarFunctionBase) =
   s.handle = nil

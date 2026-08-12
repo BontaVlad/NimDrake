@@ -44,6 +44,7 @@ proc `=destroy`(obj: var DbObj) =
 proc `=destroy`(obj: var ConnObj) =
   if obj.handle != nil:
     duckdb_disconnect(obj.handle.addr)
+  reset(obj.db)
 
 # --- Accessors ----------------------------------------------------------------
 

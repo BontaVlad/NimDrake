@@ -92,6 +92,7 @@ proc `=wasMoved`*(statement: var Statement) =
 proc `=destroy`*(lt: LogicalTypeObj) =
   if lt.handle != nil:
     duckdbDestroyLogicalType(lt.handle.addr)
+  `=destroy`(lt.childNames)
 
 proc `=wasMoved`*(lt: var LogicalTypeObj) =
   lt.handle = nil

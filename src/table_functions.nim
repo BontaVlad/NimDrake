@@ -26,6 +26,8 @@ type
 proc `=destroy`(tf: TableFunctionBase) =
   if tf.handle != nil:
     duckdb_destroy_table_function(tf.handle.addr)
+  `=destroy`(tf.name)
+  `=destroy`(tf.extraData)
 
 proc `=wasMoved`(tf: var TableFunctionBase) =
   tf.handle = nil

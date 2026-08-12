@@ -96,6 +96,7 @@ proc `=destroy`(agg: var AggregateFunctionBase) =
   if agg.handle != nil:
     duckdb_destroy_aggregate_function(agg.handle.addr)
     agg.handle = nil
+  `=destroy`(agg.name)
 
 proc `=wasMoved`(agg: var AggregateFunctionBase) =
   agg.handle = nil
