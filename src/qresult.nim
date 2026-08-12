@@ -31,11 +31,29 @@
 ## `chunk.vector(i)` or `chunk["name"]`; it carries a runtime `kind` and
 ## exists only so the caller can introspect before `bindAs`-ing.
 ##
-## Complex child kinds (List/Array/Struct/Map/Union) are accessed through
-## zero-copy descent procs: `listChild`, `listEntry`, `arrayChild`, `arraySize`,
-## `structChild`, `structChildCount`, `structChildName`, `mapEntriesChild`,
-## `mapKeyType`, `mapValueType`, `unionMemberChild`, `unionMemberCount`,
-## `unionMemberName`.  `Vector[kt].[]` does not exist for complex kinds.
+## Complex child kinds are exposed two ways:
+##
+## **Typed bound container views** — `bindAs(Table[K,V])` /
+## `bindAs(OrderedTable[K,V])` mints a `MapView`, `bindAs(seq[T])` mints a
+## `ListView`, `bindAsArray(kt)` mints an `ArrayView`. Each carries the child
+## kind(s) statically and offers Nim-native table/seq-like row access:
+## `mv[i]` returns `OrderedTable[K,V]`; `mv.borrowMap(i)` returns a zero-copy
+## `MapRowView` with `[]`, `getOrDefault`, `contains`, `pairs`/`keys`/`values`
+## that read straight out of the DuckDB buffer. `lv[i]` returns `seq[T]`;
+## `lv.borrowList(i)` returns a zero-copy `SliceView`. Array has the same shape
+## with a fixed `arraySize`. Construction is zero-copy: it caches the bound
+## child vectors once, eliminating the manual `mapEntriesChild` /
+## `structChild(0)` / `structChild(1)` chain callers used to write per call.
+##
+## **Zero-copy descent procs** — the lower-level `listChild`, `listEntry`,
+## `arrayChild`, `arraySize`, `structChild`, `structChildCount`,
+## `structChildName`, `mapEntriesChild`, `mapKeyType`, `mapValueType`,
+## `unionMemberChild`, `unionMemberCount`, `unionMemberName` remain exported
+## and are what the typed views build on. Cached static-kind overloads
+## (`structChild(j, kt)`, `structChild(name, kt)`, `unionMemberChild(j, kt)`)
+## return a `Vector[kt]` directly, mirroring `bindAs` on a `ColumnView`.
+## `Vector[kt].[]` does not exist for complex kinds — use the typed container
+## views or the descent procs.
 
 import std/[tables, math, times, strformat, macros, locks, options]
 import nint128
@@ -1004,6 +1022,382 @@ proc unionTag*(v: Vector[DuckType.Union], i: int): int {.inline.} =
 proc mapEntry*(v: Vector[DuckType.Map], i: int): (uint64, uint64) {.inline.} =
   let entry = cast[ptr UncheckedArray[duckdb_list_entry]](v.data)[i]
   (entry.offset, entry.length)
+
+# ---------------------------------------------------------------------------
+# Cached static-kind descent overloads (mirror `bindAs` on a ColumnView)
+# ---------------------------------------------------------------------------
+
+proc structChild*(v: Vector[DuckType.Struct], j: int,
+                  kt: static DuckType): Vector[kt] {.inline.} =
+  v.structChild(j).bindAs(kt)
+
+proc structChild*(v: Vector[DuckType.Struct], name: string,
+                  kt: static DuckType): Vector[kt] {.inline.} =
+  v.structChild(name).bindAs(kt)
+
+proc unionMemberChild*(v: Vector[DuckType.Union], j: int,
+                        kt: static DuckType): Vector[kt] {.inline.} =
+  v.unionMemberChild(j).bindAs(kt)
+
+# ---------------------------------------------------------------------------
+# Bound container views — Map / List / Array
+#
+# Each typed view caches the bound child vectors once (zero-copy: buffer
+# pointers + chunk back-ref), so caller code no longer chains
+# `mapEntriesChild` / `structChild(0)` / `structChild(1)` per call. Row
+# access (`mv[i]`, `lv[i]`, `av[i]`) allocates a Nim container per row. The
+# `borrowMap(i)` / `borrowList(i)` / `borrowArray(i)` variants return a
+# zero-copy `MapRowView` / `SliceView` that reads straight out of the DuckDB
+# buffer with no per-row allocation.
+# ---------------------------------------------------------------------------
+
+type
+  SliceView*[kt: static DuckType] = object
+    ## Zero-copy view over a contiguous slice of a `Vector[kt]` child buffer.
+    ## Carries a copy of the underlying `Vector[kt]` (which keeps the owning
+    ## `DataChunk` ARC-alive via its back-ref), so the slice is valid for as
+    ## long as the `SliceView` itself lives.
+    vec: Vector[kt]
+    offset*: int
+    length*: int
+
+  MapRowView*[ktKey, ktVal: static DuckType] = object
+    ## Zero-copy row view of a `MAP` cell. Reads keys/values straight out of
+    ## the DuckDB entry vector via the cached bound child vectors. The bound
+    ## vectors keep the owning `DataChunk` alive via their back-refs.
+    keys: Vector[ktKey]
+    vals: Vector[ktVal]
+    offset*: int
+    length*: int
+
+  MapView*[ktKey, ktVal: static DuckType] = object
+    parent: Vector[DuckType.Map]
+    keys: Vector[ktKey]
+    vals: Vector[ktVal]
+    length*: int
+
+  ListView*[kt: static DuckType] = object
+    parent: Vector[DuckType.List]
+    child: Vector[kt]
+    length*: int
+
+  ArrayView*[kt: static DuckType] = object
+    parent: Vector[DuckType.Array]
+    child: Vector[kt]
+    length*: int
+    arraySize*: int
+
+proc len*(mv: MapView): int {.inline.} = mv.length
+proc len*(lv: ListView): int {.inline.} = lv.length
+proc len*(av: ArrayView): int {.inline.} = av.length
+proc len*(sv: SliceView): int {.inline.} = sv.length
+proc len*[ktKey, ktVal: static DuckType](rv: MapRowView[ktKey, ktVal]): int {.inline.} =
+  rv.length
+
+proc valid*[ktKey, ktVal: static DuckType](
+    mv: MapView[ktKey, ktVal], i: int): bool {.inline.} =
+  mv.parent.valid(i)
+
+proc valid*(lv: ListView, i: int): bool {.inline.} = lv.parent.valid(i)
+proc valid*(av: ArrayView, i: int): bool {.inline.} = av.parent.valid(i)
+
+# ---------------------------------------------------------------------------
+# SliceView — `[offset, offset+length)` window over a bound `Vector[kt]`
+# ---------------------------------------------------------------------------
+
+proc `[]`*[kt: static DuckType](sv: SliceView[kt], j: int): nimOf(kt) {.inline.} =
+  doAssert j >= 0 and j < sv.length, "SliceView index out of bounds: " & $j
+  sv.vec[sv.offset + j]
+
+proc valid*[kt: static DuckType](sv: SliceView[kt], j: int): bool {.inline.} =
+  sv.vec.valid(sv.offset + j)
+
+iterator items*[kt: static DuckType](sv: SliceView[kt]): nimOf(kt) =
+  let off = sv.offset
+  let n = sv.length
+  for j in 0 ..< n:
+    if sv.vec.validity.isNil or sv.vec.valid(off + j):
+      yield sv.vec[off + j]
+    else:
+      yield default(nimOf(kt))
+
+iterator borrowItems*[kt: static DuckType](sv: SliceView[kt]): DuckStringRef =
+  when kt in DuckStringKind or kt in DuckBlobKind:
+    let off = sv.offset
+    let n = sv.length
+    for j in 0 ..< n:
+      if sv.vec.validity.isNil or sv.vec.valid(off + j):
+        yield borrow(addr cast[ptr UncheckedArray[duckdb_string_t]](sv.vec.data)[off + j])
+      else:
+        yield DuckStringRef(data: nil, length: 0)
+  else:
+    {.error: "borrowItems() only defined for string/blob kinds; got " & $kt.}
+
+proc toSeq*[kt: static DuckType](sv: SliceView[kt]): seq[nimOf(kt)] =
+  result = newSeq[nimOf(kt)](sv.length)
+  let off = sv.offset
+  for j in 0 ..< sv.length:
+    if sv.vec.validity.isNil or sv.vec.valid(off + j):
+      result[j] = sv.vec[off + j]
+    else:
+      result[j] = default(nimOf(kt))
+
+# ---------------------------------------------------------------------------
+# MapView / MapRowView — typed MAP column view + zero-copy row slice
+# ---------------------------------------------------------------------------
+
+proc initMapView*[ktKey, ktVal: static DuckType](
+    cv: ColumnView
+): MapView[ktKey, ktVal] {.inline.} =
+  if cv.kind != DuckType.Map:
+    raise newException(ValueError,
+      "bindAs(Table/OrderedTable[K,V]) requires a Map column; got " & $cv.kind)
+  let vm = cv.bindAs(DuckType.Map)
+  let entryStruct = vm.mapEntriesChild.bindAs(DuckType.Struct)
+  result.parent = vm
+  result.keys = entryStruct.structChild(0).bindAs(ktKey)
+  result.vals = entryStruct.structChild(1).bindAs(ktVal)
+  result.length = cv.length
+
+proc initMapViewFromVector*[ktKey, ktVal: static DuckType](
+    v: Vector[DuckType.Map]
+): MapView[ktKey, ktVal] {.inline.} =
+  ## Build a `MapView` directly from an already-bound `Vector[DuckType.Map]`.
+  ## Used by `complex.toMap` to delegate without going back through a
+  ## `ColumnView`. Sibling to `initMapView` (which takes a `ColumnView`).
+  let entryStruct = v.mapEntriesChild.bindAs(DuckType.Struct)
+  result.parent = v
+  result.keys = entryStruct.structChild(0).bindAs(ktKey)
+  result.vals = entryStruct.structChild(1).bindAs(ktVal)
+  result.length = v.length
+
+proc bindAs*[K, V](cv: ColumnView, _: typedesc[Table[K, V]]):
+    MapView[colDuckTypeOf(K), colDuckTypeOf(V)] {.inline.} =
+  initMapView[colDuckTypeOf(K), colDuckTypeOf(V)](cv)
+
+proc bindAs*[K, V](cv: ColumnView, _: typedesc[OrderedTable[K, V]]):
+    MapView[colDuckTypeOf(K), colDuckTypeOf(V)] {.inline.} =
+  initMapView[colDuckTypeOf(K), colDuckTypeOf(V)](cv)
+
+proc bindAs*[K, V](c: DataChunk, i: int, T: typedesc[Table[K, V]]):
+    MapView[colDuckTypeOf(K), colDuckTypeOf(V)] {.inline.} =
+  c.vector(i).bindAs(T)
+
+proc bindAs*[K, V](c: DataChunk, i: int, T: typedesc[OrderedTable[K, V]]):
+    MapView[colDuckTypeOf(K), colDuckTypeOf(V)] {.inline.} =
+  c.vector(i).bindAs(T)
+
+iterator pairs*[ktKey, ktVal: static DuckType](
+    rv: MapRowView[ktKey, ktVal]): (nimOf(ktKey), nimOf(ktVal)) =
+  let off = rv.offset
+  let n = rv.length
+  for j in 0 ..< n:
+    let idx = off + j
+    let k = if rv.keys.validity.isNil or rv.keys.valid(idx):
+              rv.keys[idx] else: default(nimOf(ktKey))
+    let v = if rv.vals.validity.isNil or rv.vals.valid(idx):
+              rv.vals[idx] else: default(nimOf(ktVal))
+    yield (k, v)
+
+iterator keys*[ktKey, ktVal: static DuckType](
+    rv: MapRowView[ktKey, ktVal]): nimOf(ktKey) =
+  let off = rv.offset
+  let n = rv.length
+  for j in 0 ..< n:
+    let idx = off + j
+    if rv.keys.validity.isNil or rv.keys.valid(idx):
+      yield rv.keys[idx]
+    else:
+      yield default(nimOf(ktKey))
+
+iterator values*[ktKey, ktVal: static DuckType](
+    rv: MapRowView[ktKey, ktVal]): nimOf(ktVal) =
+  let off = rv.offset
+  let n = rv.length
+  for j in 0 ..< n:
+    let idx = off + j
+    if rv.vals.validity.isNil or rv.vals.valid(idx):
+      yield rv.vals[idx]
+    else:
+      yield default(nimOf(ktVal))
+
+proc contains*[ktKey, ktVal: static DuckType](
+    rv: MapRowView[ktKey, ktVal], key: nimOf(ktKey)): bool {.inline.} =
+  let off = rv.offset
+  let n = rv.length
+  for j in 0 ..< n:
+    let idx = off + j
+    if (rv.keys.validity.isNil or rv.keys.valid(idx)) and rv.keys[idx] == key:
+      return true
+
+proc `[]`*[ktKey, ktVal: static DuckType](
+    rv: MapRowView[ktKey, ktVal], key: nimOf(ktKey)): nimOf(ktVal) {.inline.} =
+  let off = rv.offset
+  let n = rv.length
+  for j in 0 ..< n:
+    let idx = off + j
+    if (rv.keys.validity.isNil or rv.keys.valid(idx)) and rv.keys[idx] == key:
+      if rv.vals.validity.isNil or rv.vals.valid(idx):
+        return rv.vals[idx]
+      return default(nimOf(ktVal))
+  raise newException(KeyError, "key not found: " & $key)
+
+proc getOrDefault*[ktKey, ktVal: static DuckType](
+    rv: MapRowView[ktKey, ktVal], key: nimOf(ktKey)): nimOf(ktVal) {.inline.} =
+  let off = rv.offset
+  let n = rv.length
+  for j in 0 ..< n:
+    let idx = off + j
+    if (rv.keys.validity.isNil or rv.keys.valid(idx)) and rv.keys[idx] == key:
+      if rv.vals.validity.isNil or rv.vals.valid(idx):
+        return rv.vals[idx]
+      return default(nimOf(ktVal))
+  return default(nimOf(ktVal))
+
+proc getOrDefault*[ktKey, ktVal: static DuckType](
+    rv: MapRowView[ktKey, ktVal], key: nimOf(ktKey),
+    fallback: nimOf(ktVal)): nimOf(ktVal) {.inline.} =
+  let off = rv.offset
+  let n = rv.length
+  for j in 0 ..< n:
+    let idx = off + j
+    if (rv.keys.validity.isNil or rv.keys.valid(idx)) and rv.keys[idx] == key:
+      if rv.vals.validity.isNil or rv.vals.valid(idx):
+        return rv.vals[idx]
+      return fallback
+  return fallback
+
+proc borrowMap*[ktKey, ktVal: static DuckType](
+    mv: MapView[ktKey, ktVal], i: int): MapRowView[ktKey, ktVal] {.inline.} =
+  doAssert i >= 0 and i < mv.length, "MapView index out of bounds: " & $i
+  let (off, ln) = mv.parent.mapEntry(i)
+  result.keys = mv.keys
+  result.vals = mv.vals
+  result.offset = int(off)
+  result.length = int(ln)
+
+proc `[]`*[ktKey, ktVal: static DuckType](
+    mv: MapView[ktKey, ktVal], i: int): OrderedTable[nimOf(ktKey), nimOf(ktVal)] =
+  if not mv.valid(i):
+    return initOrderedTable[nimOf(ktKey), nimOf(ktVal)](0)
+  let row = mv.borrowMap(i)
+  result = initOrderedTable[nimOf(ktKey), nimOf(ktVal)](row.length)
+  for k, v in row.pairs:
+    result[k] = v
+
+iterator items*[ktKey, ktVal: static DuckType](
+    mv: MapView[ktKey, ktVal]): OrderedTable[nimOf(ktKey), nimOf(ktVal)] =
+  for i in 0 ..< mv.length:
+    yield mv[i]
+
+proc toSeq*[ktKey, ktVal: static DuckType](
+    mv: MapView[ktKey, ktVal]): seq[OrderedTable[nimOf(ktKey), nimOf(ktVal)]] =
+  result = newSeq[OrderedTable[nimOf(ktKey), nimOf(ktVal)]](mv.length)
+  for i in 0 ..< mv.length:
+    result[i] = mv[i]
+
+# ---------------------------------------------------------------------------
+# ListView — typed LIST column view + zero-copy per-row slice
+# ---------------------------------------------------------------------------
+
+proc initListView*[kt: static DuckType](
+    cv: ColumnView
+): ListView[kt] {.inline.} =
+  if cv.kind != DuckType.List:
+    raise newException(ValueError,
+      "bindAs(seq[T]) requires a List column; got " & $cv.kind)
+  let vl = cv.bindAs(DuckType.List)
+  result.parent = vl
+  result.child = vl.listChild.bindAs(kt)
+  result.length = cv.length
+
+proc initListViewFromVector*[kt: static DuckType](
+    v: Vector[DuckType.List]
+): ListView[kt] {.inline.} =
+  result.parent = v
+  result.child = v.listChild.bindAs(kt)
+  result.length = v.length
+
+proc bindAs*[T](cv: ColumnView, _: typedesc[seq[T]]): ListView[colDuckTypeOf(T)] {.inline.} =
+  initListView[colDuckTypeOf(T)](cv)
+
+proc bindAs*[T](c: DataChunk, i: int, U: typedesc[seq[T]]): ListView[colDuckTypeOf(T)] {.inline.} =
+  c.vector(i).bindAs(U)
+
+proc borrowList*[kt: static DuckType](
+    lv: ListView[kt], i: int): SliceView[kt] {.inline.} =
+  doAssert i >= 0 and i < lv.length, "ListView index out of bounds: " & $i
+  let (off, ln) = lv.parent.listEntry(i)
+  result.vec = lv.child
+  result.offset = int(off)
+  result.length = int(ln)
+
+proc `[]`*[kt: static DuckType](lv: ListView[kt], i: int): seq[nimOf(kt)] =
+  if not lv.valid(i):
+    return newSeq[nimOf(kt)](0)
+  let slice = lv.borrowList(i)
+  slice.toSeq
+
+iterator items*[kt: static DuckType](lv: ListView[kt]): seq[nimOf(kt)] =
+  for i in 0 ..< lv.length:
+    yield lv[i]
+
+proc toSeq*[kt: static DuckType](lv: ListView[kt]): seq[seq[nimOf(kt)]] =
+  result = newSeq[seq[nimOf(kt)]](lv.length)
+  for i in 0 ..< lv.length:
+    result[i] = lv[i]
+
+# ---------------------------------------------------------------------------
+# ArrayView — typed ARRAY column view + zero-copy per-row slice
+# ---------------------------------------------------------------------------
+
+proc initArrayView*[kt: static DuckType](
+    cv: ColumnView
+): ArrayView[kt] {.inline.} =
+  if cv.kind != DuckType.Array:
+    raise newException(ValueError,
+      "bindAsArray(kt) requires an Array column; got " & $cv.kind)
+  let va = cv.bindAs(DuckType.Array)
+  result.parent = va
+  result.arraySize = va.arraySize
+  result.child = va.arrayChild.bindAs(kt)
+  result.length = cv.length
+
+proc initArrayViewFromVector*[kt: static DuckType](
+    v: Vector[DuckType.Array]
+): ArrayView[kt] {.inline.} =
+  result.parent = v
+  result.arraySize = v.arraySize
+  result.child = v.arrayChild.bindAs(kt)
+  result.length = v.length
+
+proc bindAsArray*(cv: ColumnView, kt: static DuckType): ArrayView[kt] {.inline.} =
+  initArrayView[kt](cv)
+
+proc bindAsArray*(c: DataChunk, i: int, kt: static DuckType): ArrayView[kt] {.inline.} =
+  c.vector(i).bindAsArray(kt)
+
+proc borrowArray*[kt: static DuckType](
+    av: ArrayView[kt], i: int): SliceView[kt] {.inline.} =
+  doAssert i >= 0 and i < av.length, "ArrayView index out of bounds: " & $i
+  result.vec = av.child
+  result.offset = i * av.arraySize
+  result.length = av.arraySize
+
+proc `[]`*[kt: static DuckType](av: ArrayView[kt], i: int): seq[nimOf(kt)] =
+  if not av.valid(i):
+    return newSeq[nimOf(kt)](0)
+  let slice = av.borrowArray(i)
+  slice.toSeq
+
+iterator items*[kt: static DuckType](av: ArrayView[kt]): seq[nimOf(kt)] =
+  for i in 0 ..< av.length:
+    yield av[i]
+
+proc toSeq*[kt: static DuckType](av: ArrayView[kt]): seq[seq[nimOf(kt)]] =
+  result = newSeq[seq[nimOf(kt)]](av.length)
+  for i in 0 ..< av.length:
+    result[i] = av[i]
 
 # ---------------------------------------------------------------------------
 # items iterator — yields Nim equivalents per row, honouring validity

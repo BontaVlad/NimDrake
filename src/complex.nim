@@ -277,6 +277,58 @@ proc toNimValues*(cv: ColumnView): seq[NimValue] =
     result[i] = toNimValue(cv, i)
 
 # ---------------------------------------------------------------------------
+# Per-row `[]` materialisers for Struct and Union
+#
+# These deliberately shadow the complex-kind `.error` branch of the generic
+# `Vector[kt].[]` in qresult.nim: Nim overload resolution picks the more
+# specific non-generic proc for `Vector[DuckType.Struct]` /
+# `Vector[DuckType.Union]`, so the `.error` is never instantiated for these
+# kinds. Return shapes mirror `toStructPairs` / `toUnion` so a single row
+# produces exactly what those column-level helpers yield per row.
+# ---------------------------------------------------------------------------
+
+proc `[]`*(v: Vector[DuckType.Struct], i: int): seq[(string, NimValue)] =
+  if not v.valid(i):
+    return newSeq[(string, NimValue)](0)
+  let nc = v.structChildCount
+  result = newSeq[(string, NimValue)](nc)
+  for j in 0 ..< nc:
+    let name = v.structChildName(j)
+    let child = v.structChild(j)
+    result[j] = (name, toNimValue(child, i))
+
+proc `[]`*(v: Vector[DuckType.Union], i: int): (string, NimValue) =
+  if not v.valid(i):
+    return ("", NimValue(kind: nvNull))
+  let tag = v.unionTag(i)
+  if tag < 0:
+    return ("", NimValue(kind: nvNull))
+  let name = v.unionMemberName(tag)
+  let member = v.unionMemberChild(tag)
+  (name, toNimValue(member, i))
+
+proc len*(v: Vector[DuckType.Struct]): int {.inline.} = v.length
+proc len*(v: Vector[DuckType.Union]): int {.inline.} = v.length
+
+iterator items*(v: Vector[DuckType.Struct]): seq[(string, NimValue)] =
+  for i in 0 ..< v.length:
+    yield v[i]
+
+iterator items*(v: Vector[DuckType.Union]): (string, NimValue) =
+  for i in 0 ..< v.length:
+    yield v[i]
+
+proc toSeq*(v: Vector[DuckType.Struct]): seq[seq[(string, NimValue)]] =
+  result = newSeq[seq[(string, NimValue)]](v.length)
+  for i in 0 ..< v.length:
+    result[i] = v[i]
+
+proc toSeq*(v: Vector[DuckType.Union]): seq[(string, NimValue)] =
+  result = newSeq[(string, NimValue)](v.length)
+  for i in 0 ..< v.length:
+    result[i] = v[i]
+
+# ---------------------------------------------------------------------------
 # Typed single-level helpers (Layer A)
 # ---------------------------------------------------------------------------
 
@@ -285,42 +337,14 @@ proc toList*[childKt: static DuckType](
 ): seq[seq[nimOf(childKt)]] =
   when childKt in DuckComplexKind:
     {.error: "toList requires a non-complex childKt; use toNimValue for nested complex types".}
-  let child = v.listChild.bindAs(childKt)
-  result = newSeq[seq[nimOf(childKt)]](v.length)
-  for i in 0 ..< v.length:
-    if not v.valid(i):
-      result[i] = newSeq[nimOf(childKt)](0)
-      continue
-    let (off, ln) = v.listEntry(i)
-    var row = newSeq[nimOf(childKt)](ln.int)
-    for j in 0 ..< ln.int:
-      let cidx = off.int + j
-      if child.valid(cidx):
-        row[j] = child[cidx]
-      else:
-        row[j] = default(nimOf(childKt))
-    result[i] = row
+  initListViewFromVector[childKt](v).toSeq
 
 proc toArray*[childKt: static DuckType](
     v: Vector[DuckType.Array]
 ): seq[seq[nimOf(childKt)]] =
   when childKt in DuckComplexKind:
     {.error: "toArray requires a non-complex childKt; use toNimValue for nested complex types".}
-  let n = v.arraySize
-  let child = v.arrayChild.bindAs(childKt)
-  result = newSeq[seq[nimOf(childKt)]](v.length)
-  for i in 0 ..< v.length:
-    if not v.valid(i):
-      result[i] = newSeq[nimOf(childKt)](0)
-      continue
-    var row = newSeq[nimOf(childKt)](n)
-    for j in 0 ..< n:
-      let cidx = i * n + j
-      if child.valid(cidx):
-        row[j] = child[cidx]
-      else:
-        row[j] = default(nimOf(childKt))
-    result[i] = row
+  initArrayViewFromVector[childKt](v).toSeq
 
 proc toStructPairs*(v: Vector[DuckType.Struct]): seq[seq[(string, NimValue)]] =
   let nc = v.structChildCount
@@ -351,24 +375,7 @@ proc toMap*[keyKt, valKt: static DuckType](
 ): seq[OrderedTable[nimOf(keyKt), nimOf(valKt)]] =
   when keyKt in DuckComplexKind or valKt in DuckComplexKind:
     {.error: "toMap requires non-complex keyKt and valKt; use toNimValue for nested complex types".}
-  let entryStruct = v.mapEntriesChild.bindAs(DuckType.Struct)
-  let keys = entryStruct.structChild(0).bindAs(keyKt)
-  let vals = entryStruct.structChild(1).bindAs(valKt)
-  result = newSeq[OrderedTable[nimOf(keyKt), nimOf(valKt)]](v.length)
-  for i in 0 ..< v.length:
-    if not v.valid(i):
-      result[i] = initOrderedTable[nimOf(keyKt), nimOf(valKt)](0)
-      continue
-    let (off, ln) = v.mapEntry(i)
-    var tbl = initOrderedTable[nimOf(keyKt), nimOf(valKt)](ln.int)
-    for j in 0 ..< ln.int:
-      let cidx = off.int + j
-      var key: nimOf(keyKt)
-      var val: nimOf(valKt)
-      if keys.valid(cidx): key = keys[cidx] else: key = default(nimOf(keyKt))
-      if vals.valid(cidx): val = vals[cidx] else: val = default(nimOf(valKt))
-      tbl[key] = val
-    result[i] = tbl
+  initMapViewFromVector[keyKt, valKt](v).toSeq
 
 proc toUnion*(v: Vector[DuckType.Union]): seq[(string, NimValue)] =
   result = newSeq[(string, NimValue)](v.length)

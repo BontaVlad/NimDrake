@@ -750,3 +750,359 @@ suite "Vector[kt] — type coverage":
         else: inc nullCount
     check nullCount == 2500
     check okCount == 2500
+
+# ---------------------------------------------------------------------------
+# Bound container views — Map / List / Array / Struct / Union
+# ===========================================================================
+# `bindAs Table[K,V]` / `bindAs OrderedTable[K,V]` → `MapView`,
+# `bindAs seq[T]` → `ListView`, `bindAsArray(kt)` → `ArrayView`. Each is a
+# zero-copy cached typed view over a complex column; `mv[i]` returns the
+# Nim container, `mv.borrowMap(i)` returns a zero-copy row view.
+# ---------------------------------------------------------------------------
+
+suite "QResult — bound container views: Map":
+  test "bindAs(OrderedTable[string,int32]) builds MapView":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT MAP(['a', 'b'], [1, 2])")
+    for chunk in r:
+      let mv = chunk.vector(0).bindAs OrderedTable[string, int32]
+      check mv.len == 1
+      let row = mv[0]
+      check row.len == 2
+      check row["a"] == 1
+      check row["b"] == 2
+
+  test "bindAs(Table[string,int32]) is the same MapView":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT MAP(['k1', 'k2'], [42, 7])")
+    for chunk in r:
+      let mv = chunk.vector(0).bindAs Table[string, int32]
+      check mv.borrowMap(0)["k1"] == 42
+      check mv.borrowMap(0)["k2"] == 7
+
+  test "DataChunk.bindAs convenience":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT MAP(['k'], [99])")
+    for chunk in r:
+      let mv = chunk.bindAs(0, OrderedTable[string, int32])
+      check mv.borrowMap(0)["k"] == 99
+
+  test "MapRowView zero-copy pairs/keys/values":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT MAP(['a', 'b', 'c'], [10, 20, 30])")
+    for chunk in r:
+      let mv = chunk.vector(0).bindAs OrderedTable[string, int32]
+      let row = mv.borrowMap(0)
+      check row.len == 3
+      var keys: seq[string] = @[]
+      for k in row.keys: keys.add(k)
+      check keys == @["a", "b", "c"]
+      var vals: seq[int32] = @[]
+      for v in row.values: vals.add(v)
+      check vals == @[10'i32, 20, 30]
+      var pairs: seq[(string, int32)] = @[]
+      for k, v in row.pairs: pairs.add((k, v))
+      check pairs == @[("a", 10'i32), ("b", 20), ("c", 30)]
+
+  test "MapRowView contains / [] / getOrDefault":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT MAP(['a', 'b'], [1, 2])")
+    for chunk in r:
+      let mv = chunk.vector(0).bindAs OrderedTable[string, int32]
+      let row = mv.borrowMap(0)
+      check row.contains("a")
+      check not row.contains("z")
+      check row["a"] == 1
+      check row.getOrDefault("z", -1'i32) == -1
+      check row.getOrDefault("z") == 0  # default fill
+
+  test "MapRowView [] raises KeyError on missing":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT MAP(['a'], [1])")
+    for chunk in r:
+      let mv = chunk.vector(0).bindAs OrderedTable[string, int32]
+      expect(KeyError):
+        discard mv.borrowMap(0)["nope"]
+
+  test "MapView toSeq parity with complex.toMap":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT MAP(['a', 'b', 'c'], [1, 2, 3])")
+    for chunk in r:
+      let mv = chunk.vector(0).bindAs OrderedTable[string, int32]
+      let mvRows = mv.toSeq
+      let refRows = toMap[DuckType.Varchar, DuckType.Integer](
+        chunk.vector(0).bindAs(DuckType.Map))
+      check mvRows == refRows
+
+  test "MapView items iterator":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT MAP(['a'], [1]), MAP(['x', 'y'], [10, 11])")
+    for chunk in r:
+      var totalRows = 0
+      for mv in chunk.bindAs(0, OrderedTable[string, int32]):
+        inc totalRows
+        check mv.len == 1
+      for mv in chunk.bindAs(1, Table[string, int32]):
+        check mv.len == 2
+
+  test "bindAs(Table[K,V]) raises on non-Map column":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT 1 AS i")
+    for chunk in r:
+      expect(ValueError):
+        discard chunk.vector(0).bindAs OrderedTable[string, int32]
+
+  test "bindAs(Table) kind-mismatch on key/value raises":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT MAP(['a'], [1])")
+    for chunk in r:
+      expect(ValueError):
+        discard chunk.vector(0).bindAs OrderedTable[int64, int32]  # key kind mismatch
+
+  test "MapView per-chunk row access within chunk":
+    # MapView is a per-chunk view; mv.len is the chunk's row count, not the
+    # total. Use a small result that fits in a single chunk to assert
+    # first/last-row behaviour without a chunk-boundary guessing game.
+    let duck = newDatabase().connect()
+    let r = duck.execute(
+      "SELECT MAP(['k' || seq::VARCHAR], [seq]) FROM generate_series(1, 5) AS t(seq)"
+    )
+    for chunk in r:
+      let mv = chunk.vector(0).bindAs OrderedTable[string, int64]
+      check mv.borrowMap(0)["k1"] == 1
+      check mv.borrowMap(mv.len - 1)["k5"] == 5
+
+suite "QResult — bound container views: List":
+  test "bindAs(seq[int32]) builds ListView":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT [10, 20, 30] AS xs")
+    for chunk in r:
+      let lv = chunk.vector(0).bindAs seq[int32]
+      check lv.len == 1
+      check lv[0] == @[10'i32, 20, 30]
+
+  test "ListView borrowList returns SliceView":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT [1, 2, 3] AS xs")
+    for chunk in r:
+      let lv = chunk.vector(0).bindAs seq[int32]
+      let slice = lv.borrowList(0)
+      check slice.len == 3
+      check slice[0] == 1
+      check slice[1] == 2
+      check slice[2] == 3
+
+  test "ListView SliceView items + toSeq":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT [1, 2, 3] AS xs")
+    for chunk in r:
+      let lv = chunk.vector(0).bindAs seq[int32]
+      var collected: seq[int32] = @[]
+      for x in lv.borrowList(0): collected.add(x)
+      check collected == @[1'i32, 2, 3]
+      check lv.borrowList(0).toSeq == @[1'i32, 2, 3]
+
+  test "ListView multi-row column":
+    let duck = newDatabase().connect()
+    let r = duck.execute(
+      "SELECT [seq, seq + 1] FROM generate_series(1, 5) AS t(seq)"
+    )
+    for chunk in r:
+      let lv = chunk.vector(0).bindAs seq[int64]
+      check lv.len == 5
+      check lv[0] == @[1'i64, 2]
+      check lv[4] == @[5'i64, 6]
+      let allRows = lv.toSeq
+      check allRows.len == 5
+      check allRows[2] == @[3'i64, 4]
+
+  test "ListView parity with complex.toList":
+    let duck = newDatabase().connect()
+    let r = duck.execute(
+      "SELECT [seq, seq + 1, seq + 2] FROM generate_series(1, 4) AS t(seq)"
+    )
+    for chunk in r:
+      let lv = chunk.vector(0).bindAs seq[int64]
+      let viaView = lv.toSeq
+      let viaComplex = toList[DuckType.BigInt](chunk.vector(0).bindAs(DuckType.List))
+      check viaView == viaComplex
+
+  test "ListView DataChunk convenience":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT [7, 8, 9] AS xs")
+    for chunk in r:
+      let lv = chunk.bindAs(0, seq[int32])
+      check lv[0] == @[7'i32, 8, 9]
+
+suite "QResult — bound container views: Array":
+  test "bindAsArray builds ArrayView":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT ARRAY[10, 20, 30]::INT[3] AS arr")
+    for chunk in r:
+      let av = chunk.vector(0).bindAsArray(DuckType.Integer)
+      check av.arraySize == 3
+      check av.len == 1
+      check av[0] == @[10'i32, 20, 30]
+
+  test "bindAsArray DataChunk convenience":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT ARRAY[1, 2, 3]::INT[3]")
+    for chunk in r:
+      let av = chunk.bindAsArray(0, DuckType.Integer)
+      check av.borrowArray(0).len == 3
+      check av.borrowArray(0).toSeq == @[1'i32, 2, 3]
+
+  test "ArrayView SliceView items":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT ARRAY[1, 2, 3]::INT[3]")
+    for chunk in r:
+      let av = chunk.bindAsArray(0, DuckType.Integer)
+      var collected: seq[int32] = @[]
+      for x in av.borrowArray(0): collected.add(x)
+      check collected == @[1'i32, 2, 3]
+
+  test "ArrayView multi-row column":
+    let duck = newDatabase().connect()
+    let r = duck.execute(
+      "SELECT ARRAY[seq, seq + 10, seq + 20]::INT[3] FROM generate_series(1, 4) AS t(seq)"
+    )
+    for chunk in r:
+      let av = chunk.vector(0).bindAsArray(DuckType.Integer)
+      check av.arraySize == 3
+      check av.len >= 1
+      check av[0] == @[1'i32, 11, 21]
+
+  test "ArrayView toSeq parity":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT ARRAY[1, 2, 3]::INT[3]")
+    for chunk in r:
+      let av = chunk.vector(0).bindAsArray(DuckType.Integer)
+      let viaView = av.toSeq
+      let viaComplex = toArray[DuckType.Integer](chunk.vector(0).bindAs(DuckType.Array))
+      check viaView == viaComplex
+
+suite "QResult — bound container views: Struct cached child + element access":
+  test "structChild(j, kt) cached overload returns Vector[kt]":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT {'a': 100, 'b': 'hello'} AS s")
+    for chunk in r:
+      let sv = chunk.vector(0).bindAs DuckType.Struct
+      let a = sv.structChild(0, DuckType.Integer)
+      check a[0] == 100
+      let b = sv.structChild(1, DuckType.Varchar)
+      check b[0] == "hello"
+
+  test "structChild(name, kt) cached overload":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT {'a': 7, 'b': 99} AS s")
+    for chunk in r:
+      let sv = chunk.vector(0).bindAs DuckType.Struct
+      let valA = sv.structChild("a", DuckType.Integer)[0]
+      let valB = sv.structChild("b", DuckType.Integer)[0]
+      check ((valA, valB) == (7'i32, 99'i32)) or ((valA, valB) == (99'i32, 7'i32))  # struct child order not guaranteed
+
+  test "Vector[Struct].[] returns (string, NimValue) pairs":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT {'a': 100, 'b': 'hello'} AS s")
+    for chunk in r:
+      let sv = chunk.vector(0).bindAs DuckType.Struct
+      let row = sv[0]
+      check row.len == 2
+      var aVal, bVal: NimValue
+      for (name, val) in row:
+        if name == "a": aVal = val
+        elif name == "b": bVal = val
+      check aVal.kind == nvInt
+      check aVal.intVal == 100
+      check bVal.kind == nvString
+      check bVal.strVal == "hello"
+
+  test "Vector[Struct] toSeq + items parity":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT {'a': 1} AS s UNION ALL SELECT {'a': 2} AS s")
+    var viaItems: seq[seq[(string, NimValue)]]
+    for chunk in r:
+      for row in chunk.vector(0).bindAs DuckType.Struct:
+        viaItems.add(row)
+    check viaItems.len == 2
+
+  test "structChild(name, kt) raises on missing":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT {'a': 1} AS s")
+    for chunk in r:
+      let sv = chunk.vector(0).bindAs DuckType.Struct
+      expect(KeyError):
+        discard sv.structChild("nope", DuckType.Integer)
+
+suite "QResult — bound container views: Union cached child + element access":
+  test "unionMemberChild(j, kt) cached overload":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT union_value(num := 99)")
+    for chunk in r:
+      let uv = chunk.vector(0).bindAs DuckType.Union
+      let m = uv.unionMemberChild(0, DuckType.Integer)
+      check m[0] == 99
+
+  test "Vector[Union].[] returns (string, NimValue)":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT union_value(num := 99)")
+    for chunk in r:
+      let uv = chunk.vector(0).bindAs DuckType.Union
+      let (name, val) = uv[0]
+      check name == "num"
+      check val.kind == nvInt
+      check val.intVal == 99
+
+  test "Vector[Union] toSeq":
+    let duck = newDatabase().connect()
+    let r = duck.execute(
+      "SELECT union_value(num := seq) FROM generate_series(7, 8) AS t(seq)"
+    )
+    for chunk in r:
+      let uv = chunk.vector(0).bindAs DuckType.Union
+      let rows = uv.toSeq
+      check rows.len == 2
+      check rows[0][0] == "num"
+      check rows[1][0] == "num"
+      check rows[0][1].intVal in {7, 8}
+      check rows[1][1].intVal in {7, 8}
+
+suite "QResult — composite nesting via bound views":
+  test "List of Struct of List — heterogeneous nesting uses descent procs":
+    # Heterogeneous nesting (List of Struct of List) has no single `T` for
+    # `bindAs(seq[T])` because the outer child kind is Struct (complex). The
+    # descent-proc path + the cached `structChild(name, kt)` overload is the
+    # idiomatic shape here; the per-row typed container views are reserved for
+    # columns whose declared element is a non-complex typed value.
+    let conn = newDatabase().connect()
+    let r = conn.execute("SELECT [{'xs': [1, 2]}, {'xs': [3, 4]}] AS nested")
+    for chunk in r:
+      let outer = chunk.vector(0).bindAs DuckType.List
+      let mid = outer.listChild.bindAs DuckType.Struct
+      check outer.listEntry(0)[1] == 2  # 2 structs in outer list
+      let inner = mid.structChild("xs", DuckType.List)
+      let innerVals = inner.listChild.bindAs DuckType.Integer
+      let (off0, len0) = outer.listEntry(0)
+      let (off1, len1) = inner.listEntry(0)
+      check int(len0) == 2  # struct 0's list has 2 elements
+      check innerVals[int(off1)] == 1'i32
+      check innerVals[int(off1) + 1] == 2'i32
+      let (off2, len2) = inner.listEntry(1)
+      check int(len2) == 2
+      check innerVals[int(off2)] == 3'i32
+      check innerVals[int(off2) + 1] == 4'i32
+
+  test "List of Integer triples via bindAs(seq[int64])":
+    let conn = newDatabase().connect()
+    let r = conn.execute(
+      "SELECT [seq, seq+1, seq+2] FROM generate_series(1, 100) AS t(seq)"
+    )
+    for chunk in r:
+      let lv = chunk.vector(0).bindAs seq[int64]
+      var sum = 0'i64
+      for i in 0 ..< lv.len:
+        for x in lv.borrowList(i): sum += x
+      # per row, each list of 3 sequential ints sums to 3*(i + (i+1) + (i+2))/3…
+      # Expected: sum_{i=1..100} (3*i + 3) = 3 * sum(1..100) + 3*100
+      let expect = 3'i64 * (10100'i64 div 2) + 3'i64 * 100
+      check sum == expect

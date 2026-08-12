@@ -28,7 +28,9 @@ tables from inside your binary.
 - **Arrow export** — optional `narrow` integration streams results as Arrow
   record batches.
 - **Full type system** — all 42 DuckDB types mapped, including List, Array,
-  Struct, Map, Union, Decimal, UUID, and 128-bit integers.
+  Struct, Map, Union, Decimal, UUID, and 128-bit integers. Complex kinds are
+  exposed via zero-copytyped container views: `bindAs Table[K,V]`,
+  `bindAs seq[T]`, `bindAsArray(kt)`.
 
 **Target versions:** DuckDB v1.5.4, Nim `>= 2.0.0`.
 
@@ -257,26 +259,77 @@ first parameter signature.
 
 ## Complex types
 
+Complex columns (List, Array, Map, Struct, Union) are exposed via two
+complementary layers:
+
+### Typed container views — Nim-native, zero-copy construction
+
+Pass the expected Nim container type to `bindAs` and get a typed view that
+caches the bound child vector(s) once and dispatches row reads at compile
+time. No per-call `mapEntriesChild` / `structChild(0)` / `structChild(1)`
+chain.
+
 ```nim
-let r = con.execute("SELECT [1, 2, 3] AS nums, {'k': 'v'}::MAP(VARCHAR, VARCHAR) AS mp")
+let r = con.execute("""
+  SELECT [1, 2, 3] AS xs,
+         MAP(['a','b'], [10, 20]) AS mp,
+         ARRAY[1, 2, 3]::INT[3] AS arr,
+         {'a': 100, 'b': 'hello'} AS s,
+         union_value(num := 42) AS u
+""")
+
 for chunk in r:
   # List
-  let listCol = chunk.vector(0).bindAs DuckType.List
-  let child   = listCol.listChild().bindAs DuckType.Integer
-  let (offset, length) = listCol.listEntry(0)
-  for j in offset ..< offset + length:
-    echo child[j]
+  let lv = chunk.vector(0).bindAs seq[int32]
+  echo lv[0]                  # @[1, 2, 3]
+  let slice = lv.borrowList(0)  # zero-copy SliceView, no seq allocation
+  for x in slice: echo x
 
   # Map
-  let mapCol = chunk.vector(1).bindAs DuckType.Map
-  echo mapCol.mapKeyType()    # Varchar
-  echo mapCol.mapValueType()  # Varchar
+  let mv = chunk.vector(1).bindAs OrderedTable[string, int32]
+  echo mv[0]                  # {"a": 10, "b": 20}
+  let row = mv.borrowMap(0)     # zero-copy MapRowView, no OrderedTable alloc
+  echo row["a"]               # 10
+  echo row.getOrDefault("z", -1)
+  for k, v in row.pairs: echo k, " -> ", v
+
+  # Array
+  let av = chunk.vector(2).bindAsArray(DuckType.Integer)
+  echo av[0]                  # @[1, 2, 3]
+  for x in av.borrowArray(0): echo x
+
+  # Struct — cached static-kind child overload (heterogeneous fields):
+  let sv = chunk.vector(3).bindAs DuckType.Struct
+  let a = sv.structChild(0, DuckType.Integer)
+  let b = sv.structChild(1, DuckType.Varchar)
+  echo a[0], " ", b[0]        # 100 hello
+
+  # Struct element access via NimValue pairs:
+  let pairs = sv[0]           # seq[(string, NimValue)]
+
+  # Union
+  let uv = chunk.vector(4).bindAs DuckType.Union
+  echo uv[0]                  # ("num", NimValue(kind: nvInt, intVal: 42))
 ```
 
-Recursive materialisation via `NimValue`:
+View types: `MapView[ktKey, ktVal]`, `MapRowView[ktKey, ktVal]`,
+`ListView[kt]`, `ArrayView[kt]`, `SliceView[kt]`. Construction is zero-copy
+(buffer pointers + chunk back-ref); `mv[i]` / `lv[i]` / `av[i]` allocate a
+Nim container per row; the `borrow*` row views stay allocation-free by
+reading straight out of the DuckDB buffer. NULL rows yield an empty
+container.
+
+### Zero-copy descent procs — low-level, type-erased
+
+The lower-level descent procs (`listChild`, `arrayChild`, `structChild`,
+`unionMemberChild`, `mapEntriesChild`, `mapKeyType`, `mapValueType`, …)
+remain exported for type-erased introspection (e.g. via `complex.toNimValue`)
+and are what the typed container views build on.
+
+### Recursive materialisation via `NimValue`
 
 ```nim
-let nv = r.scalar  # NimValue(kind: nvList, ...)
+let nv = r.scalar  # NimValue(kind: nvList, ...) — recursive, allocates per row
 ```
 
 ---
@@ -321,10 +374,11 @@ for batch in r.toArrowStream():
 | `Decimal` | `DecimalType` |
 | `UUID` | `Uuid` |
 | `Enum` | `uint` |
-| `List` / `Array` | child access via `listEntry` / `arrayChild` |
-| `Struct` | child access via `structChild` / `structChildName` |
-| `Map` | key/value access via `mapKeyType` / `mapValueType` |
-| `Union` | tag + member child access |
+| `List` | `bindAs(seq[T])` → `ListView`; `lv[i]` returns `seq[T]` |
+| `Array` | `bindAsArray(kt)` → `ArrayView`; `av[i]` returns `seq[T]` |
+| `Map` | `bindAs(Table[K,V])` / `bindAs(OrderedTable[K,V])` → `MapView`; `mv[i]` returns `OrderedTable[K,V]` |
+| `Struct` | `structChild(j, kt)` / `structChild(name, kt)` → `Vector[kt]`; `sv[i]` returns `seq[(string, NimValue)]` |
+| `Union` | `unionMemberChild(j, kt)` → `Vector[kt]`; `uv[i]` returns `(string, NimValue)` |
 
 ---
 
