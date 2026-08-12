@@ -77,6 +77,33 @@ jobs:
         if: runner.os != 'Windows'
         run: just test
 
+      - name: Diagnose (Windows)
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: |
+          set -x
+          echo "=== PATH ==="
+          echo "$PATH"
+          echo "=== duckdb.dll on disk ==="
+          ls -la /mingw64/bin/duckdb.dll 2>&1 || true
+          ls -la /mingw64/lib/libduckdb.lib 2>&1 || true
+          echo "=== nim / gcc ==="
+          nim -v | head -2
+          which gcc
+          echo "=== compile one test (no -r) ==="
+          mkdir -p nimcache/tests/test_aggregate_functions
+          nim c --verbosity:0 --hints:off --mm:orc --excessiveStackTrace:on \
+            -d:debug -d:nimDebugDlOpen --opt:none --debuginfo:on --debugger:native \
+            -d:useMalloc -d:noSignalHandler --passC:-O0 --passC:-g3 \
+            -o:nimcache/tests/test_aggregate_functions/test_aggregate_functions.exe \
+            tests/test_aggregate_functions.nim
+          echo "compile exit=$?"
+          echo "=== DLL dependencies of exe ==="
+          objdump -p nimcache/tests/test_aggregate_functions/test_aggregate_functions.exe | grep "DLL Name"
+          echo "=== run exe directly ==="
+          ./nimcache/tests/test_aggregate_functions/test_aggregate_functions.exe
+          echo "run exit=$?"
+
       - name: Test (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
