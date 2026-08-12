@@ -23,8 +23,6 @@ type
   ConnObj* = object
     handle: duckdbConnection
     db: SharedPtr[DbObj]      # keeps the database alive as long as this connection does
-    scanData*: ref RootObj    # (legacy) previously set by table_scan.nim; no longer used
-    scanFnRegistered*: bool
 
   Connection* = object
     p*: ref ConnObj            # never shared across threads -> stays a plain (fast) ref

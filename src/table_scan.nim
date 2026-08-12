@@ -127,6 +127,14 @@ proc scanMain(info: FunctionInfo, rawChunk: duckdb_data_chunk) {.cdecl.} =
 # Per-DB registration — shared ScanRegistry per database, function per connection
 # ---------------------------------------------------------------------------
 
+proc isNimTableScanRegistered(con: Connection): bool =
+  ## One-row probe of the connection's catalog. `duckdb_functions()` is
+  ## per-connection, so visibility matches exactly what `con.register`
+  ## would target. Returns true if `nim_tbl_scan` already exists.
+  let qr = con.execute(
+    "SELECT 1 FROM duckdb_functions() WHERE function_name = 'nim_tbl_scan' LIMIT 1")
+  result = qr.len > 0
+
 proc ensureRegistered(con: Connection): ScanRegistry =
   let dbKey = cast[pointer](con.rawDbHandle)
   scanLock.acquire()
@@ -138,7 +146,7 @@ proc ensureRegistered(con: Connection): ScanRegistry =
     extraDataRegistry[dbKey] = result
     scanLock.release()
 
-  if not con.p.scanFnRegistered:
+  if not isNimTableScanRegistered(con):
     let tf = newTableFunction(
       name = "nim_tbl_scan",
       parameters = @[newLogicalType(DuckType.Varchar)],
@@ -148,7 +156,6 @@ proc ensureRegistered(con: Connection): ScanRegistry =
       extraData = cast[ref RootObj](cast[pointer](result)),
     )
     con.register(tf)
-    con.p.scanFnRegistered = true
 
 # ---------------------------------------------------------------------------
 # Database close hook — clean up the registry entry when a DB is destroyed
