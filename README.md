@@ -11,10 +11,7 @@
 <br>
 
 NimDrake is a [Nim](https://nim-lang.org/) binding for
-[DuckDB](https://duckdb.org/) — the in-process analytical SQL engine. No
-server, no daemon. Link the library, run SQL over CSV, Parquet, or in-memory
-tables from inside your binary.
-
+[DuckDB](https://duckdb.org/) — the in-process analytical SQL engine.
 ## Features
 
 - **Zero-copy reads** — results are exposed as typed views over DuckDB's own
@@ -55,13 +52,10 @@ nimble install nimdrake --parser:declarative --features:dev
 ### DuckDB native library
 
 NimDrake needs `libduckdb.so` / `libduckdb.dylib` / `duckdb.dll`. The build
-looks in three places, in order:
+looks in two places, in order:
 
 1. **Vendored** — `src/include/`, populate with `just fetch-lib`
 2. **System** — `pkg-config duckdb` or `ldconfig`
-3. **Neither found** — build fails
-
-Vendored is the safe default.
 
 ---
 
