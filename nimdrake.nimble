@@ -33,7 +33,8 @@ feature "tensor":
 # Code can gate on `when defined(features.nimdrake.dev)`.
 
 dev:
-  requires "criterion >= 0.3.1", "unittest2 >= 0.2.3"
+  requires "criterion >= 0.3.1", "unittest2 >= 0.2.3",
+           "nimibook >= 0.4.0"
 
 # Tasks
 

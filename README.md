@@ -454,12 +454,19 @@ Uses [just](https://github.com/casey/just) for build orchestration.
 just test                     # all tests, debug + ASan
 just test cores=8             # parallel
 just test features="arrow"    # include Arrow tests
-just cookbook                 # run cookbook snippets; fail if any break
-just docs                     # render cookbook markdown to HTML
+just cookbook                 # build cookbook with nimibook; snippets must run
+just docs                     # alias for `just cookbook`
 just fetch-lib                # vendor libduckdb.so + duckdb.h into src/include/
 just generate                 # regenerate FFI from duckdb.h via Futhark
 just clean                    # remove build artifacts
 ```
+
+The cookbook is a [nimibook](https://github.com/pietroppeter/nimibook) book under
+`docs/cookbook/` (sources in `book/`, `nbook.nim` defines the table of contents).
+Every code snippet is compiled and executed during the build and its output is
+embedded in the rendered pages, so a broken recipe fails `just cookbook`.
+Build prerequisites: `nimble install -y nimibook`, and on Linux the PCRE1
+library (Ubuntu: `sudo apt install libpcre3`).
 
 See [WORKBOARD.md](WORKBOARD.md) for project status and TODO list.
 

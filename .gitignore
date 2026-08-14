@@ -3,9 +3,10 @@ nimblecache/
 htmldocs/
 docs/*
 !docs/cookbook/
-docs/cookbook/cookbook_runner
 docs/cookbook/*.html
-docs/cookbook/nimdoc.out.css
+docs/cookbook/assets/
+docs/cookbook/book.json
+docs/cookbook/*.log
 testresults/
 src/nimdrake
 !src/nimdrake/

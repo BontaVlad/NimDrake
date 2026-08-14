@@ -1,0 +1,9 @@
+[nimib]
+srcDir = "book"
+homeDir = "."
+
+[nimibook]
+language = "en-us"
+title = "NimDrake Cookbook"
+description = "Recipes for common tasks when working with DuckDB in Nim using NimDrake"
+git_repository_url = "https://github.com/BontaVlad/NimDrake"

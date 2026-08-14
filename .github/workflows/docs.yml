@@ -43,20 +43,23 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run cookbook snippets
-        run: nim c -r docs/cookbook/cookbook_runner.nim
+      - name: Install cookbook dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpcre3
+          nimble install -y --useSystemNim nimibook
+
+      - name: Build cookbook (runs every snippet)
+        working-directory: docs/cookbook
+        run: |
+          nim r nbook.nim init
+          nim r nbook.nim build --mm:arc
 
       - name: Generate API docs
         run: |
           nimble doc --docCmd:skip --project --outdir:docs src/nimdrake.nim
           mv docs/theindex.html docs/index.html
           touch docs/.nojekyll
-
-      - name: Render cookbook HTML
-        run: |
-          for f in docs/cookbook/*.md; do
-            nim md2html --docCmd:skip --outdir:docs/cookbook "$f"
-          done
 
       - uses: actions/configure-pages@v4
 
