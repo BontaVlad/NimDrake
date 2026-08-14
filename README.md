@@ -178,6 +178,45 @@ let col = tbl.bindAs(0, DuckType.BigInt)
 echo col[4999]   # O(log n) binary search across chunks
 ```
 
+### Compile-time query DSL
+
+`nimdrake/dsl/queries` provides a `query(con):` macro that turns a
+Nim-looking block into prepared SQL at compile time. Clauses are written
+top-down (`select` → `join` → `where` → `groupby` → …); `?` binds a Nim
+value as a parameter, `!!"…"` splices raw SQL verbatim.
+
+```nim
+import nimdrake/dsl/queries
+
+# Multi-way join with grouped aggregate, having, and order
+let topNations = query(con):
+  select nation(n_name, sum(t4.l_extendedprice) as revenue)
+  join customer() on t1.n_nationkey == t2.c_nationkey
+  join orders()   on t2.c_custkey  == t3.o_custkey
+  join lineitem() on t3.o_orderkey == t4.l_orderkey
+  groupby(t1.n_name)
+  having sum(t4.l_extendedprice) > ?"0.0"
+  orderby desc(revenue)
+  limit 5
+
+# Window function over a CTE
+let cte = query(con):
+  with perSupplier(select lineitem(l_suppkey, sum(l_extendedprice) as tot) groupby(l_suppkey))
+  select perSupplier(l_suppkey,
+                     over(sum(tot), partitionby(l_suppkey)) as running)
+  groupby(l_suppkey, tot)
+  orderby l_suppkey
+```
+
+DSL gotchas:
+- The `select` table is alias `t1`, each `join` table `t2`, `t3`, ….
+  Columns from later tables must be qualified (`t2.n_name`); a bare
+  identifier is emitted against `t1`. Keep join projections empty for
+  grouped queries and qualify aggregates by the owning alias.
+- Window calls wrap the aggregate: `over(sum(x), partitionby(y) orderby(z))`.
+- SQL's `*` is spelled `_` (e.g. `count(_)`); `except` is a Nim keyword,
+  so the set op is written `` `except`(…) ``.
+
 ---
 
 ## User-defined functions

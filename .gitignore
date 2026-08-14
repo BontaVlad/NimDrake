@@ -8,6 +8,7 @@ docs/cookbook/*.html
 docs/cookbook/nimdoc.out.css
 testresults/
 src/nimdrake
+!src/nimdrake/
 benchmarks/benchmark_vector
 benchmarks/heaptrack.nim.1.gz
 benchmarks/nim-heaptrack/

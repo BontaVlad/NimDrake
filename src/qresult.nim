@@ -133,6 +133,8 @@ type
                                ## result's property and is mutated while the
                                ## immutable `columns`/`nameIndex` payload is
                                ## shared by reference with the source.
+      rowsChanged*: int        ## Rows changed/affected by the statement, from
+                               ## `duckdb_rows_changed`. 0 for SELECT.
 
   # --- views: non-owning, carry a DataChunk back-ref for ARC safety ---
 
@@ -254,6 +256,7 @@ proc newColumn*(name: string, ltype: LogicalType, idx = 0): Column =
 
 proc newQResult*(_: typedesc[QResult[Materialized]], raw: duckdb_result): QResult[Materialized] =
   result.meta = newChunkMeta(raw)
+  result.rowsChanged = duckdb_rows_changed(raw.addr).int
   while true:
     let chunk = duckdb_fetch_chunk(raw)
     if chunk == nil: break
@@ -1489,6 +1492,7 @@ proc materialize*(q: sink QResult[Streaming]): QResult[Materialized] =
   result.chunks = @[]
   result.rlen = 0
   let h = takeHandle(q)
+  result.rowsChanged = duckdb_rows_changed(h.raw.addr).int
   while true:
     let raw = duckdb_fetch_chunk(h.raw)
     if raw == nil:

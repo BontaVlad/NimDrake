@@ -1,4 +1,4 @@
-import std/[strformat, enumerate, times, options]
+import std/[strformat, enumerate, times, options, json]
 import /[ffi, types, database, qresult, codec, complex, exceptions]
 
 proc takeCString(str: cstring): string {.inline.} =
@@ -138,7 +138,11 @@ template bindVal*(statement: Statement, i: int, val: bool): DuckState =
 
 template bindVal*(statement: Statement, i: int, val: seq[byte]): DuckState =
   ## Binds a blob value to the prepared statement at the specified index.
-  duckdbBindBlob(statement, i.idx_t, ptr val, len(val))
+  if val.len == 0:
+    duckdbBindBlob(statement, i.idx_t, nil, 0)
+  else:
+    duckdbBindBlob(statement, i.idx_t, cast[pointer](addr val[0]),
+      len(val).idx_t)
 
 template bindNull*(statement: Statement, i: int): DuckState =
   ## Binds a NULL value to the prepared statement at the specified index.
@@ -205,8 +209,9 @@ template bindVal*(statement: Statement, i: int, val: Timestamp): DuckState =
   duckdb_bind_timestamp(statement, i.idx_t, val.toTimestamp)
 
 template bindVal*(statement: Statement, i: int, val: DateTime): DuckState =
-  ## Binds a Datetime value to the prepared statement at the specified index.
-  duckdb_bind_date(statement, i.idx_t, val.toDateTime)
+  ## Binds a Datetime value to the prepared statement at the specified index
+  ## as a TIMESTAMP (time-of-day preserved).
+  duckdb_bind_timestamp(statement, i.idx_t, Timestamp(val).toTimestamp)
 
 template bindVal*(statement: Statement, i: int, val: Time): DuckState =
   ## Binds a Time value to the prepared statement at the specified index.
@@ -220,6 +225,29 @@ template bindVal*(statement: Statement, i: int, val: NimValue): DuckState =
   ## Binds a NimValue to the prepared statement at the specified index.
   ## Complex kinds (List, Struct, Map, Union) are not yet supported.
   duckdb_bind_value(statement, i.idx_t, val.toDuckValue)
+
+template bindVal*[T](statement: Statement, i: int, val: Option[T]): DuckState =
+  ## Binds an `Option[T]`: `some(v)` binds `v` via the matching `bindVal`
+  ## overload for `T`; `none(T)` binds NULL.
+  if val.isSome: statement.bindVal(i, val.get)
+  else: statement.bindNull(i)
+
+template bindVal*(statement: Statement, i: int, val: JsonNode): DuckState =
+  ## Binds a `JsonNode` as its `$`-stringified JSON text via VARCHAR; DuckDB
+  ## coerces it back to a JSON column on bind. Native `duckdb_bind_json` is
+  ## not in this libduckdb version.
+  duckdb_bind_varchar(statement, i.idx_t, ($val).cstring)
+
+template bindVal*(statement: Statement, i: int, val: DecimalType): DuckState =
+  ## Binds a `DecimalType` as its `$`-stringified text via VARCHAR; DuckDB
+  ## coerces it back to the column's DECIMAL scale on bind.
+  duckdb_bind_varchar(statement, i.idx_t, ($val).cstring)
+
+template bindVal*(statement: Statement, i: int, val: Uuid): DuckState =
+  ## Binds a `Uuid` as its canonical hyphenated string via VARCHAR; DuckDB
+  ## coerces it back to a UUID column on bind. (`duckdb_bind_uuid` is not
+  ## in this libduckdb version.)
+  duckdb_bind_varchar(statement, i.idx_t, ($val).cstring)
 
 # ---------------------------------------------------------------------------
 # Appender templates
