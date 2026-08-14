@@ -1,7 +1,7 @@
 import std/[tables, strutils]
 import unittest2
 import nint128
-import ../src/[types, database, query, qresult, complex]
+import ../src/[types, database, query, qresult, complex, exceptions]
 
 proc normalize(x: string): string =
   result = x
@@ -513,8 +513,17 @@ suite "Complex — toNimValue type coverage":
     let r = conn.execute("SELECT h FROM hi_nv")
     for chunk in r:
       let nv = chunk.vector(0).toNimValue(0)
-      check nv.kind == nvString
-      check nv.strVal == "12345678901234567890"
+      check nv.kind == nvHuge
+      check $nv.hugeVal == "12345678901234567890"
+
+  test "toNimValue UBigInt":
+    let conn = newDatabase().connect()
+    let r = conn.execute("SELECT 18446744073709551615::UBIGINT")
+    for chunk in r:
+      let nv = chunk.vector(0).toNimValue(0)
+      check nv.kind == nvUInt
+      check $nv.uintVal == "18446744073709551615"
+      check nv.uintVal == 18446744073709551615'u64
 
   test "NimValue equality for struct":
     let a = NimValue(kind: nvStruct, fields: @[("a", NimValue(kind: nvInt, intVal: 1))])
@@ -571,3 +580,29 @@ suite "Complex — toNimValue type coverage":
       check nv.listVal[0].kind == nvInt
       check nv.listVal[1].kind == nvNull
       check nv.listVal[2].kind == nvInt
+
+  test "toDuckValue round-trip for List":
+    let conn = newDatabase().connect()
+    let nv = NimValue(kind: nvList,
+      listVal: @[NimValue(kind: nvInt, intVal: 5),
+                 NimValue(kind: nvInt, intVal: 6),
+                 NimValue(kind: nvInt, intVal: 7)])
+    var stmt = conn.newStatement("SELECT ?::BIGINT[]")
+    check stmt.bindVal(1, nv) == DuckState.Duckdbsuccess
+    let r = conn.executeMaterialized(stmt)
+    for chunk in r:
+      let back = chunk.vector(0).toNimValue(0)
+      check back == nv
+
+  test "toDuckValue round-trip for Struct":
+    let conn = newDatabase().connect()
+    let nv = NimValue(kind: nvStruct,
+      fields: @[("a", NimValue(kind: nvInt, intVal: 1)),
+                ("b", NimValue(kind: nvString, strVal: "x"))])
+    var stmt = conn.newStatement(
+      "SELECT ?::STRUCT(a BIGINT, b VARCHAR)")
+    check stmt.bindVal(1, nv) == DuckState.Duckdbsuccess
+    let r = conn.executeMaterialized(stmt)
+    for chunk in r:
+      let back = chunk.vector(0).toNimValue(0)
+      check back == nv

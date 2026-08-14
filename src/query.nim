@@ -194,7 +194,8 @@ template bindVal*(statement: Statement, i: int, val: float64): DuckState =
 
 template bindVal*(statement: Statement, i: int, val: string): DuckState =
   ## Binds a varchar value to the prepared statement at the specified index.
-  duckdb_bind_varchar(statement, i.idx_t, val.cstring)
+  ## Embedded NUL bytes are preserved via the length-taking API.
+  duckdb_bind_varchar_length(statement, i.idx_t, val.cstring, val.len.idx_t)
 
 template bindVal*(statement: Statement, i: int, val: Int128): DuckState =
   ## Binds a HugeInt value to the prepared statement at the specified index.
@@ -260,8 +261,13 @@ template append*(appender: Appender, val: bool): untyped =
 
 template append*(appender: Appender, val: seq[byte]): untyped =
   ## Appends a blob value to the appender.
-  checkAppender(duckdb_append_blob(appender, ptr val, len(val)),
-    appender, "Failed to append blob value of length: " & $len(val))
+  block:
+    let v = val
+    checkAppender(
+      duckdb_append_blob(appender,
+        if v.len == 0: nil
+        else: cast[pointer](addr v[0]), v.len.idx_t),
+      appender, "Failed to append blob value of length: " & $v.len)
 
 template append*(appender: Appender): untyped =
   ## Appends a default value to the appender.
@@ -324,14 +330,10 @@ template append*(appender: Appender, val: float64): untyped =
     appender, "Failed to append float64 value: " & $val)
 
 template append*(appender: Appender, val: string): untyped =
-  ## Appends a varchar value to the appender.
-  ## Empty strings are treated as NULL values.
-  if val == "":
-    checkAppender(duckdb_append_null(appender),
-      appender, "Failed to append NULL for empty string")
-  else:
-    checkAppender(duckdb_append_varchar(appender, val.cstring),
-      appender, "Failed to append string value: " & val)
+  ## Appends a varchar value to the appender. Empty strings are real empty
+  ## strings (not NULL); embedded NUL bytes are preserved.
+  checkAppender(duckdb_append_varchar_length(appender, val.cstring, val.len.idx_t),
+    appender, "Failed to append string value: " & val)
 
 template append*(appender: Appender, val: Int128): untyped =
   ## Appends a HugeInt value to the appender.
@@ -387,7 +389,7 @@ template append*[T](appender: var Appender, val: Option[T]) =
 # execute — streaming (default)
 # ---------------------------------------------------------------------------
 
-proc execute*[T: Values](
+proc executeStreaming*[T: Values](
     con: Connection, statement: Statement, args: T
 ): QResult[Streaming] {.discardable.} =
   ## Executes a prepared statement with provided arguments, returning a
@@ -403,26 +405,26 @@ proc execute*[T: Values](
   if not duckdb_result_is_streaming(raw):
     duckdb_destroy_result(raw.addr)
     raise newException(OperationError,
-      "execute with prepared statement did not produce a streaming result; " &
-      "use executeMaterialized for DML or non-streaming statements")
+      "executeStreaming with prepared statement did not produce a streaming " &
+      "result; use executeMaterialized for DML or non-streaming statements")
   result = newQResult(QResult[Streaming], raw)
 
-proc execute*(con: Connection, statement: Statement): QResult[Streaming] {.discardable.} =
+proc executeStreaming*(con: Connection, statement: Statement): QResult[Streaming] {.discardable.} =
   ## Executes a prepared statement, returning a streaming result.
-  ## Raises if the query does not produce a streaming result
+  ## Raises if the query does not produce a streaming result.
   var raw: duckdb_result
   checkResult(duckdb_execute_prepared_streaming(statement, raw.addr),
     raw, "execute prepared streaming")
   if not duckdb_result_is_streaming(raw):
     duckdb_destroy_result(raw.addr)
     raise newException(OperationError,
-      "execute with prepared statement did not produce a streaming result; " &
-      "use executeMaterialized for DML or non-streaming statements")
+      "executeStreaming with prepared statement did not produce a streaming " &
+      "result; use executeMaterialized for DML or non-streaming statements")
   result = newQResult(QResult[Streaming], raw)
 
 proc execute*(con: Connection, query: Query): QResult[Materialized] {.discardable.} =
   ## Executes a raw query, materializing results upfront.
-  ## Use `execute(con, newStatement(con, query))` for streaming results.
+  ## Use `executeStreaming(con, newStatement(con, query))` for streaming results.
   var raw: duckdb_result
   checkResult(duckdb_query(con.rawHandle, query, raw.addr),
     raw, "execute query")
@@ -430,13 +432,13 @@ proc execute*(con: Connection, query: Query): QResult[Materialized] {.discardabl
 
 proc execute*[T: Values](
     con: Connection, query: Query, args: T
-): QResult[Streaming] {.discardable.} =
+): QResult[Materialized] {.discardable.} =
   ## Executes a query with arguments by first preparing a statement,
-  ## returning a streaming result.
+  ## returning a materialized result. Use `executeStreaming` for streaming.
   let statement = newStatement(con, query)
-  result = con.execute(statement, args)
+  result = con.executeMaterialized(statement, args)
 
-proc execute*(pending: PendingQueryResult): QResult[Streaming] {.discardable.} =
+proc executeStreaming*(pending: PendingQueryResult): QResult[Streaming] {.discardable.} =
   ## Executes a pending query result, returning a streaming result.
   ## The pending result must have been created with `newPendingStreamingResult`.
   var raw: duckdb_result
@@ -445,7 +447,7 @@ proc execute*(pending: PendingQueryResult): QResult[Streaming] {.discardable.} =
   if not duckdb_result_is_streaming(raw):
     duckdb_destroy_result(raw.addr)
     raise newException(OperationError,
-      "execute(pending) requires a streaming pending result; " &
+      "executeStreaming(pending) requires a streaming pending result; " &
       "use newPendingStreamingResult or executeMaterialized for DML")
   result = newQResult(QResult[Streaming], raw)
 
@@ -512,8 +514,10 @@ proc newPendingResult*(statement: Statement): PendingQueryResult =
     `=destroy`(result),
   )
 
-proc newPendingStreamingResult*(statement: Statement): PendingQueryResult {.
-    deprecated: "This method is scheduled for removal in a future release".} =
+proc newPendingStreamingResult*(statement: Statement): PendingQueryResult =
+  ## Creates a pending result that executes in a streaming fashion. This is
+  ## the pending counterpart of `executeStreaming`; streaming pending results
+  ## are what `executeStreaming(pending)` requires.
   result = PendingQueryResult(nil)
   check(
     duckdbPendingPreparedStreaming(statement, result.addr),
@@ -580,7 +584,7 @@ proc newDataChunk*(appender: Appender): DataChunk =
 proc newChunkBuilder*(appender: Appender): ChunkBuilder =
   result = newChunkBuilder(newDataChunk(appender))
 
-proc newAppender*[T](con: Connection, table: string, ent: seq[seq[T]]) =
+proc appendRows*[T](con: Connection, table: string, ent: seq[seq[T]]) =
   ## Appends a sequence of sequences of type `T` to a specified table in a DuckDB database.
   var appender = newAppender(con, table)
   for row in ent:
@@ -589,7 +593,7 @@ proc newAppender*[T](con: Connection, table: string, ent: seq[seq[T]]) =
     appender.endRow()
   appender.flush()
 
-proc newAppender*[T](con: Connection, table: string, ent: seq[seq[Option[T]]]) =
+proc appendRows*[T](con: Connection, table: string, ent: seq[seq[Option[T]]]) =
   ## Appends a sequence of sequences of Options[T] to a specified table in a DuckDB database.
   var appender = newAppender(con, table)
   for row in ent:
@@ -597,3 +601,13 @@ proc newAppender*[T](con: Connection, table: string, ent: seq[seq[Option[T]]]) =
       appender.append(val)
     appender.endRow()
   appender.flush()
+
+proc newAppender*[T](con: Connection, table: string, ent: seq[seq[T]]) {.
+    deprecated: "use appendRows".} =
+  ## Appends rows to a table; use `appendRows` instead.
+  appendRows(con, table, ent)
+
+proc newAppender*[T](con: Connection, table: string, ent: seq[seq[Option[T]]]) {.
+    deprecated: "use appendRows".} =
+  ## Appends rows to a table; use `appendRows` instead.
+  appendRows(con, table, ent)

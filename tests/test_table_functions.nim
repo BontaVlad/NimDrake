@@ -1,5 +1,5 @@
 import std/[options, times, sequtils, strutils]
-import ../src/[ffi, database, query, table_functions, qresult, types, exceptions]
+import ../src/[ffi, database, query, table_functions, qresult, types, codec, exceptions]
 import unittest2
 
 iterator countToN(n: int): int {.closure.} =
@@ -461,3 +461,25 @@ test "T30: Same table function used across multiple connections sequentially":
       let v = chunk.vector(0).bindAs DuckType.BigInt
       for i in 0 ..< v.len: vals.add v[i]
     check vals == toSeq(0 ..< n).mapIt(it.int64)
+
+# ── Time / DateTime bind params ─────────────────────────────────────────────
+iterator timesIter(t: Time, d: DateTime): tuple[tm: Time, dsec: int64] {.closure.} =
+  yield (t, d.toTime.toUnix)
+
+test "T31: registerTableFunction with Time and DateTime bind params":
+  let conn = newDatabase().connect()
+  conn.registerTableFunction(timesIter)
+  # Verify the bind getters decode the params faithfully: the Time param is
+  # read back as-is and the DateTime param's UTC instant survives.
+  let expectedSec = dateTime(2024, mFeb, 2, 3, 4, 5, zone = utc()).toTime.toUnix
+  let r = conn.execute(
+    "SELECT * FROM timesIter(TIME '01:02:03', TIMESTAMP '2024-02-02 03:04:05')")
+  var gotT: Time
+  var gotSec: int64
+  for chunk in r:
+    let tv = chunk.bindAs(0, DuckType.Time)
+    let sv = chunk.bindAs(1, DuckType.BigInt)
+    gotT = tv[0]
+    gotSec = sv[0]
+  check gotT == fromDuckTime(3_723_000_000'i64)
+  check gotSec == expectedSec

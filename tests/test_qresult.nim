@@ -74,7 +74,7 @@ suite "QResult zero-copy API":
 
   test "QResult[Streaming] to Q[Materialized]":
     let duck = newDatabase().connect()
-    let stream = duck.execute(newStatement(duck,
+    let stream = duck.executeStreaming(newStatement(duck,
       "SELECT seq AS id FROM generate_series(1, 3) AS t(seq)"
     ))
     let q = stream.materialize()
@@ -195,7 +195,7 @@ suite "QResult zero-copy API":
   test "init table from streaming result":
     let conn = newDatabase().connect()
     let stmt = conn.newStatement("SELECT seq FROM generate_series(1, 5) AS t(seq)")
-    let r = conn.execute(stmt)
+    let r = conn.executeStreaming(stmt)
     let tbl = initTable(r)
     check tbl.bindAs("seq", DuckType.BigInt).toSeq() == @[1'i64, 2, 3, 4, 5]
 
@@ -305,7 +305,7 @@ suite "QResult zero-copy API":
   test "execute (prepared stmt) returns QResult[Streaming]":
     let duck = newDatabase().connect()
     var stmt = duck.newStatement("SELECT seq FROM generate_series(1, 5) AS t(seq)")
-    var r = duck.execute(stmt)
+    var r = duck.executeStreaming(stmt)
     let _: QResult[Streaming] = r
     var sum = 0
     for chunk in r:
@@ -473,8 +473,9 @@ suite "QResult — TimestampTz":
       let v = chunk.vector(0).bindAs DuckType.TimestampTz
       let z = v[0]
       # DuckDB stores TIMESTAMPTZ as UTC microseconds only; the offset is not
-      # part of the value (display applies the session TimeZone).
-      check z.time == initTime(12 * 3600, 0)
+      # part of the value (display applies the session TimeZone). The full
+      # instant (date + time) is preserved.
+      check z.time == dateTime(2020, mJan, 1, 12, 0, 0, zone = utc()).toTime
       check z.utcOffset == 0
       check z.isDst == false
       check v.toSeq.len == 1

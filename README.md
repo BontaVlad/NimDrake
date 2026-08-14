@@ -115,7 +115,7 @@ let r = con.execute("SELECT 1")
 
 # Streaming — chunk by chunk (for large results)
 let stmt = con.newStatement("SELECT i FROM generate_series(1, 1_000_000) AS t(i)")
-for chunk in con.execute(stmt):
+for chunk in con.executeStreaming(stmt):
   let v = chunk.vector(0).bindAs DuckType.BigInt
   for x in v:
     discard
@@ -373,7 +373,7 @@ Requires `features.nimdrake.arrow` and `narrow >= 0.0.1`:
 
 ```nim
 let stmt = con.newStatement("SELECT * FROM generate_series(1, 100) AS t(i)")
-let r = con.execute(stmt)
+let r = con.executeStreaming(stmt)
 for batch in r.toArrowStream():
   echo batch.schema
   echo batch[0, int64].toSeq

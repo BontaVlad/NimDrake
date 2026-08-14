@@ -9,18 +9,9 @@ when defined(features.nimdrake.tensor):
       colNames: seq[string]
 
   template tensorDT(T: typedesc): DuckType =
-    when T is bool: DuckType.Boolean
-    elif T is int8: DuckType.TinyInt
-    elif T is int16: DuckType.SmallInt
-    elif T is int32: DuckType.Integer
-    elif T is int64 or T is int: DuckType.BigInt
-    elif T is uint8 or T is byte: DuckType.UTinyInt
-    elif T is uint16: DuckType.USmallInt
-    elif T is uint32: DuckType.UInteger
-    elif T is uint64: DuckType.UBigInt
-    elif T is float32: DuckType.Float
-    elif T is float64: DuckType.Double
-    else: {.error: "Tensor element type not supported: " & $T.}
+    ## Delegates to the canonical type mapping; unsupported element types get
+    ## `colDuckTypeOf`'s compile-time error.
+    colDuckTypeOf(T)
 
   proc columns*[T](s: TensorSource[T]): seq[Column] =
     let ncols = s.tensor.shape[1]

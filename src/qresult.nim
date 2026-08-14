@@ -254,15 +254,21 @@ proc newColumn*(name: string, ltype: LogicalType, idx = 0): Column =
              cast[DuckType](duckdb_enum_internal_type(ltype.handle))
            else: DuckType.Invalid)
 
+proc drainInto(q: var QResult[Materialized], raw: duckdb_result) =
+  ## Fetches and stores every chunk of `raw` into `q`. Does not destroy `raw`
+  ## — the caller owns the handle and destroys it (a copy here would leave the
+  ## caller's `internal_data` dangling).
+  while true:
+    let chunkH = duckdb_fetch_chunk(raw)
+    if chunkH == nil: break
+    let c = newDataChunk(chunkH, q.meta)
+    q.chunks.add(c)
+    q.rlen += duckdb_data_chunk_get_size(chunkH).int
+
 proc newQResult*(_: typedesc[QResult[Materialized]], raw: duckdb_result): QResult[Materialized] =
   result.meta = newChunkMeta(raw)
   result.rowsChanged = duckdb_rows_changed(raw.addr).int
-  while true:
-    let chunk = duckdb_fetch_chunk(raw)
-    if chunk == nil: break
-    let c = newDataChunk(chunk, result.meta)
-    result.chunks.add(c)
-    result.rlen += duckdb_data_chunk_get_size(chunk).int
+  drainInto(result, raw)
   duckdb_destroy_result(raw.addr)
 
 proc newQResult*(_: typedesc[QResult[Streaming]], raw: duckdb_result): QResult[Streaming] =
@@ -346,9 +352,9 @@ proc vector*(c: DataChunk, i: int): ColumnView {.inline.} =
   newColumnView(c, i, col)
 
 proc vector*(c: DataChunk, name: string): ColumnView {.inline.} =
-  if name notin c.meta.nameIndex:
+  let i = c.meta.nameIndex.getOrDefault(name, -1)
+  if i < 0:
     raise newException(KeyError, "no such column: " & name)
-  let i = c.meta.nameIndex[name]
   c.vector(i)
 
 proc `[]`*(c: DataChunk, name: string): ColumnView {.inline.} =
@@ -971,10 +977,11 @@ proc arraySize*(v: Vector[DuckType.Array]): int {.inline.} =
 proc structChildCount*(v: Vector[DuckType.Struct]): int {.inline.} =
   duckdb_struct_type_child_count(v.ltype.handle).int
 
-proc structChildName*(v: Vector[DuckType.Struct], j: int): string =
-  ## Returns the name of the j-th struct child. Names are populated eagerly at
-  ## `LogicalType` construction (single-threaded), so this is a plain read —
-  ## no FFI, no allocation, no lazy mutation of shared state.
+proc structChildName*(v: Vector[DuckType.Struct], j: int): lent string =
+  ## Returns the j-th struct child's name (borrowed, no copy). Names are
+  ## populated eagerly at `LogicalType` construction (single-threaded), so
+  ## this is a plain read — no FFI, no allocation, no lazy mutation of shared
+  ## state.
   v.ltype.childNames[j]
 
 proc structChild*(v: Vector[DuckType.Struct], j: int): ColumnView {.inline.} =
@@ -1003,10 +1010,11 @@ proc mapEntriesChild*(v: Vector[DuckType.Map]): ColumnView {.inline.} =
 proc unionMemberCount*(v: Vector[DuckType.Union]): int {.inline.} =
   duckdb_union_type_member_count(v.ltype.handle).int
 
-proc unionMemberName*(v: Vector[DuckType.Union], j: int): string =
-  ## Returns the name of the j-th union member. Names are populated eagerly at
-  ## `LogicalType` construction (single-threaded), so this is a plain read —
-  ## no FFI, no allocation, no lazy mutation of shared state.
+proc unionMemberName*(v: Vector[DuckType.Union], j: int): lent string =
+  ## Returns the j-th union member's name (borrowed, no copy). Names are
+  ## populated eagerly at `LogicalType` construction (single-threaded), so
+  ## this is a plain read — no FFI, no allocation, no lazy mutation of shared
+  ## state.
   v.ltype.childNames[j]
 
 proc unionMemberChild*(v: Vector[DuckType.Union], j: int): ColumnView {.inline.} =
@@ -1022,6 +1030,16 @@ proc unionTag*(v: Vector[DuckType.Union], i: int): int {.inline.} =
       (tagValidity[i shr 6] and (1'u64 shl (i and 63))) == 0:
     return -1
   cast[ptr UncheckedArray[uint8]](tagData)[i].int
+
+proc unionTagView*(
+    v: Vector[DuckType.Union]
+): tuple[data: ptr UncheckedArray[uint8], validity: ptr UncheckedArray[uint64]] {.inline.} =
+  ## One-shot view of the tag child vector for bulk per-row tag reads.
+  ## Read the tag for row `i` with the same validity bit-test as `unionTag`:
+  ## a NULL tag (or `-1`) means the union member is NULL.
+  let tagVec = duckdb_struct_vector_get_child(v.vec, 0)
+  (cast[ptr UncheckedArray[uint8]](duckdb_vector_get_data(tagVec)),
+   cast[ptr UncheckedArray[uint64]](duckdb_vector_get_validity(tagVec)))
 
 proc mapEntry*(v: Vector[DuckType.Map], i: int): (uint64, uint64) {.inline.} =
   let entry = cast[ptr UncheckedArray[duckdb_list_entry]](v.data)[i]
@@ -1493,13 +1511,7 @@ proc materialize*(q: sink QResult[Streaming]): QResult[Materialized] =
   result.rlen = 0
   let h = takeHandle(q)
   result.rowsChanged = duckdb_rows_changed(h.raw.addr).int
-  while true:
-    let raw = duckdb_fetch_chunk(h.raw)
-    if raw == nil:
-      break
-    let c = newDataChunk(raw, result.meta)
-    result.chunks.add(c)
-    result.rlen += c.len
+  drainInto(result, h.raw)
   duckdb_destroy_result(h.raw.addr)
 
 # ---------------------------------------------------------------------------

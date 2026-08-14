@@ -11,10 +11,15 @@
 ## materializer.  Fully generic row-by-row materialization, allocates per row.
 ## For ad-hoc querying where the column shape is not known statically.
 ##
+## ``NimValue`` preserves integer widths losslessly: signed 64-bit values map
+## to ``nvInt``, unsigned 64-bit to ``nvUInt``, and HUGEINT to ``nvHuge``
+## (``Int128``). UHUGEINT and UUID have no lossless Nim scalar slot and
+## materialize as ``nvString``.
+##
 ## The zero-copy descent procs in ``qresult.nim`` remain the hot path for
 ## performance-sensitive code.
 
-import std/[tables, hashes, times, strutils, sequtils]
+import std/[tables, hashes, times, strutils, sequtils, options]
 import nint128
 
 import /[ffi, types, qresult, codec]
@@ -27,6 +32,8 @@ type
   NimValueKind* = enum
     nvBool
     nvInt
+    nvUInt
+    nvHuge
     nvFloat
     nvString
     nvBlob
@@ -40,6 +47,8 @@ type
     case kind*: NimValueKind
     of nvBool:   boolVal*: bool
     of nvInt:    intVal*: int64
+    of nvUInt:   uintVal*: uint64
+    of nvHuge:   hugeVal*: Int128
     of nvFloat:  floatVal*: float64
     of nvString: strVal*: string
     of nvBlob:   blobVal*: seq[byte]
@@ -59,6 +68,8 @@ func `==`*(a, b: NimValue): bool =
   case a.kind
   of nvBool:   a.boolVal == b.boolVal
   of nvInt:    a.intVal == b.intVal
+  of nvUInt:   a.uintVal == b.uintVal
+  of nvHuge:   a.hugeVal == b.hugeVal
   of nvFloat:  a.floatVal == b.floatVal
   of nvString: a.strVal == b.strVal
   of nvBlob:   a.blobVal == b.blobVal
@@ -73,6 +84,8 @@ func hash*(v: NimValue): Hash =
   case v.kind
   of nvBool:   result = result !& hash(v.boolVal)
   of nvInt:    result = result !& hash(v.intVal)
+  of nvUInt:   result = result !& hash(v.uintVal)
+  of nvHuge:   result = result !& hash(v.hugeVal)
   of nvFloat:  result = result !& hash(v.floatVal)
   of nvString: result = result !& hash(v.strVal)
   of nvBlob:   result = result !& hash(v.blobVal)
@@ -99,6 +112,8 @@ func formatVal(v: NimValue, quoteStr: bool = true): string =
   case v.kind
   of nvBool: (if v.boolVal: "true" else: "false")
   of nvInt: $v.intVal
+  of nvUInt: $v.uintVal
+  of nvHuge: $v.hugeVal
   of nvFloat: $v.floatVal
   of nvString:
     if quoteStr: "'" & v.strVal.replace("'", "''") & "'"
@@ -158,7 +173,7 @@ proc toNimValue*(cv: ColumnView, i: int): NimValue =
     result = NimValue(kind: nvInt, intVal: int64(v[i]))
   of DuckType.UBigInt:
     let v = cv.bindAs(DuckType.UBigInt)
-    result = NimValue(kind: nvString, strVal: $v[i])
+    result = NimValue(kind: nvUInt, uintVal: v[i])
   of DuckType.Float:
     let v = cv.bindAs(DuckType.Float)
     result = NimValue(kind: nvFloat, floatVal: float64(v[i]))
@@ -176,7 +191,7 @@ proc toNimValue*(cv: ColumnView, i: int): NimValue =
     result = NimValue(kind: nvBlob, blobVal: v[i])
   of DuckType.HugeInt:
     let v = cv.bindAs(DuckType.HugeInt)
-    result = NimValue(kind: nvString, strVal: $v[i])
+    result = NimValue(kind: nvHuge, hugeVal: v[i])
   of DuckType.UHugeInt:
     let v = cv.bindAs(DuckType.UHugeInt)
     result = NimValue(kind: nvString, strVal: $v[i])
@@ -185,11 +200,13 @@ proc toNimValue*(cv: ColumnView, i: int): NimValue =
     result = NimValue(kind: nvString, strVal: $v[i])
   of DuckType.Enum:
     let rawIdx = fromDuckEnum(cv.data, i, cv.enumWidth)
-    let name =
-      if cv.ltype.handle != nil:
-        $duckdb_enum_dictionary_value(cv.ltype.handle, rawIdx.idx_t)
-      else:
-        $rawIdx
+    var name: string
+    if cv.ltype.handle != nil:
+      let cs = duckdb_enum_dictionary_value(cv.ltype.handle, rawIdx.idx_t)
+      name = $cs
+      duckdb_free(cast[pointer](cs))
+    else:
+      name = $rawIdx
     result = NimValue(kind: nvString, strVal: name)
   of DuckType.Timestamp:
     let v = cv.bindAs(DuckType.Timestamp)
@@ -319,14 +336,43 @@ iterator items*(v: Vector[DuckType.Union]): (string, NimValue) =
     yield v[i]
 
 proc toSeq*(v: Vector[DuckType.Struct]): seq[seq[(string, NimValue)]] =
+  let nc = v.structChildCount
+  var names = newSeq[string](nc)
+  var children = newSeq[ColumnView](nc)
+  for j in 0 ..< nc:
+    names[j] = v.structChildName(j)
+    children[j] = v.structChild(j)
   result = newSeq[seq[(string, NimValue)]](v.length)
   for i in 0 ..< v.length:
-    result[i] = v[i]
+    if not v.valid(i):
+      result[i] = newSeq[(string, NimValue)](0)
+      continue
+    var fields = newSeq[(string, NimValue)](nc)
+    for j in 0 ..< nc:
+      fields[j] = (names[j], toNimValue(children[j], i))
+    result[i] = fields
 
 proc toSeq*(v: Vector[DuckType.Union]): seq[(string, NimValue)] =
+  let nMembers = v.unionMemberCount
+  var names = newSeq[string](nMembers)
+  var members = newSeq[ColumnView](nMembers)
+  for j in 0 ..< nMembers:
+    names[j] = v.unionMemberName(j)
+    members[j] = v.unionMemberChild(j)
+  let tagView = v.unionTagView
   result = newSeq[(string, NimValue)](v.length)
   for i in 0 ..< v.length:
-    result[i] = v[i]
+    if not v.valid(i):
+      result[i] = ("", NimValue(kind: nvNull))
+      continue
+    let tv = tagView.validity
+    let tag =
+      if tv != nil and (tv[i shr 6] and (1'u64 shl (i and 63))) == 0: -1
+      else: tagView.data[i].int
+    if tag < 0:
+      result[i] = ("", NimValue(kind: nvNull))
+      continue
+    result[i] = (names[tag], toNimValue(members[tag], i))
 
 # ---------------------------------------------------------------------------
 # Typed single-level helpers (Layer A)
@@ -348,6 +394,13 @@ proc toArray*[childKt: static DuckType](
 
 proc toStructPairs*(v: Vector[DuckType.Struct]): seq[seq[(string, NimValue)]] =
   let nc = v.structChildCount
+  # Hoist the child views and names once per chunk instead of re-deriving
+  # them via FFI for every row.
+  var names = newSeq[string](nc)
+  var children = newSeq[ColumnView](nc)
+  for j in 0 ..< nc:
+    names[j] = v.structChildName(j)
+    children[j] = v.structChild(j)
   result = newSeq[seq[(string, NimValue)]](v.length)
   for i in 0 ..< v.length:
     if not v.valid(i):
@@ -355,9 +408,7 @@ proc toStructPairs*(v: Vector[DuckType.Struct]): seq[seq[(string, NimValue)]] =
       continue
     var fields = newSeq[(string, NimValue)](nc)
     for j in 0 ..< nc:
-      let name = v.structChildName(j)
-      let child = v.structChild(j)
-      fields[j] = (name, toNimValue(child, i))
+      fields[j] = (names[j], toNimValue(children[j], i))
     result[i] = fields
 
 proc toStructChild*[childKt: static DuckType](
@@ -378,22 +429,44 @@ proc toMap*[keyKt, valKt: static DuckType](
   initMapViewFromVector[keyKt, valKt](v).toSeq
 
 proc toUnion*(v: Vector[DuckType.Union]): seq[(string, NimValue)] =
+  # Hoist the tag view plus the member names/children once per chunk so the
+  # row loop performs no FFI calls.
+  let nMembers = v.unionMemberCount
+  var names = newSeq[string](nMembers)
+  var members = newSeq[ColumnView](nMembers)
+  for j in 0 ..< nMembers:
+    names[j] = v.unionMemberName(j)
+    members[j] = v.unionMemberChild(j)
+  let tagView = v.unionTagView
   result = newSeq[(string, NimValue)](v.length)
   for i in 0 ..< v.length:
     if not v.valid(i):
       result[i] = ("", NimValue(kind: nvNull))
       continue
-    let tag = v.unionTag(i)
+    let tv = tagView.validity
+    let tag =
+      if tv != nil and (tv[i shr 6] and (1'u64 shl (i and 63))) == 0: -1
+      else: tagView.data[i].int
     if tag < 0:
       result[i] = ("", NimValue(kind: nvNull))
       continue
-    let name = v.unionMemberName(tag)
-    let member = v.unionMemberChild(tag)
-    result[i] = (name, toNimValue(member, i))
+    result[i] = (names[tag], toNimValue(members[tag], i))
 
 # ---------------------------------------------------------------------------
 # toDuckValue — NimValue → duckdb_value round-trip
 # ---------------------------------------------------------------------------
+
+proc duckTypeOfNimValue(nv: NimValue): Option[DuckType] =
+  ## Derives a scalar DuckDB logical type for a scalar `NimValue`. Returns
+  ## `none` for kinds without a lossless scalar slot (blob, complex kinds).
+  case nv.kind
+  of nvBool:   some(DuckType.Boolean)
+  of nvInt:    some(DuckType.BigInt)
+  of nvUInt:   some(DuckType.UBigInt)
+  of nvHuge:   some(DuckType.HugeInt)
+  of nvFloat:  some(DuckType.Double)
+  of nvString: some(DuckType.Varchar)
+  else:        none(DuckType)
 
 proc toDuckValue*(nv: NimValue): duckdb_value =
   case nv.kind
@@ -403,13 +476,75 @@ proc toDuckValue*(nv: NimValue): duckdb_value =
     result = duckdb_create_bool(nv.boolVal)
   of nvInt:
     result = duckdb_create_int64(nv.intVal)
+  of nvUInt:
+    result = duckdb_create_uint64(nv.uintVal)
+  of nvHuge:
+    result = duckdb_create_hugeint(nv.hugeVal.toHugeInt)
   of nvFloat:
     result = duckdb_create_double(nv.floatVal)
   of nvString:
     result = duckdb_create_varchar(nv.strVal.cstring)
   of nvBlob:
-    result = duckdb_create_blob(cast[ptr uint8](nv.blobVal[0].addr), nv.blobVal.len.idx_t)
-  of nvList, nvStruct, nvMap, nvUnion:
+    if nv.blobVal.len == 0:
+      result = duckdb_create_blob(nil, 0)
+    else:
+      result = duckdb_create_blob(cast[ptr uint8](nv.blobVal[0].addr), nv.blobVal.len.idx_t)
+  of nvList:
+    if nv.listVal.len == 0:
+      raise newException(ValueError,
+        "cannot derive an element type for an empty nvList; " &
+        "use typed bindVal/append overloads instead")
+    let elDuck = duckTypeOfNimValue(nv.listVal[0])
+    if elDuck.isNone:
+      raise newException(ValueError,
+        "cannot derive a DuckDB type for list element kind " & $nv.listVal[0].kind)
+    # require a homogeneous element type
+    for el in nv.listVal:
+      if duckTypeOfNimValue(el) != elDuck:
+        raise newException(ValueError,
+          "nvList elements have mixed DuckDB types; " &
+          "use typed bindVal/append overloads instead")
+    # `duckdb_create_list_value` takes the CHILD type (it wraps it in a LIST)
+    let elType = duckdb_create_logical_type(duckdb_type(elDuck.get.ord))
+    var values = newSeq[duckdb_value](nv.listVal.len)
+    for i, el in nv.listVal:
+      values[i] = toDuckValue(el)
+    result = duckdb_create_list_value(elType,
+      cast[ptr duckdb_value](values[0].addr), values.len.idx_t)
+    for v in values:
+      duckdb_destroy_value(v.addr)
+    duckdb_destroy_logical_type(elType.addr)
+  of nvStruct:
+    if nv.fields.len == 0:
+      raise newException(ValueError,
+        "cannot derive a DuckDB type for an empty nvStruct; " &
+        "use typed bindVal/append overloads instead")
+    var mtypes = newSeq[duckdb_logical_type](nv.fields.len)
+    var mnames = newSeq[string](nv.fields.len)
+    var mnamesC = newSeq[cstring](nv.fields.len)
+    for i, (name, el) in nv.fields:
+      let dt = duckTypeOfNimValue(el)
+      if dt.isNone:
+        raise newException(ValueError,
+          "cannot derive a DuckDB type for struct member '" & name &
+          "' (kind " & $el.kind & ")")
+      mtypes[i] = duckdb_create_logical_type(duckdb_type(dt.get.ord))
+      mnames[i] = name
+      mnamesC[i] = mnames[i].cstring
+    let structType = duckdb_create_struct_type(
+      cast[ptr duckdb_logical_type](mtypes[0].addr),
+      cast[ptr cstring](mnamesC[0].addr), nv.fields.len.idx_t)
+    var values = newSeq[duckdb_value](nv.fields.len)
+    for i, (name, el) in nv.fields:
+      values[i] = toDuckValue(el)
+    result = duckdb_create_struct_value(structType,
+      cast[ptr duckdb_value](values[0].addr))
+    for t in mtypes:
+      duckdb_destroy_logical_type(t.addr)
+    for v in values:
+      duckdb_destroy_value(v.addr)
+    duckdb_destroy_logical_type(structType.addr)
+  of nvMap, nvUnion:
     raise newException(ValueError,
       "toDuckValue not yet implemented for complex kinds (" & $nv.kind &
       "); use typed bindVal/append overloads instead")

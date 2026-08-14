@@ -10,7 +10,7 @@ when defined(features.nimdrake.arrow):
       var stmt = conn.newStatement(
         "SELECT seq FROM generate_series(1, 100) AS t(seq)"
       )
-      var qrs = conn.execute(stmt)
+      var qrs = conn.executeStreaming(stmt)
       var totalRows = 0'i64
       var values: seq[int64] = @[]
       for batch in toArrowStream(qrs):
@@ -27,7 +27,7 @@ when defined(features.nimdrake.arrow):
       var stmt = conn.newStatement(
         "SELECT 1::BIGINT AS i, 'x'::VARCHAR AS s, true AS b"
       )
-      var qrs = conn.execute(stmt)
+      var qrs = conn.executeStreaming(stmt)
       for batch in toArrowStream(qrs):
         let s = batch.schema
         check s.nFields == 3
@@ -45,7 +45,7 @@ when defined(features.nimdrake.arrow):
           1.5::DOUBLE  AS double_col,
           true         AS bool_col
       """)
-      var qrs = conn.execute(stmt)
+      var qrs = conn.executeStreaming(stmt)
       for batch in toArrowStream(qrs):
         check batch.nRows == 1
         check batch[0, int64][0] == 42'i64
@@ -60,7 +60,7 @@ when defined(features.nimdrake.arrow):
           CASE WHEN seq % 2 = 0 THEN seq ELSE NULL END AS maybe_int
         FROM generate_series(1, 10) AS t(seq)
       """)
-      var qrs = conn.execute(stmt)
+      var qrs = conn.executeStreaming(stmt)
       for batch in toArrowStream(qrs):
         let arr = batch[0, int64]
         check arr.nNulls == 5
@@ -79,7 +79,7 @@ when defined(features.nimdrake.arrow):
       var stmt = conn.newStatement(
         "SELECT seq FROM generate_series(1, 6000) AS t(seq)"
       )
-      var qrs = conn.execute(stmt)
+      var qrs = conn.executeStreaming(stmt)
       var totalRows = 0'i64
       var batchCount = 0
       var firstVal, lastVal: int64
@@ -102,7 +102,7 @@ when defined(features.nimdrake.arrow):
       var stmt = conn.newStatement(
         "SELECT 1 AS i WHERE false"
       )
-      var qrs = conn.execute(stmt)
+      var qrs = conn.executeStreaming(stmt)
       var batchCount = 0
       for batch in toArrowStream(qrs):
         inc batchCount
@@ -113,7 +113,7 @@ when defined(features.nimdrake.arrow):
       var stmt = conn.newStatement(
         "SELECT 'item_' || seq::VARCHAR AS label FROM generate_series(1, 3) AS t(seq)"
       )
-      var qrs = conn.execute(stmt)
+      var qrs = conn.executeStreaming(stmt)
       for batch in toArrowStream(qrs):
         let arr = batch[0, string]
         check arr.toSeq == @["item_1", "item_2", "item_3"]
@@ -125,7 +125,7 @@ when defined(features.nimdrake.arrow):
           1.5::DOUBLE AS d,
           2.5::FLOAT  AS f
       """)
-      var qrs = conn.execute(stmt)
+      var qrs = conn.executeStreaming(stmt)
       for batch in toArrowStream(qrs):
         check batch[0, float64][0] == 1.5
         check batch[1, float32][0] == 2.5'f32
@@ -135,7 +135,7 @@ when defined(features.nimdrake.arrow):
       var stmt = conn.newStatement(
         "SELECT 1::BIGINT AS first_col, 'x'::VARCHAR AS middle_col, true AS last_col"
       )
-      var qrs = conn.execute(stmt)
+      var qrs = conn.executeStreaming(stmt)
       for batch in toArrowStream(qrs):
         let s = batch.schema
         check s.nFields == 3
@@ -151,7 +151,7 @@ when defined(features.nimdrake.arrow):
       var stmt = conn.newStatement(
         "SELECT seq % 2 = 0 AS is_even FROM generate_series(1, 4) AS t(seq)"
       )
-      var qrs = conn.execute(stmt)
+      var qrs = conn.executeStreaming(stmt)
       for batch in toArrowStream(qrs):
         let arr = batch[0, bool]
         check arr.toSeq == @[false, true, false, true]
@@ -163,7 +163,7 @@ when defined(features.nimdrake.arrow):
         conn.execute("INSERT INTO tm VALUES (" & $i & ")")
       var batchCount = 0
       let stmt = conn.newStatement("SELECT * FROM tm ORDER BY n")
-      for batch in conn.execute(stmt).toArrowStream():
+      for batch in conn.executeStreaming(stmt).toArrowStream():
         let arr = batch[0, int64]
         check arr.toSeq == @[1'i64, 2, 3, 4, 5]
         inc batchCount
@@ -174,7 +174,7 @@ when defined(features.nimdrake.arrow):
       var batchCount = 0
       var total = 0
       let stmt = conn.newStatement("SELECT generate_series::BIGINT AS n FROM generate_series(1, 6000)")
-      for batch in conn.execute(stmt).toArrowStream():
+      for batch in conn.executeStreaming(stmt).toArrowStream():
         total += batch[0, int64].len
         inc batchCount
       check total == 6000
@@ -183,7 +183,7 @@ when defined(features.nimdrake.arrow):
     test "materialized: schema column names":
       let conn = newDatabase().connect()
       let stmt = conn.newStatement("SELECT 1::BIGINT AS first_col, 'x'::VARCHAR AS middle_col, true AS last_col")
-      for batch in conn.execute(stmt).toArrowStream():
+      for batch in conn.executeStreaming(stmt).toArrowStream():
         let s = batch.schema
         check s.nFields == 3
         check s[0].name == "first_col"
@@ -195,7 +195,7 @@ when defined(features.nimdrake.arrow):
       conn.execute("CREATE TABLE tv (label VARCHAR, val DOUBLE)")
       conn.execute("INSERT INTO tv VALUES ('alpha', 1.5), ('beta', 2.5)")
       let stmt = conn.newStatement("SELECT * FROM tv ORDER BY label")
-      for batch in conn.execute(stmt).toArrowStream():
+      for batch in conn.executeStreaming(stmt).toArrowStream():
         check batch[0, string].toSeq == @["alpha", "beta"]
         check batch[1, float64].toSeq == @[1.5, 2.5]
 
@@ -203,7 +203,7 @@ when defined(features.nimdrake.arrow):
       let conn = newDatabase().connect()
       var batchCount = 0
       let stmt = conn.newStatement("SELECT 1 AS i WHERE false")
-      for batch in conn.execute(stmt).toArrowStream():
+      for batch in conn.executeStreaming(stmt).toArrowStream():
         inc batchCount
       check batchCount == 0
 
@@ -217,7 +217,7 @@ when defined(features.nimdrake.arrow):
       """
       let conn = newDatabase().connect()
       let stmt = conn.newStatement(query)
-      let table = conn.execute(stmt).toArrowTable()
+      let table = conn.executeStreaming(stmt).toArrowTable()
       check table.nRows == 2
       check table.nColumns == 7
       check @(table[0, int64]) == @[1'i64, 2]

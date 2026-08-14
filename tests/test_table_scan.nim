@@ -46,7 +46,7 @@ test "register QResult[Streaming] — query on same conn":
   let stmt = connQuery.newStatement(
     "SELECT seq, seq || '_s' AS s FROM generate_series(1, 3) AS t(seq)"
   )
-  let streamQr = connQuery.execute(stmt)
+  let streamQr = connQuery.executeStreaming(stmt)
 
   connReg.register(streamQr, name = "stream_table")
 

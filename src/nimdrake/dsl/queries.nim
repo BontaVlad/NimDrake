@@ -22,8 +22,6 @@
 ## - `transaction`, `transient` — re-exported from `nimdrake/transaction`.
 ##   For "swallow unique-violation" patterns, use a plain `try`/`except`
 ##   around a `query` call.
-##   For "swallow unique-violation" patterns, use a plain `try`/`except`
-##   around a `query` call.
 ##
 ## Clause support
 ## ===============
@@ -117,13 +115,9 @@ proc placeholder(q: QueryBuilder): string {.compileTime.} =
   result = "$" & $q.qmark
 
 proc escIdent(dest: var string; src: string) {.inline.} =
-  ## Emits an identifier verbatim. DuckDB accepts unquoted identifiers; we
-  ## avoid double-quoting to keep generated SQL readable. Tokens that need
-  ## quoting will be caught by DuckDB at parse time.
-  if src.len > 0 and src[0] == '"' and src[^1] == '"':
-    dest.add src
-  else:
-    dest.add src
+  ## Emits an identifier verbatim (unquoted). DuckDB accepts unquoted
+  ## identifiers; tokens that need quoting are caught by DuckDB at parse time.
+  dest.add src
 
 proc nodeName(n: NimNode): string {.compileTime.} =
   case n.kind

@@ -278,6 +278,15 @@ suite "DataChunk write []= — temporal":
     check w[0] == ts1
     check w[1] == ts2
 
+  test "timestamp round-trip preserves microseconds":
+    let cols = @[newColumn("t", newLogicalType(DuckType.Timestamp))]
+    let c = newDataChunk(cols)
+    c.setSize(1)
+    var w = c.bindAs(0, DuckType.Timestamp)
+    let ts = Timestamp(dateTime(2024, mMar, 1, 1, 2, 3, 42_000, zone = utc()))
+    w[0] = ts
+    check w[0] == ts
+
   test "date round-trip":
     let cols = @[newColumn("d", newLogicalType(DuckType.Date))]
     let c = newDataChunk(cols)
@@ -981,16 +990,15 @@ suite "DataChunk write []= — temporal variants":
     let c = newDataChunk(cols)
     c.setSize(2)
     var w = c.bindAs(0, DuckType.TimestampTz)
+    # utcOffset is display metadata: the instant in `time` is written as-is
+    # (TIMESTAMPTZ stores the UTC instant only).
     let z1 = ZonedTime(time: initTime(3600, 0), utcOffset: 60, isDst: false)
-    let z2 = ZonedTime(time: initTime(7200, 500_000_000), utcOffset: -120, isDst: false)
+    let z2 = ZonedTime(time: initTime(4 * 3600, 500_000_000), utcOffset: -120, isDst: false)
     w[0] = z1
     w[1] = z2
-    # The write path converts local wall-clock → UTC via utcOffset:
-    #   01:00:00 +01 → 00:00:00 UTC
-    #   02:00:00.5 −02 → 04:00:00.5 UTC
-    check w[0].time == initTime(0, 0)
+    check w[0].time == z1.time
     check w[0].utcOffset == 0
-    check w[1].time == initTime(4 * 3600, 500_000_000)
+    check w[1].time == z2.time
     check w[1].utcOffset == 0
 
   test "TimestampS round-trip":

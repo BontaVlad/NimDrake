@@ -215,15 +215,22 @@ suite "Test result types":
 
 test "TimestampTz round-trip (codec: fromDuckTimestampTz / toDuckTimestampTz)":
   let conn = newDatabase().connect()
-  # 12:30 at +05 == 07:30 UTC. The wrapper stores UTC only (offset is not part
-  # of DuckDB's TIMESTAMPTZ value), so the read-back time-of-day is 07:30.
+  # 12:30 at +05 == 07:30 UTC. TIMESTAMPTZ stores the UTC instant only; the
+  # zone offset is not part of the value, so the read-back time is 07:30 UTC
+  # with utcOffset 0. The full date is preserved.
   let r = conn.execute("SELECT TIMESTAMPTZ '2020-06-15 12:30:00+05'")
   for chunk in r:
     let v = chunk.vector(0).bindAs DuckType.TimestampTz
     let z = v[0]
-    check z.time == initTime(7 * 3600 + 30 * 60, 0)
+    check z.time == dateTime(2020, mJun, 15, 7, 30, 0, zone = utc()).toTime
     check z.utcOffset == 0
     check z.isDst == false
+
+  # A pre-epoch TIMESTAMPTZ must survive with its date intact.
+  let r2 = conn.execute("SELECT TIMESTAMPTZ '1969-07-20 20:17:40+00'")
+  for chunk in r2:
+    let z = chunk.vector(0).bindAs(DuckType.TimestampTz)[0]
+    check z.time == dateTime(1969, mJul, 20, 20, 17, 40, zone = utc()).toTime
 
 test "TimestampS / Ms / Ns sub-second preservation (codec: fromDuckTimestamp*)":
   let conn = newDatabase().connect()
@@ -240,6 +247,24 @@ test "TimestampS / Ms / Ns sub-second preservation (codec: fromDuckTimestamp*)":
     check ms.year == 2020
     let ns = chunk.vector(2).bindAs(DuckType.TimestampNs)[0]
     check ns.year == 2020
+
+test "toTimestamp preserves microseconds":
+  let dt = dateTime(2024, mJan, 1, 12, 30, 45, 123_000).inZone(utc())
+  let raw = toTimestamp(Timestamp(dt))
+  check raw.micros == dt.toTime.toUnix * 1_000_000 + 123
+  let back = fromTimestamp(raw.micros)
+  check DateTime(back) == dt
+
+test "toDatetime pre-epoch dates":
+  # floorDiv semantics: any time within a calendar day maps to that day's
+  # epoch-day index (truncation toward zero would map 1969-12-31T12:00 to
+  # day 0 = 1970-01-01, which is wrong).
+  check toDatetime(dateTime(1969, mDec, 31, 12, 0, 0, zone = utc())).days == -1'i32
+  check toDatetime(dateTime(1969, mDec, 31, 0, 0, 0, zone = utc())).days == -1'i32
+  check toDatetime(dateTime(1970, mJan, 2, 0, 0, 0, zone = utc())).days == 1'i32
+  # Dates carry only the day: a round-trip returns midnight of the same day.
+  check fromDatetime(toDatetime(dateTime(1969, mJul, 20, 20, 17, 0, zone = utc()))) ==
+        dateTime(1969, mJul, 20, 0, 0, 0, zone = utc())
 
 test "UHugeInt round-trip (codec: toUHugeInt / fromUHugeInt)":
   let conn = newDatabase().connect()

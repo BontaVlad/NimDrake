@@ -1,5 +1,5 @@
-import std/[macros, strformat]
-import /[ffi, database, types, qresult, exceptions]
+import std/[macros, strformat, times]
+import /[ffi, database, types, qresult, codec, exceptions]
 import /tools/wrench
 
 type
@@ -203,9 +203,9 @@ macro registerTableFunction*(con: typed, iterSym: typed,
       newCall(bindSym"duckdb_get_double", val))
     of "string": nnkPrefix.newTree(ident"$",
       newCall(bindSym"duckdb_get_varchar", val))
-    of "DateTime": nnkCall.newTree(ident"DateTime",
-      newDotExpr(newCall(bindSym"duckdb_get_timestamp", val), ident"micros"))
-    of "Time": nnkCall.newTree(ident"Time",
+    of "DateTime": newCall(bindSym"DateTime", newCall(bindSym"fromTimestamp",
+      newDotExpr(newCall(bindSym"duckdb_get_timestamp", val), ident"micros")))
+    of "Time": newCall(bindSym"fromDuckTime",
       newDotExpr(newCall(bindSym"duckdb_get_time", val), ident"micros"))
     else:
       error("unsupported bind-param type: " & nmt, val)

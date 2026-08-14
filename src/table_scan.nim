@@ -1,4 +1,4 @@
-import std/[tables, strformat, locks, macros]
+import std/[tables, strformat, locks, macros, sets]
 import /[ffi, database, types, qresult, table_functions, query]
 
 # ---------------------------------------------------------------------------
@@ -32,8 +32,10 @@ type
   ScanRegistry = ref object
     ## One per database (keyed by `rawDbHandle` in `extraDataRegistry`).
     ## Carries the registered name -> entry table shared by every connection
-    ## on that database.
+    ## on that database, plus the set of connections that already registered
+    ## the `nim_tbl_scan` function.
     data: Table[string, RegistryEntry]
+    registeredCons: HashSet[pointer]
 
   InitData = ref object
     ## The per-scan fill closure, boxed so it can live in DuckDB's init-data
@@ -146,7 +148,13 @@ proc ensureRegistered(con: Connection): ScanRegistry =
     extraDataRegistry[dbKey] = result
     scanLock.release()
 
-  if not isNimTableScanRegistered(con):
+  # The `duckdb_functions()` probe is a catalog scan; only run it once per
+  # connection. A stale `true` after disconnect + handle reuse is possible
+  # (the per-connection catalog entry no longer exists) — accepted.
+  scanLock.acquire()
+  let alreadyRegistered = con.rawHandle in result.registeredCons
+  scanLock.release()
+  if not alreadyRegistered and not isNimTableScanRegistered(con):
     let tf = newTableFunction(
       name = "nim_tbl_scan",
       parameters = @[newLogicalType(DuckType.Varchar)],
@@ -156,6 +164,9 @@ proc ensureRegistered(con: Connection): ScanRegistry =
       extraData = cast[ref RootObj](cast[pointer](result)),
     )
     con.register(tf)
+    scanLock.acquire()
+    result.registeredCons.incl(con.rawHandle)
+    scanLock.release()
 
 # ---------------------------------------------------------------------------
 # Database close hook — clean up the registry entry when a DB is destroyed

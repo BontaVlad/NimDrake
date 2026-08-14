@@ -32,6 +32,7 @@ echo r
 ```
 
 
+
 ## Stream results chunk by chunk
 
 For large result sets, iterate chunks to avoid loading everything into memory:
@@ -44,7 +45,7 @@ let stmt = con.newStatement(
   "SELECT i FROM generate_series(1, 1_000_000) AS t(i)"
 )
 var count = 0
-for chunk in con.execute(stmt):
+for chunk in con.executeStreaming(stmt):
   let v = chunk.vector(0).bindAs DuckType.BigInt
   count += v.len
 echo "Total rows: ", count
@@ -53,6 +54,7 @@ echo "Total rows: ", count
 ```
 Total rows: 1000000
 ```
+
 
 
 ## Use prepared statements for repeated queries
@@ -85,6 +87,7 @@ echo r
 ```
 
 
+
 ## Query CSV and Parquet files directly
 
 DuckDB can query files without importing them:
@@ -113,6 +116,7 @@ echo r
 ```
 
 
+
 ## Handle errors gracefully
 
 Invalid SQL raises `OperationError`:
@@ -133,5 +137,6 @@ Caught error: execute query: Parser Error: syntax error at or near "THIS"
 LINE 1: THIS IS NOT VALID SQL
         ^
 ```
+
 
 

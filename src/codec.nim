@@ -45,8 +45,8 @@ proc fromTimestamp*(val: duckdb_timestamp): Timestamp {.inline.} =
   fromTimestamp(val.micros)
 
 proc toTimestamp*(val: Timestamp): duckdb_timestamp {.inline.} =
-  let ms = convert(Seconds, Microseconds, val.toTime.toUnix)
-  duckdb_timestamp(micros: ms)
+  let t = val.toTime
+  duckdb_timestamp(micros: t.toUnix * 1_000_000 + (t.nanosecond div 1_000))
 
 # ---------------------------------------------------------------------------
 # DateTime / Date ↔ duckdb_date
@@ -55,8 +55,7 @@ proc toTimestamp*(val: Timestamp): duckdb_timestamp {.inline.} =
 proc toDatetime*(val: DateTime): duckdb_date {.inline.} =
   let
     timeInfo = val.inZone(utc())
-    unixSeconds = timeInfo.toTime.toUnix
-    days = convert(Seconds, Days, unixSeconds)
+    days = floorDiv(timeInfo.toTime.toUnix, 86_400)
   duckdb_date(days: days.int32)
 
 proc fromDatetime*(val: int32): DateTime {.inline.} =
@@ -147,8 +146,9 @@ proc fromDuckTimeTz*(raw: int64): ZonedTime {.inline.} =
   ZonedTime(time: initTime(seconds, nanoseconds), utcOffset: tmz.offset, isDst: false)
 
 proc fromDuckTimestampTz*(raw: int64): ZonedTime {.inline.} =
-  let microsInDay = floorMod(raw, 86_400_000_000'i64)
-  let (s, us) = divMod(microsInDay, 1_000_000)
+  ## TIMESTAMPTZ is microseconds since epoch in UTC. The zone offset is not
+  ## part of the stored value; `utcOffset` is always 0 on read.
+  let (s, us) = divMod(raw, 1_000_000)
   ZonedTime(time: initTime(s, us * 1_000), utcOffset: 0, isDst: false)
 
 proc fromDuckUuid*(raw: duckdb_hugeint): Uuid {.inline.} =
@@ -217,12 +217,10 @@ proc toDuckTimeTz*(val: ZonedTime): int64 {.inline.} =
   cast[int64](packed.bits)
 
 proc toDuckTimestampTz*(val: ZonedTime): int64 {.inline.} =
-  ## DuckDB TIMESTAMPTZ stores microseconds since epoch in UTC; the offset is
-  ## not part of the value. Convert the local wall-clock time to its UTC
-  ## instant by subtracting the offset (minutes). The codec is time-of-day
-  ## based (date 1970-01-01), so the result is floored into a day.
-  let wallMicros = val.time.toUnix * 1_000_000 + (val.time.nanosecond div 1_000)
-  floorMod(wallMicros - val.utcOffset * 60 * 1_000_000, 86_400_000_000'i64)
+  ## Writes the instant `val.time` as UTC micros since epoch. `utcOffset`
+  ## is display metadata and is not applied; convert a wall-clock time to
+  ## an instant before writing if needed.
+  val.time.toUnix * 1_000_000 + (val.time.nanosecond div 1_000)
 
 proc toDuckUuid*(val: Uuid): duckdb_hugeint {.inline.} =
   ## Inverse of `fromDuckUuid`: flips bit 63 of the upper half back on.

@@ -125,6 +125,44 @@ suite "Prepared/Appender statements":
       check chunk.bindAs(10, DuckType.Double).toSeq == @[3.14159265359'f64]
       check chunk.bindAs(11, DuckType.Varchar).toSeq == @["hello"]
 
+  test "Insert with blob appender":
+    let conn = newDatabase().connect()
+    conn.execute("CREATE TABLE blob_t (b BLOB)")
+    var app = conn.newAppender("blob_t")
+    app.append(@[1'u8, 2, 3])
+    app.endRow()
+    app.append(newSeq[byte]())
+    app.endRow()
+    app.close()
+    let r = conn.execute("SELECT b FROM blob_t")
+    for chunk in r:
+      let v = chunk.bindAs(0, DuckType.Blob)
+      check v[0] == @[1'u8, 2, 3]
+      check v[1] == newSeq[byte]()
+
+  test "string round-trips embedded NUL and empty string":
+    let conn = newDatabase().connect()
+    conn.execute("CREATE TABLE s_t (s VARCHAR)")
+    var app = conn.newAppender("s_t")
+    app.append("a\0b")
+    app.endRow()
+    app.append("")
+    app.endRow()
+    app.close()
+    # An empty string is a real empty string, never a NULL.
+    var nullCount = -1'i64
+    for chunk in conn.execute("SELECT count(*)::BIGINT FROM s_t WHERE s IS NULL"):
+      nullCount = chunk.bindAs(0, DuckType.BigInt)[0]
+    check nullCount == 0
+    # The prepared-statement bind preserves embedded NUL bytes.
+    var stmt = conn.newStatement("SELECT s FROM s_t WHERE s = ?")
+    check stmt.bindVal(1, "a\0b") == enumDuckDbState.Duckdbsuccess
+    let r = conn.executeMaterialized(stmt)
+    for chunk in r:
+      let v = chunk.bindAs(0, DuckType.Varchar)
+      check v.len == 1
+      check v[0] == "a\0b"
+
   test "Insert with already made prepared statement":
     let conn = newDatabase().connect()
     conn.execute(
@@ -775,7 +813,7 @@ suite "Test pending statement queries":
       prepared = conn.newStatement("SELECT SUM(i) FROM range(1000000) tbl(i);")
       pending = newPendingStreamingResult(prepared)
 
-    let outcome = pending.execute()
+    let outcome = pending.executeStreaming()
     for chunk in outcome:
       check chunk.bindAs(0, DuckType.HugeInt)[0] == i128("499999500000")
 
@@ -792,7 +830,7 @@ suite "Test pending statement queries":
       elif state == PendingState.Error:
         break
 
-    let outcome = pending.execute()
+    let outcome = pending.executeStreaming()
     for chunk in outcome:
       check chunk.bindAs(0, DuckType.HugeInt)[0] == i128("499999500000")
 
@@ -811,7 +849,7 @@ suite "Test pending statement queries":
       elif state == PendingState.NotReady:
         continue
 
-    var res = pending.execute()
+    var res = pending.executeStreaming()
     check res.meta.columns.len == 1
     var total = 0
     for chunk in res:
@@ -957,7 +995,7 @@ suite "Pending statement state machine":
       elif state == PendingState.NotReady:
         continue
     check steps > 0
-    let r = pending.execute()
+    let r = pending.executeStreaming()
     var total = 0
     for chunk in r:
       total += chunk.len
@@ -970,7 +1008,7 @@ suite "Pending statement state machine":
     # exercised here on every build.
     let conn = newDatabase().connect()
     let prepared = conn.newStatement("SELECT i FROM range(10000) t(i)")
-    let r = conn.execute(prepared)
+    let r = conn.executeStreaming(prepared)
     # iterate a few chunks then drop the ref — ASan catches double-free / leak
     var seen = 0
     for chunk in r:
