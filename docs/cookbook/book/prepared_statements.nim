@@ -93,4 +93,65 @@ nbCode:
     let r = con.execute("SELECT count(*)::BIGINT AS n FROM counters")
     echo r
 nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
+## Reuse a prepared statement
+
+Prepare once, bind many times — DuckDB reuses the parsed plan:
+"""
+
+nbCode:
+  block:
+    let con = newDatabase().connect()
+    con.execute("CREATE TABLE reuse_test (x BIGINT, y VARCHAR)")
+
+    let stmt = con.newStatement("INSERT INTO reuse_test VALUES (?, ?)")
+    for i in 1 .. 3:
+      con.executeMaterialized(stmt, (i.int64, "item_" & $i))
+
+    let r = con.execute("SELECT * FROM reuse_test ORDER BY x")
+    echo r
+
+nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
+## Bind NULL values
+
+`bindNull(statement, index)` marks a parameter as SQL NULL:
+"""
+
+nbCode:
+  block:
+    let con = newDatabase().connect()
+    con.execute("CREATE TABLE nullable_table (int_val INTEGER, str_val VARCHAR)")
+
+    let stmt = con.newStatement("INSERT INTO nullable_table VALUES (?, ?)")
+    discard bindNull(stmt, 1)
+    discard bindNull(stmt, 2)
+    con.executeMaterialized(stmt)
+
+    let r = con.execute("SELECT int_val, str_val FROM nullable_table")
+    for chunk in r:
+      echo "int is NULL? ", not chunk.vector(0).valid(0)
+      echo "str is NULL? ", not chunk.vector(1).valid(0)
+
+nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
+## Prepared SELECT
+
+Prepared statements aren't just for DML — parameterized reads stream
+results like any other query:
+"""
+
+nbCode:
+  block:
+    let con = newDatabase().connect()
+    con.execute("CREATE TABLE people (id BIGINT, name VARCHAR)")
+    for i in 1 .. 5:
+      con.executeMaterialized("INSERT INTO people VALUES (?, ?)", (i.int64, "p" & $i))
+
+    let stmt = con.newStatement("SELECT name FROM people WHERE id >= ?")
+    let r = con.executeStreaming(stmt, (3.int64,))
+    for chunk in r:
+      for name in chunk.bindAs(0, DuckType.Varchar):
+        echo name
+nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
 nbSave

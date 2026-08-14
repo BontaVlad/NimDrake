@@ -9,6 +9,4 @@ var book = initBookWithToc:
   entry("Bulk Insert with Appender", "bulk_insert")
   entry("User-Defined Functions", "user_defined_functions")
   entry("Complex Types", "complex_types")
-  entry("Transactions", "transactions")
-  entry("Configuration", "configuration")
 nimibookCli(book)

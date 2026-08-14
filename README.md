@@ -11,19 +11,19 @@
 <br>
 
 NimDrake is a [Nim](https://nim-lang.org/) binding for
-[DuckDB](https://duckdb.org/) — the in-process analytical SQL engine.
+[DuckDB](https://duckdb.org/) — the in-process analytical SQL OLAP DBMS.
+
 ## Features
 
 - **Zero-copy reads** — results are exposed as typed views over DuckDB's own
-  columnar buffers. Primitives (`int64`, `float64`, …) are read in place;
-  only `string`, `blob`, `decimal`, `UUID` are copied per value.
+  columnar buffers. Primitives (`int64`, `float64`, …) are zero-copy;
 - **Layered API** — high-level `execute`, pretty-printing, tuple-bound
   prepared statements, appender, cross-chunk `Table` views; low-level
   `Vector[kt]`, streaming chunks, raw FFI handles.
 - **UDFs** — register Nim procs and `{.closure.}` iterators as DuckDB scalar,
   aggregate, and table functions. Per-row work stays inside the engine.
 - **Arrow export** — optional `narrow` integration streams results as Arrow
-  record batches.
+  record batches or tables.
 - **Full type system** — all 42 DuckDB types mapped, including List, Array,
   Struct, Map, Union, Decimal, UUID, and 128-bit integers. Complex kinds are
   exposed via zero-copytyped container views: `bindAs Table[K,V]`,

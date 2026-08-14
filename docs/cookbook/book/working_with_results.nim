@@ -109,4 +109,65 @@ nbCode:
     echo col[0]     # first row
     echo col[4999]  # last row
 nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
+## Iterate values directly
+
+A bound vector is itself iterable — no index juggling needed:
+"""
+
+nbCode:
+  block:
+    let con = newDatabase().connect()
+    let r = con.execute("SELECT i FROM generate_series(1, 5) AS t(i)")
+
+    for chunk in r:
+      for v in chunk.vector(0).bindAs(DuckType.BigInt):
+        echo "value: ", v
+
+nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
+## Result metadata
+
+`columns` reports the result schema — name and `DuckType` per column:
+"""
+
+nbCode:
+  block:
+    let con = newDatabase().connect()
+    let r = con.execute(
+      "SELECT 42::INTEGER AS id, 'hi'::VARCHAR AS msg, 1.5::DOUBLE AS ratio"
+    )
+
+    for col in r.columns:
+      echo col.name, " -> ", col.kind
+
+nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
+## Single-value results with scalar
+
+For one-column, one-row results, `scalar` returns the value directly — or
+`scalar(kt)` for a typed Nim value:
+"""
+
+nbCode:
+  block:
+    let con = newDatabase().connect()
+    let r = con.execute("SELECT count(*)::BIGINT FROM generate_series(1, 10)")
+
+    echo "count: ", r.scalar(DuckType.BigInt)
+
+nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
+## Materialized result length
+
+A materialized result knows its row count up front:
+"""
+
+nbCode:
+  block:
+    let con = newDatabase().connect()
+    let r = con.execute("SELECT i FROM generate_series(1, 1000) AS t(i)")
+
+    echo "rows: ", r.len
+nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
 nbSave

@@ -168,4 +168,76 @@ nbCode:
     """)
     echo r
 nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
+## Mixed parameter types
+
+Parameters and return values can mix — the macro maps Nim types to DuckDB
+types from the proc signature:
+"""
+
+nbCode:
+  block:
+    proc repeatStr(s: string, n: int64): string =
+      s.repeat(n.int)
+
+    let con = newDatabase().connect()
+    con.registerScalar(repeatStr)
+
+    let r = con.execute("SELECT repeatStr('ab'::VARCHAR, 3::BIGINT)")
+    echo r
+
+nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
+## Aggregate with a multi-field state
+
+State can hold anything — here an average needs both a running total and a
+count:
+"""
+
+nbCode:
+  block:
+    type AvgState = object
+      total: int64
+      count: int64
+
+    proc avgInit(s: var AvgState) =
+      s.total = 0
+      s.count = 0
+
+    proc avgUpdate(s: var AvgState, val: int64) =
+      s.total += val
+      s.count += 1
+
+    proc avgCombine(dest: var AvgState, src: AvgState) =
+      dest.total += src.total
+      dest.count += src.count
+
+    proc avgFinalize(s: AvgState): float64 =
+      if s.count == 0: 0.0 else: s.total.float64 / s.count.float64
+
+    let con = newDatabase().connect()
+    con.registerAggregate("my_avg", avgInit, avgUpdate, avgCombine, avgFinalize)
+
+    let r = con.execute("SELECT my_avg(i) FROM generate_series(1, 10) AS t(i)")
+    echo r
+
+nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
+## Table function with string parameters
+
+String parameters work too — useful for generators over text sources:
+"""
+
+nbCode:
+  block:
+    iterator suffix(count: int, tag: string): string {.closure.} =
+      for i in 0 ..< count:
+        yield tag & "_" & $i
+
+    let con = newDatabase().connect()
+    con.registerTableFunction(suffix)
+
+    let r = con.execute("SELECT * FROM suffix(3, 'evt')")
+    echo r
+nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
 nbSave

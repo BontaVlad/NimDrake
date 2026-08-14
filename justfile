@@ -72,8 +72,15 @@ fetch-lib:
 # Build the cookbook with nimibook; every snippet is executed and its output
 # embedded in the book. Fails if any snippet breaks. Requires nimibook
 # (`nimble install -y nimibook`) and libpcre on Linux (Ubuntu: libpcre3).
+# When pcre is only available in the user's home (e.g. ~/.local/lib), it is
+# picked up via LD_LIBRARY_PATH below. A missing directory is harmless.
 cookbook:
-    cd docs/cookbook && nim r nbook.nim init && nim r nbook.nim build --mm:arc
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$HOME/.local/lib"
+    cd docs/cookbook
+    nim r nbook.nim init
+    nim r nbook.nim build --mm:arc
 
 # Render the cookbook book (same as `cookbook`; kept for compatibility).
 docs:

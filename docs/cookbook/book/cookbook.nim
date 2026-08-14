@@ -35,7 +35,5 @@ All recipes assume these imports and a live connection `con`.
 * [Bulk Insert with Appender](bulk_insert.html)
 * [User-Defined Functions](user_defined_functions.html)
 * [Complex Types](complex_types.html)
-* [Transactions](transactions.html)
-* [Configuration](configuration.html)
 """
 nbSave

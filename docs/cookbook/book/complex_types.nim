@@ -199,4 +199,66 @@ nbCode:
       for (name, val) in s[0]:
         echo name, " = ", $val
 nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
+### Union values
+
+A union holds exactly one member — `toUnion` gives the tag name and value:
+"""
+
+nbCode:
+  block:
+    let con = newDatabase().connect()
+    let r = con.execute("SELECT union_value(num := 99)")
+
+    for chunk in r:
+      let v = chunk.vector(0).bindAs DuckType.Union
+      for (name, val) in toUnion(v):
+        echo name, " = ", $val
+
+nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
+## Nested structures with toNimValue
+
+`toNimValue(cv, i)` recursively materializes arbitrarily nested values —
+lists of structs, structs containing lists, maps of lists:
+"""
+
+nbCode:
+  block:
+    let con = newDatabase().connect()
+    let r = con.execute("SELECT [{'a': 1, 'b': 2}, {'a': 3, 'b': 4}]")
+
+    for chunk in r:
+      let nv = chunk.vector(0).toNimValue(0)
+      echo "kind: ", nv.kind
+      for (name, child) in nv.listVal[0].fields:
+        echo name, " = ", $child
+
+nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
+## Convenience materializers: toList and toMap
+
+`toList[kt]` and `toMap[K, V]` materialize whole columns of lists or maps
+into Nim `seq`s:
+"""
+
+nbCode:
+  block:
+    let con = newDatabase().connect()
+    let r = con.execute("""
+      SELECT [seq, seq + 1, seq + 2] FROM generate_series(1, 3) AS t(seq)
+    """)
+
+    for chunk in r:
+      let lst = toList[DuckType.BigInt](chunk.bindAs(0, DuckType.List))
+      echo lst
+
+  block:
+    let con = newDatabase().connect()
+    let r = con.execute("SELECT MAP(['a', 'b'], [10, 20])")
+
+    for chunk in r:
+      let mp = toMap[DuckType.Varchar, DuckType.Integer](chunk.bindAs(0, DuckType.Map))
+      echo mp
+nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
 nbSave

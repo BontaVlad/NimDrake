@@ -1,5 +1,6 @@
 import nimib, nimibook
 import nimdrake
+import std/options
 import std/strutils
 nbInit(theme = useNimibook)
 
@@ -95,9 +96,78 @@ nbCode:
       @["2", "two"],
       @["3", "three"],
     ]
-    con.newAppender("pairs", data)
+    con.appendRows("pairs", data)
 
     let r = con.execute("SELECT * FROM pairs ORDER BY a")
     echo r
+nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
+## Append NULL values with Option
+
+`append(none(T))` writes SQL NULL, `append(some(v))` a value:
+"""
+
+nbCode:
+  block:
+    let con = newDatabase().connect()
+    con.execute("CREATE TABLE null_test (i INTEGER, s VARCHAR, d DOUBLE)")
+
+    var appender = con.newAppender("null_test")
+    appender.append(some(1'i32))
+    appender.append(none(string))
+    appender.append(none(float64))
+    appender.endRow()
+    appender.append(some(2'i32))
+    appender.append(some("b"))
+    appender.append(some(2.5))
+    appender.endRow()
+    appender.close()
+
+    let r = con.execute("SELECT * FROM null_test ORDER BY i")
+    for chunk in r:
+      for row in 0 ..< chunk.len:
+        echo chunk.bindAs(0, DuckType.Integer)[row],
+          " s_valid=", chunk.vector(1).valid(row),
+          " d_valid=", chunk.vector(2).valid(row)
+
+nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
+## Append DEFAULT values
+
+`append()` with no argument lets DuckDB fill in the column default:
+"""
+
+nbCode:
+  block:
+    let con = newDatabase().connect()
+    con.execute("CREATE TABLE default_test (a INTEGER, b INTEGER DEFAULT 5)")
+
+    var appender = con.newAppender("default_test")
+    appender.append(42'i32)
+    appender.append()
+    appender.endRow()
+    appender.close()
+
+    let r = con.execute("SELECT * FROM default_test")
+    echo r
+
+nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
+## Column-count errors surface at endRow
+
+Column-count mistakes raise `OperationError` when the row is closed:
+"""
+
+nbCode:
+  block:
+    let con = newDatabase().connect()
+    con.execute("CREATE TABLE no_default_test (a INTEGER, b INTEGER)")
+
+    var appender = con.newAppender("no_default_test")
+    appender.append(1'i32)  # b has no default and was never appended
+    try:
+      appender.endRow()
+    except OperationError as e:
+      echo "Caught error: ", e.msg
 nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
 nbSave
