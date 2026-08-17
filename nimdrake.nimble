@@ -43,7 +43,7 @@ task test, "run testament":
   exec "find tests/ -type f ! -name \"*.*\" -delete 2> /dev/null"
 
 task docs, "Generate documentation":
-  exec "nimble doc --useSystemNim --verbose --docCmd:--passL:-lduckdb --project --out:docs --git.url:https://github.com/BontaVlad/NimDrake --git.commit:main src/nimdrake.nim"
+  exec "nimble doc --useSystemNim --verbose --docCmd:--passL:-lduckdb --project --outdir:docs --git.url:https://github.com/BontaVlad/NimDrake --git.commit:main src/nimdrake.nim"
 
 task generate, "Generate bindings":
   # Futhark is required only for binding generation, not for normal use

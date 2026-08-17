@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="NimDrake — a Nim binding for DuckDB, the in-process analytical SQL OLAP database. Zero-copy typed reads, prepared statements, appender bulk insert, user-defined functions, and a compile-time SQL DSL.">
+<title>NimDrake — DuckDB for Nim</title>
+<style>
+  :root {
+    --bg: #fbfbfc;
+    --panel: #ffffff;
+    --ink: #1e2329;
+    --ink-soft: #505a66;
+    --accent: #8a2be2;
+    --accent-soft: #f0e7fb;
+    --line: #e4e7ea;
+    --code-bg: #14161a;
+    --code-ink: #e6e9ee;
+    --code-dim: #8b93a0;
+    --code-kw: #ff7edb;
+    --code-str: #9ece6a;
+    --code-num: #ff9e64;
+    --code-com: #69707a;
+    --shadow: 0 1px 2px rgba(20, 24, 30, .05), 0 8px 24px rgba(20, 24, 30, .06);
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181d;
+      --panel: #1d2026;
+      --ink: #e6e9ee;
+      --ink-soft: #a3abb6;
+      --accent: #b06bff;
+      --accent-soft: #241a33;
+      --line: #2b2f37;
+      --code-bg: #0e1013;
+      --code-ink: #dde2e9;
+      --code-dim: #7d8590;
+      --code-com: #5c6570;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .3), 0 8px 24px rgba(0, 0, 0, .35);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.6;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 0 24px; }
+  header.site {
+    padding: 48px 0 24px;
+    text-align: center;
+  }
+  .logo { font-size: 40px; margin-bottom: 4px; }
+  h1 { font-size: 44px; margin: 8px 0 4px; letter-spacing: -.02em; }
+  .tagline { color: var(--ink-soft); font-size: 19px; margin: 0 0 18px; }
+  .badges { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .badge {
+    font-size: 13px; padding: 4px 12px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent);
+    border: 1px solid var(--line); text-decoration: none;
+  }
+  nav.links {
+    display: flex; gap: 12px; justify-content: center; margin: 26px 0;
+  }
+  nav.links a.btn {
+    text-decoration: none; padding: 10px 22px; border-radius: 999px;
+    font-weight: 600; font-size: 15px; border: 1px solid var(--line);
+  }
+  a.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  a.btn.ghost { background: var(--panel); color: var(--ink); box-shadow: var(--shadow); }
+
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 28px 32px; margin: 22px 0; }
+  h2 { font-size: 24px; margin: 0 0 4px; }
+  h3 { font-size: 18px; margin: 0 0 8px; }
+  .sub { color: var(--ink-soft); margin: 0 0 20px; }
+  code.ino { background: var(--accent-soft); color: var(--accent); padding: 1px 6px; border-radius: 5px; font-size: .95em; }
+
+  pre.code {
+    background: var(--code-bg); color: var(--code-ink);
+    border-radius: 10px; padding: 18px 20px; overflow-x: auto;
+    font-size: 14px; line-height: 1.55; margin: 0;
+  }
+  pre.code code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; }
+  .tk-c { color: var(--code-com); }
+  .tk-k { color: var(--code-kw); }
+  .tk-s { color: var(--code-str); }
+  .tk-n { color: var(--code-num); }
+  .tk-d { color: var(--code-dim); }
+  .snippet { margin: 16px 0; }
+  .snippet .cap {
+    font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--ink-soft); margin: 0 0 8px;
+  }
+  .out {
+    margin: 10px 0 0; padding: 14px 18px; border-radius: 10px;
+    background: var(--bg); border: 1px solid var(--line); color: var(--ink-soft);
+    font-size: 13px; line-height: 1.45; overflow-x: auto; white-space: pre;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  ul.plain { padding-left: 20px; margin: 0; }
+  ul.plain li { margin: 6px 0; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 22px;
+    background: var(--bg); text-decoration: none; color: inherit; display: block;
+  }
+  .card:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+  .card h3 { margin: 0 0 6px; color: var(--accent); }
+  .card p { margin: 0; color: var(--ink-soft); font-size: 14.5px; }
+
+  footer.site { text-align: center; color: var(--ink-soft); font-size: 13.5px; padding: 34px 0 60px; }
+  footer.site a { color: var(--accent); }
+  .modline { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 13.5px; color: var(--ink-soft); }
+  .modline a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="logo">🦆</div>
+  <h1>NimDrake</h1>
+  <p class="tagline">DuckDB, the in-process analytical SQL engine, from Nim.</p>
+  <div class="badges">
+    <span class="badge">DuckDB v1.5.4</span>
+    <span class="badge">Nim ≥ 2.0</span>
+    <span class="badge">zero-copy typed reads</span>
+    <span class="badge">pre-alpha</span>
+  </div>
+  <nav class="links">
+    <a class="btn primary" href="theindex.html">API reference</a>
+    <a class="btn ghost" href="cookbook/cookbook.html">Cookbook</a>
+    <a class="btn ghost" href="https://github.com/BontaVlad/NimDrake">GitHub</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<section>
+  <h2>What is NimDrake?</h2>
+  <p class="sub">A transparent <a href="https://nim-lang.org">Nim</a> binding for <a href="https://duckdb.org">DuckDB</a>.</p>
+  <p>
+    DuckDB is an embedded OLAP database: it runs inside your process, no server
+    needed, and is tuned for analytical SQL — large scans, aggregations, joins
+    over CSV, Parquet, and Arrow input. NimDrake exposes it with a layered API:
+    a high-level <code class="ino">con.execute</code> for day-to-day work, and a
+    low-level <code class="ino">Vector[kt]</code> layer for streaming results.
+  </p>
+  <p>
+    The philosophy is <strong>zero-copy where it matters</strong>: your Nim code
+    views DuckDB's own columnar buffers directly, so reading a million rows of
+    <code class="ino">int64</code> costs pointers, not per-row copies. Complex
+    kinds (List, Struct, Map, Decimal, …) stay typed via zero-copy container
+    views instead of falling back to opaque JSON.
+  </p>
+  <div class="snippet">
+    <p class="cap">Your first query</p>
+    <pre class="code"><code><span class="tk-k">import</span> nimdrake
+
+<span class="tk-k">let</span> con = newDatabase().connect()
+
+<span class="tk-k">let</span> r = con.execute(<span class="tk-s">"""</span>
+  <span class="tk-s">SELECT i, i * i AS sq</span>
+  <span class="tk-s">FROM generate_series(1, 5) AS t(i)</span>
+<span class="tk-s">"""</span>)
+<span class="tk-k">echo</span> r</code></pre>
+    <div class="out">┌───────────┬────────────┐
+│     i     │     sq     │
+├───────────┼────────────┤
+│ 1         │ 1          │
+│ 2         │ 4          │
+│ 3         │ 9          │
+│ 4         │ 16         │
+│ 5         │ 25         │
+└───────────┴────────────┘</div>
+  </div>
+</section>
+
+<section>
+  <h2>Read results as typed vectors</h2>
+  <p class="sub">Iterate chunks and bind columns to strong Nim types — no copies, no object conversion.</p>
+  <p>
+    Every <code class="ino">QResult</code> iterates over hidden chunks. Within a
+    chunk, <code class="ino">vector(i)</code> exposes a typed, zero-copy view.
+    Values are fetched through Nim's index operator and NULLs are checked with
+    <code class="ino">valid(i)</code>. Columns can be addressed by index or by
+    name.
+  </p>
+  <div class="snippet">
+    <p class="cap">Typed access by column, with NULL handling</p>
+    <pre class="code"><code><span class="tk-k">for</span> chunk <span class="tk-k">in</span> r:
+  <span class="tk-k">let</span> nums = chunk.vector(<span class="tk-n">0</span>).bindAs DuckType.BigInt
+  <span class="tk-k">let</span> msgs = chunk.vector(<span class="tk-n">1</span>).bindAs DuckType.Varchar
+  <span class="tk-k">if</span> nums.valid(<span class="tk-n">0</span>):          <span class="tk-c"># NULL check</span>
+    <span class="tk-k">echo</span> nums[<span class="tk-n">0</span>], <span class="tk-s">" "</span>, msgs[<span class="tk-n">0</span>]</code></pre>
+    <div class="out">42 hello</div>
+  </div>
+  <p>
+    Whole columns materialize instantly with <code class="ino">toSeq</code>:
+  </p>
+  <div class="snippet">
+    <pre class="code"><code><span class="tk-k">let</span> vals = chunk.vector(<span class="tk-n">0</span>).bindAs(DuckType.BigInt).toSeq
+<span class="tk-k">echo</span> vals   <span class="tk-c"># @[1, 2, 3, 4, 5]</span></code></pre>
+  </div>
+</section>
+
+<section>
+  <h2>Prepared statements and query parameters</h2>
+  <p class="sub">Bind tuples or named parameters; reuse the statement across executions.</p>
+  <p>
+    Preparing once and re-executing is both faster and safer than string
+    interpolation. NimDrake binds a plain Nim tuple positionally, so parameter
+    types are checked by DuckDB, not by string surgery.
+  </p>
+  <div class="snippet">
+    <p class="cap">Insert with tuple binding</p>
+    <pre class="code"><code><span class="tk-k">let</span> stmt = con.newStatement(<span class="tk-s">"INSERT INTO people VALUES (?, ?, ?)"</span>)
+con.executeMaterialized(stmt, (<span class="tk-n">1</span>, <span class="tk-s">"Alice"</span>, <span class="tk-k">true</span>))
+con.executeMaterialized(stmt, (<span class="tk-n">2</span>, <span class="tk-s">"Bob"</span>, <span class="tk-k">false</span>))
+
+<span class="tk-k">let</span> r = con.execute(<span class="tk-s">"SELECT * FROM people ORDER BY id"</span>)
+<span class="tk-k">echo</span> r</code></pre>
+    <div class="out">┌────────────┬───────────────┬────────────────┐
+│    id      │     name      │    active      │
+├────────────┼───────────────┼────────────────┤
+│ 1          │ Alice         │ true           │
+│ 2          │ Bob           │ false          │
+└────────────┴───────────────┴────────────────┘</div>
+  </div>
+  <p>
+    Named parameters use <code class="ino">$name</code> syntax and report their
+    index and expected type through the statement:
+  </p>
+  <div class="snippet">
+    <pre class="code"><code><span class="tk-k">let</span> stmt = con.newStatement(<span class="tk-s">"SELECT CAST($val AS BIGINT)"</span>)
+<span class="tk-k">let</span> idx = stmt.bindParameter(<span class="tk-s">"val"</span>)          <span class="tk-c"># 1</span>
+<span class="tk-k">echo</span> idx</code></pre>
+    <div class="out">1</div>
+  </div>
+</section>
+
+<section>
+  <h2>Stream results, don't buffer them</h2>
+  <p class="sub">Chunked iteration keeps memory flat on terabyte-scale scans.</p>
+  <p>
+    For large result sets, execute the statement in streaming mode and consume
+    one chunk at a time. Iterating a million rows never materializes the whole
+    thing.
+  </p>
+  <div class="snippet">
+    <p class="cap">Stream a million rows, count them</p>
+    <pre class="code"><code><span class="tk-k">let</span> stmt = con.newStatement(
+  <span class="tk-s">"SELECT i FROM generate_series(1, 1_000_000) AS t(i)"</span>)
+
+<span class="tk-k">var</span> count = <span class="tk-n">0</span>
+<span class="tk-k">for</span> chunk <span class="tk-k">in</span> con.executeStreaming(stmt):
+  <span class="tk-k">let</span> v = chunk.vector(<span class="tk-n">0</span>).bindAs DuckType.BigInt
+  count += v.len
+
+<span class="tk-k">echo</span> <span class="tk-s">"Total rows: "</span>, count</code></pre>
+    <div class="out">Total rows: 1000000</div>
+  </div>
+  <p>
+    Pending results let you drive execution manually with <code class="ino">step()</code>
+    for progress reporting or cancellation — see <a href="cookbook/query_execution.html">Query Execution</a> in the cookbook.
+  </p>
+</section>
+
+<section>
+  <h2>Bulk insert with the Appender</h2>
+  <p class="sub">The fastest path for loading large volumes of data.</p>
+  <div class="snippet">
+    <p class="cap">Append row by row, then close</p>
+    <pre class="code"><code>con.execute(<span class="tk-s">"CREATE TABLE logs (ts VARCHAR, level VARCHAR, msg VARCHAR)"</span>)
+
+<span class="tk-k">var</span> appender = con.newAppender(<span class="tk-s">"logs"</span>)
+<span class="tk-k">for</span> i <span class="tk-k">in</span> <span class="tk-n">0</span> ..&lt; <span class="tk-n">100</span>:
+  appender.append(<span class="tk-s">"2024-01-01 00:00:00"</span>)
+  appender.append(<span class="tk-s">"INFO"</span>)
+  appender.append(<span class="tk-s">"Event "</span> &amp; $i)
+  appender.endRow()
+appender.close()
+
+<span class="tk-k">let</span> r = con.execute(<span class="tk-s">"SELECT count(*)::BIGINT AS n FROM logs"</span>)
+<span class="tk-k">echo</span> r</code></pre>
+    <div class="out">┌─────────────┐
+│      n      │
+├─────────────┤
+│ 100         │
+└─────────────┘</div>
+  </div>
+  <p>
+    Pass <code class="ino">none(T)</code> to write SQL NULL, or bulk-insert a
+    <code class="ino">seq</code> of rows at once with <code class="ino">con.appendRows</code>.
+    See <a href="cookbook/bulk_insert.html">Bulk Insert with Appender</a>.
+  </p>
+</section>
+
+<section>
+  <h2>Register Nim functions in the engine</h2>
+  <p class="sub">Scalar, aggregate, and table functions — the engine calls your proc.</p>
+  <p>
+    Write an ordinary Nim proc, register it, and call it from SQL. NULL inputs
+    propagate to NULL outputs automatically.
+  </p>
+  <div class="snippet">
+    <p class="cap">A scalar function</p>
+    <pre class="code"><code><span class="tk-k">proc</span> multiply(a, b: int64): int64 = a * b
+
+con.registerScalar(multiply)
+
+<span class="tk-k">let</span> r = con.execute(<span class="tk-s">"SELECT multiply(3::BIGINT, 7::BIGINT)"</span>)
+<span class="tk-k">echo</span> r</code></pre>
+    <div class="out">┌──────────────────────────────────┐
+│ multiply(CAST(3 AS BI..      │
+├──────────────────────────────────┤
+│ 21                               │
+└──────────────────────────────────┘</div>
+  </div>
+  <p class="cap">A table function from a <code class="ino">{.closure.}</code> iterator</p>
+  <pre class="code"><code><span class="tk-k">iterator</span> fibonacci(n: int): tuple[i: int, fib: int] {.closure.} =
+  <span class="tk-k">var</span> a, b = <span class="tk-n">0</span>
+  <span class="tk-k">for</span> idx <span class="tk-k">in</span> <span class="tk-n">0</span> ..&lt; n:
+    <span class="tk-k">yield</span> (idx, a)
+    (a, b) = (b, a + b)
+
+con.registerTableFunction(fibonacci)
+<span class="tk-k">let</span> r = con.execute(<span class="tk-s">"SELECT * FROM fibonacci(8)"</span>)</code></pre>
+  <p>
+    See <a href="cookbook/user_defined_functions.html">User-Defined Functions</a>
+    for aggregates, arrow function callbacks, <code class="ino">named</code> and
+    cardinality hints.
+  </p>
+</section>
+
+<section>
+  <h2>Ship files straight to SQL</h2>
+  <p class="sub">CSV, Parquet, JSON, Arrow — query them without import steps.</p>
+  <p>
+    DuckDB's table functions read data files directly. NimDrake just hands the
+    SQL to the engine:
+  </p>
+  <div class="snippet">
+    <pre class="code"><code><span class="tk-k">let</span> r = con.execute(<span class="tk-s">"SELECT * FROM read_csv_auto('sales.csv')"</span>)
+<span class="tk-k">let</span> p = con.execute(<span class="tk-s">"SELECT region, sum(amount) FROM read_parquet('q4.parquet') GROUP BY 1"</span>)
+<span class="tk-k">echo</span> p</code></pre>
+  </div>
+</section>
+
+<section>
+  <h2>Explore the docs</h2>
+  <p class="sub">Two complementary guides — recipes first, then the full reference.</p>
+  <div class="grid">
+    <a class="card" href="cookbook/cookbook.html">
+      <h3>📖 Cookbook</h3>
+      <p>Task-oriented recipes: every snippet is compiled and executed at build time, so the shown output is always real. Start here to learn the API by example.</p>
+    </a>
+    <a class="card" href="theindex.html">
+      <h3>🔎 API reference</h3>
+      <p>Every exported symbol of every module, generated from source doc comments, with the raw symbol index, with links back to the code on GitHub.</p>
+    </a>
+  </div>
+</section>
+
+<section>
+  <h2>Installation</h2>
+  <div class="snippet">
+    <pre class="code"><code>nimble install nimdrake</code></pre>
+  </div>
+  <p>
+    Distribution needs <code class="ino">libduckdb.so</code> / <code class="ino">.dylib</code> /
+    <code class="ino">.dll</code>: the build looks in <code class="ino">src/include/</code>
+    (vendored via <code class="ino">just fetch-lib</code>) and then in the system
+    via <code class="ino">pkg-config</code> / <code class="ino">ldconfig</code>.
+  </p>
+</section>
+
+</div>
+
+<footer class="site">
+  <div style="margin-bottom:10px">
+    <span class="modline">
+      <a href="theindex.html">theindex</a> ·
+      <a href="nimdrake.html">nimdrake</a> ·
+      <a href="database.html">database</a> ·
+      <a href="query.html">query</a> ·
+      <a href="qresult.html">qresult</a> ·
+      <a href="catalog.html">catalog</a> ·
+      <a href="complex.html">complex</a> ·
+      <a href="types.html">types</a> ·
+      <a href="table.html">table</a>
+    </span>
+  </div>
+  NimDrake is pre-alpha — APIs and behavior may change.
+  MIT licensed. Built with <a href="https://nim-lang.org">Nim</a> and
+  <a href="https://duckdb.org">DuckDB</a>.
+</footer>
+
+</body>
+</html>

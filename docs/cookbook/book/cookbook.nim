@@ -9,7 +9,7 @@ Recipes for common tasks when working with DuckDB in Nim using
 [NimDrake](https://github.com/BontaVlad/NimDrake).
 
 For the complete API reference for every exported symbol, see the
-[API documentation](https://bontavlad.github.io/NimDrake/).
+[API documentation](https://bontavlad.github.io/NimDrake/theindex.html).
 
 Every recipe in this book is executed while the book is built: the code
 snippet is compiled and run, and its response is included below the snippet.
