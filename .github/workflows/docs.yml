@@ -57,9 +57,14 @@ jobs:
 
       - name: Generate API docs
         run: |
-          nimble doc --docCmd:skip --project --outdir:docs src/nimdrake.nim
+          nimble doc --docCmd:skip --project --outdir:docs \
+            --git.url:https://github.com/BontaVlad/NimDrake --git.commit:main \
+            src/nimdrake.nim
           mv docs/theindex.html docs/index.html
           touch docs/.nojekyll
+
+      - name: Enforce doc-comment coverage
+        run: nim r --hints:off tools/checkdocs.nim
 
       - uses: actions/configure-pages@v4
 

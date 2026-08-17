@@ -86,6 +86,11 @@ cookbook:
 docs:
     just cookbook
 
+# Enforce that every exported symbol has a doc comment (CI gate; see
+# .github/workflows/docs.yml).
+checkdocs:
+    nim r --hints:off tools/checkdocs.nim
+
 # Remove all build artifacts.
 clean:
     rm -rf nimcache coverage coverage.info

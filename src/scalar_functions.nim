@@ -1,13 +1,24 @@
+## Register Nim procs as DuckDB **scalar UDFs** — SQL functions that run on
+## one value at a time, e.g. `SELECT myfunc(col) FROM t`.
+##
+## `conn.registerScalar(myProc)` introspects the proc's parameter and return
+## types at compile time, generates a `{.cdecl.}` DuckDB wrapper over the
+## compile-time-typed `qresult` vector views, and registers it. The original
+## proc stays a plain, unit-testable Nim proc.
+##
+## See the `registerScalar` macro for the full usage, NULL, and type contracts.
 import std/[macros, strformat]
 import /[ffi, database, types, qresult, exceptions]
 import /tools/wrench
 
 type
-  ScalarFunctionBase* = object of RootObj
+  ScalarFunctionBase* = object of RootObj ## Owns a DuckDB scalar-function
+    ## handle; non-copyable.
     name*: string
     handle*: duckdb_scalar_function
 
-  ScalarFunction* = ref object of ScalarFunctionBase
+  ScalarFunction* = ref object of ScalarFunctionBase ## Owns a DuckDB scalar
+                                                    ## function handle.
 
 proc `=destroy`(s: ScalarFunctionBase) =
   if s.handle != nil:
@@ -22,9 +33,14 @@ proc `=copy`(dest: var ScalarFunctionBase, source: ScalarFunctionBase) {.error.}
 proc `=dup`(s: ScalarFunctionBase): ScalarFunctionBase {.error.}
 
 proc newScalarFunction*(name: string): ScalarFunction =
+  ## Creates an empty scalar function handle named `name`. Prefer
+  ## `registerScalar`; this exists for hand-building a function with the
+  ## raw DuckDB `duckdb_scalar_function_set_*` calls.
   result = ScalarFunction(name: name, handle: duckdb_create_scalar_function())
 
 proc register*(con: Connection, fun: ScalarFunction) =
+  ## Registers `fun` on `con` so SQL can call it. Raises `OperationError` on
+  ## name collision or failure.
   check(
     duckdb_register_scalar_function(con.rawHandle, fun.handle),
     fmt"Failed to register function '{fun.name}'",
@@ -48,7 +64,7 @@ macro registerScalar*(con: typed, procSym: typed): untyped =
   ## v2) for null-aware bodies.
   ##
   ## Type contract: param/return types must be supported by `duckTypeDotExpr`
-  ## (bool, ints, uints, floats, string, seq[byte], Timestamp/DateTime, Time,
+  ## (bool, ints, uints, floats, string, ``seq[byte]``, Timestamp/DateTime, Time,
   ## TimeInterval, Int128, UInt128, Uuid). Decimal/Enum/complex kinds are
   ## rejected at compile time. Zero-param procs are allowed (constant function).
   ##

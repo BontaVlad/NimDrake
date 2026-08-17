@@ -34,15 +34,17 @@ import std/[macros]
 import /[ffi, database, complex]
 
 type
-  ReplacementScanInfo* = object
+  ReplacementScanInfo* = object ## Context for one table-name interception.
     handle*: duckdb_replacement_scan_info
 
-  ReplacementScanBase* = object of RootObj
+  ReplacementScanBase* = object of RootObj ## Base for a replacement scan;
+    ## carries the user callback and its payload.
     callback*: proc(info: ReplacementScanInfo, tableName: string,
                     data: pointer) {.cdecl.}
     extraData*: ref RootObj
 
-  ReplacementScan* = ref object of ReplacementScanBase
+  ReplacementScan* = ref object of ReplacementScanBase ## A registered
+    ## replacement scan; use `register` to install it on a `Database`.
 
 proc `=wasMoved`(rs: var ReplacementScanBase) =
   rs.callback = nil
@@ -55,82 +57,100 @@ proc `=dup`(rs: ReplacementScanBase): ReplacementScanBase {.error.}
 # ReplacementScanInfo accessors
 # ---------------------------------------------------------------------------
 
+## Declares that this scan handles `name`; bypasses the default catalog and
+## any remaining replacement scans.
 proc setFunctionName*(info: ReplacementScanInfo, name: string) {.inline.} =
   duckdb_replacement_scan_set_function_name(info.handle, name.cstring)
 
+## Fails the lookup with `msg`; the query aborts with the message.
 proc setError*(info: ReplacementScanInfo, msg: string) {.inline.} =
   duckdb_replacement_scan_set_error(info.handle, msg.cstring)
 
+## Appends a raw `duckdb_value` as a parameter of the rewritten function call.
 proc addParameter*(info: ReplacementScanInfo, value: duckdb_value) {.inline.} =
   duckdb_replacement_scan_add_parameter(info.handle, value)
   duckdb_destroy_value(value.addr)
 
+## Appends a bool parameter.
 proc addParameter*(info: ReplacementScanInfo, v: bool) {.inline.} =
   let val = duckdb_create_bool(v)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
+## Appends an int8 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: int8) {.inline.} =
   let val = duckdb_create_int8(v)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
+## Appends an int16 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: int16) {.inline.} =
   let val = duckdb_create_int16(v)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
+## Appends an int32 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: int32) {.inline.} =
   let val = duckdb_create_int32(v)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
+## Appends an int64 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: int64) {.inline.} =
   let val = duckdb_create_int64(v)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
+## Appends a uint8 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: uint8) {.inline.} =
   let val = duckdb_create_uint8(v)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
+## Appends a uint16 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: uint16) {.inline.} =
   let val = duckdb_create_uint16(v)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
+## Appends a uint32 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: uint32) {.inline.} =
   let val = duckdb_create_uint32(v)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
+## Appends a uint64 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: uint64) {.inline.} =
   let val = duckdb_create_uint64(v)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
+## Appends a float32 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: float32) {.inline.} =
   let val = duckdb_create_float(v.cfloat)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
+## Appends a float64 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: float64) {.inline.} =
   let val = duckdb_create_double(v.cdouble)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
+## Appends a varchar parameter; embedded NULs are preserved.
 proc addParameter*(info: ReplacementScanInfo, v: string) {.inline.} =
   let val = duckdb_create_varchar(v.cstring)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
+## Appends a blob parameter.
 proc addParameter*(info: ReplacementScanInfo, v: seq[byte]) {.inline.} =
   let val = duckdb_create_blob(
     cast[ptr uint8](unsafeAddr v[0]), v.len.idx_t)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
+## Appends a param derived from a `NimValue` (complex kinds included).
 proc addParameter*(info: ReplacementScanInfo, nv: NimValue) {.inline.} =
   addParameter(info, nv.toDuckValue)
 
@@ -165,10 +185,15 @@ proc newReplacementScan*(
     callback: proc(info: ReplacementScanInfo, tableName: string,
                    data: pointer) {.cdecl.} = nil,
     extraData: ref RootObj = nil,
-): ReplacementScan =
+  ): ReplacementScan =
+  ## Builds a replacement scan from a `cdecl` callback. Return the object and
+  ## register it on the `Database`; see the module docs for a full example.
   result = ReplacementScan(callback: callback, extraData: extraData)
 
 proc register*(db: Database, scan: ReplacementScan) =
+  ## Installs `scan` on `db`; from then on every unresolved table name goes
+  ## through its callback before the catalog lookup fails. Registration order
+  ## decides precedence between multiple scans.
   GC_ref(scan)
   if scan.extraData != nil:
     GC_ref(scan.extraData)
@@ -180,6 +205,21 @@ proc register*(db: Database, scan: ReplacementScan) =
 # ---------------------------------------------------------------------------
 
 macro registerReplacementScan*(db: typed, procSym: typed): untyped =
+  ## Registers a plain Nim `proc` as a replacement scan. The proc receives the
+  ## table name and, via `setFunctionName` / `addParameter`, rewrites the
+  ## lookup into a table-function call:
+  ##
+  ## .. code-block:: nim
+  ##
+  ##    proc scan(info: ReplacementScanInfo, tableName: string) =
+  ##      if tableName[0] in {'0'..'9'}:
+  ##        info.setFunctionName("range")
+  ##        info.addParameter(parseInt(tableName))
+  ##    registerReplacementScan(db, scan)
+  ##
+  ## Returning without calling `setFunctionName` lets the next scan (or the
+  ## catalog lookup) handle the name. The proc runs on a DuckDB worker thread
+  ## and must be thread-safe.
   let procDef = procSym.getImpl
   if procDef.kind != nnkProcDef:
     error("registerReplacementScan expects a proc; got " & $procDef.kind, procSym)

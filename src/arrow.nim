@@ -20,7 +20,8 @@ import narrow
 import /[ffi, types, qresult]
 
 type
-  ArrowSchema* = object
+  ArrowSchema* = object ## Arrow C Data Interface schema struct (hand-rolled
+    ## ABI layout; see the module doc for why).
     format*: cstring
     name*: cstring
     metadata*: cstring
@@ -31,7 +32,7 @@ type
     release*: proc(schema: ptr ArrowSchema) {.cdecl.}
     private_data*: pointer
 
-  ArrowArray* = object
+  ArrowArray* = object ## Arrow C Data Interface array struct (hand-rolled ABI).
     length*: int64
     null_count*: int64
     offset*: int64
@@ -43,7 +44,7 @@ type
     release*: proc(array: ptr ArrowArray) {.cdecl.}
     private_data*: pointer
 
-  ArrowOptions* = object
+  ArrowOptions* = object ## Owns DuckDB's Arrow export options handle.
     handle: duckdb_arrow_options
 
 proc `=destroy`(opt: ArrowOptions) =
@@ -67,6 +68,8 @@ proc `=destroy`(schema: ArrowSchema) {.raises: [].} =
   if not isNil(schema.release):
     schema.release(schema.addr)
 
+## Arrow export options for a DuckDB result handle; owned, freed on
+## destruction.
 proc newArrowOptions*(res: ptr duckdb_result): ArrowOptions =
   result.handle = duckdb_result_get_arrow_options(res)
 
@@ -96,9 +99,11 @@ proc newArrowSchema(opt: ArrowOptions, cols: sink seq[Column]): ArrowSchema {.ra
   if not isNil(err):
     raise newException(OperationError, $duckdb_error_data_message(err))
 
+## Yields each chunk of `qrs` as a narrow `RecordBatch` using the given
+## export options and schema.
 iterator toArrowStream*(
     qrs: QResult[Streaming]; options: ArrowOptions; gSchema: Schema
-): RecordBatch =
+  ): RecordBatch =
   while true:
     let raw = duckdb_fetch_chunk(qrs.handle.raw)
     if raw == nil: break
@@ -106,6 +111,8 @@ iterator toArrowStream*(
     let aArray = newArrowArray(options, chunk)
     yield newRecordBatch(aArray.addr, gSchema)
 
+## Yields each chunk of `qrs` as a narrow `RecordBatch`; derives the Arrow
+## schema and options from the result automatically.
 iterator toArrowStream*(qrs: QResult[Streaming]): RecordBatch =
   let options = newArrowOptions(qrs.handle.raw.addr)
   let schema  = newArrowSchema(options, qrs.meta.columns)
@@ -113,6 +120,7 @@ iterator toArrowStream*(qrs: QResult[Streaming]): RecordBatch =
   for batch in toArrowStream(qrs, options, gSchema):
     yield batch
 
+## Consumes `qrs` into a single `ArrowTable` (all chunks materialized).
 proc toArrowTable*(qrs: QResult[Streaming]): ArrowTable =
   var recordBatches = newSeq[RecordBatch]()
   let options = newArrowOptions(qrs.handle.raw.addr)

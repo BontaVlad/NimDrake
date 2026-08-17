@@ -1,5 +1,55 @@
+## Prepared statements, typed parameter binding, and the bulk-insert
+## appender API.
+##
+## Everything here executes against a `Connection` from the `database` module.
+## Pick an execution strategy per query:
+##
+## - `execute` — raw SQL, materialized result.
+## - `executeStreaming` — row-at-a-time result from a prepared statement;
+##   required for large result sets.
+## - `executeMaterialized` — prepared statement execution with all rows in
+##   memory; use for DML (`INSERT`/`UPDATE`/`DELETE`) which never stream.
+## - `newPendingResult` / `newPendingStreamingResult` + `step` — pause and
+##   resume query work; lets a UI thread stay responsive.
+##
+## Parameters are bound positionally (``?``), by number (``$1``), or by name
+## (``$name``). `bindVal` types the parameters at compile time; unknown
+## parameters, the wrong count, or NULL handling use `Option[T]`,
+## `bindNull`, or passable runtime values (`NimValue`, `JsonNode`,
+## `DecimalType`, `Uuid`).
+##
+## For bulk inserts, `newAppender` hands out an `Appender` that buffers rows
+## on an existing table. Rows are committed with `flush` / `close` — the
+## `=destroy` hook does **not** flush. `appendRows` wraps the whole lifecycle
+## for a `seq` of rows.
+##
+## .. note:: A `Statement`, `PendingQueryResult`, and `Appender` each own a
+##   DuckDB handle and must never outlive their `Connection`. Copying an
+##   `Appender` is a compile error.
 import std/[strformat, enumerate, times, options, json]
 import /[ffi, types, database, qresult, codec, complex, exceptions]
+
+runnableExamples:
+  import std/sequtils
+  import nimdrake
+
+  let conn = newDatabase().connect()
+
+  # Prepared statements: inspect params, bind by name, then execute.
+  conn.execute("CREATE TABLE people (name VARCHAR, age INTEGER);")
+  var stmt = conn.newStatement("SELECT age FROM people WHERE name = $name;")
+  doAssert stmt.parameters.toSeq.len == 1
+  doAssert stmt.bindVal(stmt.bindParameter("name"), "drake") == DuckDBSuccess
+  conn.executeMaterialized("INSERT INTO people VALUES (?, ?);", ("drake", 42))
+  for chunk in conn.execute("SELECT * FROM people;"):
+    for name in chunk.bindAs(0, DuckType.Varchar):
+      doAssert name == "drake"
+    for age in chunk.bindAs(1, DuckType.Integer):
+      doAssert age == 42
+
+  # Bulk insert via the appender: `some`/`none` map to value/SQL NULL.
+  conn.execute("CREATE TABLE ages (age INTEGER);")
+  conn.appendRows("ages", @[@[some(36)], @[some(104)], @[none(int)]])
 
 proc takeCString(str: cstring): string {.inline.} =
   ## Takes ownership of a DuckDB-allocated cstring and returns a Nim string.
@@ -7,43 +57,52 @@ proc takeCString(str: cstring): string {.inline.} =
   duckdb_free(str)
 
 type
-  Query* = distinct string
+  Query* = distinct string ## Untrusted SQL text; prepared via `newStatement`.
   Values = (tuple or object)
-  Appender* = distinct ptr duckdbAppender
-  AppenderColumn* = object
+  Appender* = distinct ptr duckdbAppender ## Owns a DuckDB appender handle.
+                                         ## Single-use: copy/dup is a compile
+                                         ## error and `=destroy` does not flush.
+  AppenderColumn* = object ## Column metadata reported by `columns` on an `Appender`.
     idx*: int
     tpy*: LogicalType
 
-  Parameter* = object ## Prepared Statement parameters
+  Parameter* = object ## A prepared-statement placeholder, from `parameters`.
     name*: string
     idx*: int
     tpy*: DuckType
 
-  PendingState* {.pure.} = enum
-    Ready
-    NotReady
-    Error
-    NoTasksAvailable
+  PendingState* {.pure.} = enum ## Outcome of one `step` on a pending query.
+    Ready          ## At least one task ran; more remain.
+    NotReady       ## No task ran this step; try again later.
+    Error          ## The pending query failed; see `error`.
+    NoTasksAvailable ## The query finished; collect via `executeStreaming`.
 
 converter toBase*(a: ptr Appender): ptr duckdbappender =
+  ## Adapts an `Appender` to the underlying duckdb handle for FFI calls.
   cast[ptr duckdbappender](a)
 
 converter toBase*(a: Appender): duckdbappender =
+  ## Adapts an `Appender` to the underlying duckdb handle for FFI calls.
   cast[duckdbappender](a)
 
 converter toBase*(q: Query): cstring =
+  ## Exposes the raw SQL text of a `Query`; prefer the `exec*` procs.
   q.cstring
 
 converter toBase*(s: string): Query =
+  ## Lets any `string` be passed where a `Query` is expected.
   Query(s)
 
 proc `=destroy`*(appender: Appender) =
-  ## Destroys an appender instance if it exists
+  ## Frees the DuckDB appender handle. Does **not** flush buffered rows —
+  ## call `flush` or `close` first, or appended rows are lost.
   if cast[ptr duckdbAppender](appender) != nil:
     discard duckdbAppenderDestroy(appender.addr)
 
+## Appender is move-only: copying would double-free the DuckDB handle.
 proc `=dup`*(appender: Appender): Appender {.error.}
 
+## Appender is move-only: copying would double-free the DuckDB handle.
 proc `=copy`*(dest: var Appender, source: Appender) {.error.}
 
 proc `=wasMoved`*(appender: var Appender) =
@@ -69,7 +128,9 @@ template checkAppender(operation: untyped, app: Appender, what: string) =
 # ---------------------------------------------------------------------------
 
 proc newStatement*(con: Connection, query: Query): Statement =
-  ## Creates a new prepared statement from a connection and query
+  ## Prepares `query` against `con` and returns the reusable `Statement`.
+  ## Raises `OperationError` if the SQL is invalid or uses an unsupported
+  ## feature; nothing is executed until you call one of the `execute*` procs.
   result = Statement(nil)
   let error = duckdbPrepare(con.rawHandle, query, result.addr)
   if error:
@@ -77,27 +138,13 @@ proc newStatement*(con: Connection, query: Query): Statement =
     raise newException(OperationError, $errorMessage)
 
 iterator parameters*(statement: Statement): Parameter =
-  ## There are three syntaxes for denoting parameters in prepared statements:
-  ## auto-incremented (?), positional ($1), and named ($param).
-  ## Note that not all clients support all of these syntaxes, e.g.,
-  ## the JDBC client only supports auto-incremented parameters in prepared statements.
-  runnableExamples:
-    import std/sequtils
-    import nimdrake
-
-    let conn = newDatabase().connect()
-
-    conn.execute("CREATE TABLE a (i INTEGER, j VARCHAR);")
-    var statement = conn.newStatement("INSERT INTO a VALUES (?, ?);")
-    let parameters = statement.parameters.toSeq()
-    assert len(parameters) == 2
-    assert parameters[0].name == "1"
-    assert parameters[0].idx == 1
-    assert parameters[0].tpy == DuckType.Integer
-    assert parameters[1].name == "2"
-    assert parameters[1].idx == 2
-    assert parameters[1].tpy == DuckType.VARCHAR
-
+  ## Yields the `Parameter`s of a prepared statement: one per placeholder,
+  ## in 1-based `idx` order. `?` becomes the auto-incremented number,
+  ## `$n` keeps its number, and `$name` keeps its name.
+  ##
+  ## .. note:: Not every client supports every syntax; e.g. the JDBC client
+  ##   only supports `?`. Use the iterator to validate your statements once
+  ##   up-front instead of guessing indexes.
   let nParams = duckdb_nparams(statement)
   for idx in 1 .. nParams:
     yield Parameter(
@@ -107,20 +154,9 @@ iterator parameters*(statement: Statement): Parameter =
     )
 
 proc bindParameter*(statement: Statement, name: string): int =
-  ## Retrieve the index of the parameter for the prepared statement, identified by name
-
-  runnableExamples:
-    import nimdrake
-
-    let conn = newDatabase().connect()
-
-    var statement = conn.newStatement(
-      "SELECT CAST($my_val AS BIGINT), CAST($my_second_val AS VARCHAR);"
-    )
-    let indexes =
-      @[statement.bindParameter("my_second_val"), statement.bindParameter("my_val")]
-    assert indexes == @[2, 1]
-
+  ## Returns the 1-based index of the named parameter `name` — the value
+  ## `stmt.bindVal(stmt.bindParameter(name), val)` is a shortcut for binding
+  ## by name. Raises if `name` is not a declared parameter.
   var parameterIndex = 0.idx_t
   check(
     duckdbBindParameterIndex(statement, parameterIndex.addr, name.cstring),
@@ -377,7 +413,7 @@ template append*(appender: Appender, val: DataChunk): untyped =
     appender, "Failed to append DataChunk")
 
 template append*[T](appender: var Appender, val: Option[T]) =
-  ## Appends an Option[T] value to the appender.
+  ## Appends an ``Option[T]`` value to the appender.
   ## Some values are appended normally; None values emit NULL.
   if val.isSome:
     appender.append(val.get())
@@ -503,10 +539,15 @@ proc step*(pending: PendingQueryResult): PendingState =
   let raw = duckdb_pending_execute_task(pending)
   result = cast[PendingState](raw)
 
+## True when a pending query has no work left — either finished or errored;
+## collect the result with `executeStreaming` or read `error`.
 proc isFinished*(state: PendingState): bool {.inline.} =
   duckdb_pending_execution_is_finished(cast[duckdb_pending_state](state))
 
 proc newPendingResult*(statement: Statement): PendingQueryResult =
+  ## Wraps `statement` for step-by-step execution. Create it, then call
+  ## `step` repeatedly until `isFinished`, and finally collect the result
+  ## with `executeStreaming`.
   result = PendingQueryResult(nil)
   check(
     duckdbPendingPrepared(statement, result.addr),
@@ -526,6 +567,7 @@ proc newPendingStreamingResult*(statement: Statement): PendingQueryResult =
   )
 
 proc error*(pqresult: PendingQueryResult): string =
+  ## Returns the DuckDB error message for a failed pending query.
   return $duckdbPendingError(pqresult)
 
 # ---------------------------------------------------------------------------
@@ -567,7 +609,9 @@ iterator columns*(appender: Appender): AppenderColumn =
     )
 
 proc newAppender*(con: Connection, table: string): Appender =
-  ## Creates a new appender for a specified table
+  ## Opens an `Appender` for bulk-inserting rows into `table`. Appended rows
+  ## are buffered until `flush` or `close`; the handle is freed on destruction
+  ## but rows are **not** flushed automatically.
   result = Appender(nil)
   check(
     duckdb_appender_create(con.rawHandle, nil, table.cstring, result.addr),
@@ -576,12 +620,17 @@ proc newAppender*(con: Connection, table: string): Appender =
   )
 
 proc newDataChunk*(appender: Appender): DataChunk =
+  ## Builds an empty `DataChunk` mirroring the appender's target-table columns;
+  ## populate it with the `qresult` chunk helpers to bulk-append whole chunks
+  ## via `append(chunk)`.
   var cols: seq[Column]
   for c in columns(appender):
     cols.add newColumn("", c.tpy, idx = c.idx)
   result = newDataChunk(cols)
 
 proc newChunkBuilder*(appender: Appender): ChunkBuilder =
+  ## Returns a `ChunkBuilder` pre-sized to the appender's schema — the
+  ## convenient front-end for `newDataChunk`.
   result = newChunkBuilder(newDataChunk(appender))
 
 proc appendRows*[T](con: Connection, table: string, ent: seq[seq[T]]) =
@@ -594,7 +643,7 @@ proc appendRows*[T](con: Connection, table: string, ent: seq[seq[T]]) =
   appender.flush()
 
 proc appendRows*[T](con: Connection, table: string, ent: seq[seq[Option[T]]]) =
-  ## Appends a sequence of sequences of Options[T] to a specified table in a DuckDB database.
+  ## Appends a sequence of sequences of ``Options[T]`` to a specified table in a DuckDB database.
   var appender = newAppender(con, table)
   for row in ent:
     for val in row:

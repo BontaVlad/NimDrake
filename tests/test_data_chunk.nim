@@ -802,7 +802,7 @@ suite "ChunkBuilder":
     expect(AssertionDefect):
       discard finish(b)
 
-  test "builder len and appendedRows":
+  test "builder len and rowsAppended":
     let cols = @[
       newColumn("i", newLogicalType(DuckType.Integer)),
       newColumn("s", newLogicalType(DuckType.Varchar)),
@@ -811,12 +811,12 @@ suite "ChunkBuilder":
     check b.len == 0
     append[DuckType.Integer](b, 0, 1'i32)
     check b.len == 1
-    check b.appendedRows(0) == 1
-    check b.appendedRows(1) == 0
+    check b.rowsAppended(0) == 1
+    check b.rowsAppended(1) == 0
     appendValues[DuckType.Integer](b, 0, @[2'i32, 3])
     check b.len == 3
     append[DuckType.Varchar](b, 1, "a")
-    check b.appendedRows(1) == 1
+    check b.rowsAppended(1) == 1
 
   test "builder columnCount":
     let cols = @[

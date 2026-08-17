@@ -1,3 +1,16 @@
+## Low-level DuckDB bindings: the vendored `duckdb.h` surface, generated at
+## build time (Futhark) or checked in (`generated.nim`), plus the shared
+## chunk-size constants.
+##
+## Everything here is re-exported by `nimdrake`, but you almost never touch it
+## directly — the `database`, `types`, and `qresult` modules provide the safe
+## wrapper. These constants and the raw handles exist for power users writing
+## their own FFI glue.
+##
+## .. note:: `VECTOR_SIZE` / `ROW_GROUP_SIZE` are **runtime** values read from
+##   the linked DuckDB library at module load (they are compile-time constants
+##   only when bindings are regenerated with `-d:useFuthark`).
+
 # duckdb_vector_size() is a runtime API call, so VECTOR_SIZE cannot be a const.
 # It is initialized once at module load from the linked DuckDB library.
 # ROW_GROUP_SIZE follows from VECTOR_SIZE.

@@ -1,12 +1,51 @@
+## Register DuckDB **table functions** — virtual tables callable from SQL as
+## `SELECT * FROM myfn(args)` — backed by plain Nim iterators or handwritten
+## callbacks.
+##
+## **High level** — `registerTableFunction(con, myIterator)`: any `{.closure.}`
+## iterator becomes a registered function in one call. Output columns and
+## types are inferred from the iterator's return type (`T` for one column,
+## a tuple for several; `Option[T]` yields produce nullable columns).
+## Iterator parameters are the SQL call arguments (`Option[T]` params receive
+## SQL NULL as `none(T)`). See the runnable example below.
+##
+## **Low level** — `newTableFunction` plus the `BindInfo` / `InitInfo` /
+## `FunctionInfo` accessors mirror DuckDB's C API exactly, for stateful or
+## multi-threaded functions that need custom bind work, per-column names, or
+## cardinality hints.
+##
+## .. note:: `register` must run before the `Connection` executes any query
+##   referencing the function, and the registration lives on the connection.
 import std/[macros, strformat, times]
 import /[ffi, database, types, qresult, codec, exceptions]
 import /tools/wrench
 
+runnableExamples:
+  import nimdrake
+
+  # One iterator -> a whole virtual table: params become call arguments,
+  # the tuple becomes the output columns.
+  iterator squares(n: int): (int, string) {.closure.} =
+    for i in 0 ..< n:
+      yield (i * i, if i mod 2 == 0: "even" else: "odd")
+
+  let conn = newDatabase().connect()
+  conn.registerTableFunction(squares, cardinality = 10)
+
+  for chunk in conn.execute("SELECT * FROM squares(4);"):
+    let sq = chunk.vector(0).bindAs DuckType.BigInt
+    for i in 0 ..< sq.len:
+      doAssert sq[i] == int64(i * i)
+    let par = chunk.vector(1).bindAs DuckType.Varchar
+    for i in 0 ..< par.len:
+      doAssert par[i] in ["even", "odd"]
+
 type
-  FunctionInfo* = object
+  FunctionInfo* = object ## Per-call runtime info handed to the main callback.
     handle*: duckdb_function_info
 
-  TableFunctionBase* = object of RootObj
+  TableFunctionBase* = object of RootObj ## Base for a registered table
+    ## function; owns the DuckDB handle.
     name*: string
     handle*: duckdb_table_function
     bindProc: proc(info: BindInfo) {.cdecl.}
@@ -15,12 +54,16 @@ type
     mainProc: proc(info: FunctionInfo, chunk: duckdb_data_chunk) {.cdecl.}
     extraData*: ref RootObj
 
-  TableFunction* = ref object of TableFunctionBase
+  TableFunction* = ref object of TableFunctionBase ## A registered table
+                                                ## function handle; use
+                                                ## `register` to expose it.
 
-  BindInfo* = object
+  BindInfo* = object ## Bind-time call context: query args, output columns,
+    ## and error reporting before the scan starts.
     handle*: duckdb_bind_info
 
-  InitInfo* = object
+  InitInfo* = object ## Init-time context — per-execution (or per-thread, for
+    ## `initLocalProc`) state setup and thread limits.
     handle*: duckdb_init_info
 
 proc `=destroy`(tf: TableFunctionBase) =
@@ -34,6 +77,7 @@ proc `=wasMoved`(tf: var TableFunctionBase) =
   tf.name = ""
 
 proc `$`*(tf: TableFunction): string =
+  ## The registered function name.
   tf.name
 
 # ---------------------------------------------------------------------------
@@ -41,31 +85,41 @@ proc `$`*(tf: TableFunction): string =
 # ---------------------------------------------------------------------------
 
 proc parameterCount*(info: BindInfo): int =
+  ## Number of SQL call arguments the function was invoked with.
   duckdb_bind_get_parameter_count(info.handle).int
 
 proc getParameter*(info: BindInfo, index: int): duckdb_value =
+  ## The raw `duckdb_value` of the `index`-th call argument (0-based).
   duckdb_bind_get_parameter(info.handle, index.idx_t)
 
 proc getNamedParameter*(info: BindInfo, name: string): duckdb_value =
+  ## The raw `duckdb_value` of a named call argument (`name := ...`).
   duckdb_bind_get_named_parameter(info.handle, name.cstring)
 
 iterator parameters*(info: BindInfo): duckdb_value =
+  ## Yields every call argument as a raw `duckdb_value`.
   for idx in 0 ..< info.parameterCount:
     yield info.getParameter(idx)
 
 proc addResultColumn*(info: BindInfo, name: string, tp: LogicalType) =
+  ## Declares one output column (`name` of type `tp`) in bind order.
   duckdb_bind_add_result_column(info.handle, name.cstring, tp.handle)
 
 proc addResultColumn*(info: BindInfo, name: string, tp: DuckType) =
+  ## Declares one output column of a plain kind `tp`.
   info.addResultColumn(name, newLogicalType(tp))
 
 proc setBindData*(info: BindInfo, data: pointer, destroy: duckdb_delete_callback_t) =
+  ## Attaches caller-owned `data` to the function; DuckDB calls `destroy` when
+  ## the function is no longer needed.
   duckdb_bind_set_bind_data(info.handle, data, destroy)
 
 proc setCardinality*(info: BindInfo, cardinality: int, isExact: bool) =
+  ## Hints the planner about the result row count; `isExact` marks it precise.
   duckdb_bind_set_cardinality(info.handle, cardinality.idx_t, isExact)
 
 proc setError*(info: BindInfo, msg: string) =
+  ## Fails bind-time validation with `msg`; the statement is rejected.
   duckdb_bind_set_error(info.handle, msg.cstring)
 
 # ---------------------------------------------------------------------------
@@ -73,21 +127,27 @@ proc setError*(info: BindInfo, msg: string) =
 # ---------------------------------------------------------------------------
 
 proc getBindData*(info: InitInfo): pointer =
+  ## The `data` pointer previously passed to `setBindData` on this function.
   duckdb_init_get_bind_data(info.handle)
 
 proc setInitData*(info: InitInfo, data: pointer, destroy: duckdb_delete_callback_t) =
+  ## Attaches per-execution state `data`; freed via `destroy` at the end.
   duckdb_init_set_init_data(info.handle, data, destroy)
 
 proc columnCount*(info: InitInfo): int =
+  ## Number of columns the query actually requested (projection pushdown).
   duckdb_init_get_column_count(info.handle).int
 
 proc columnIndex*(info: InitInfo, col: int): int =
+  ## Maps a projected column position `col` back to the original column index.
   duckdb_init_get_column_index(info.handle, col.idx_t).int
 
 proc setMaxThreads*(info: InitInfo, maxThreads: int) =
+  ## Caps the worker threads DuckDB may spawn for this function.
   duckdb_init_set_max_threads(info.handle, maxThreads.idx_t)
 
 proc setError*(info: InitInfo, msg: string) =
+  ## Fails initialization with `msg`; the query is rejected.
   duckdb_init_set_error(info.handle, msg.cstring)
 
 # ---------------------------------------------------------------------------
@@ -95,15 +155,19 @@ proc setError*(info: InitInfo, msg: string) =
 # ---------------------------------------------------------------------------
 
 proc getBindData*(info: FunctionInfo): pointer =
+  ## The bind-time `data` from `setBindData`, live while rows are produced.
   duckdb_function_get_bind_data(info.handle)
 
 proc getInitData*(info: FunctionInfo): pointer =
+  ## The per-execution state from `setInitData` on `InitInfo`.
   duckdb_function_get_init_data(info.handle)
 
 proc getLocalInitData*(info: FunctionInfo): pointer =
+  ## The per-thread state from `initLocalProc`; `nil` if no local init used.
   duckdb_function_get_local_init_data(info.handle)
 
 proc setError*(info: FunctionInfo, msg: string) =
+  ## Fails the current chunk with `msg`; the query aborts with the message.
   duckdb_function_set_error(info.handle, msg.cstring)
 
 # ---------------------------------------------------------------------------
@@ -148,6 +212,13 @@ proc newTableFunction*(
     extraData: ref RootObj = nil,
     projectionPushdown: bool = false,
 ): TableFunction =
+  ## Low-level constructor for a DuckDB table function. Most callers should
+  ## prefer `registerTableFunction`; this exists for stateful functions that
+  ## need custom `bindProc` / `initProc` / `mainProc` implementations with the
+  ## `BindInfo` / `InitInfo` / `FunctionInfo` accessors.
+  ##
+  ## The owner is responsible for registering via `register` and, if
+  ## `extraData` is set, for keeping it alive for the function's lifetime.
   result = TableFunction(
     name: name,
     handle: duckdb_create_table_function(),
@@ -173,6 +244,8 @@ proc newTableFunction*(
   duckdb_table_function_supports_projection_pushdown(result.handle, projectionPushdown)
 
 proc register*(con: Connection, fun: TableFunction) =
+  ## Registers `fun` on `con` so SQL can call it. Raises `OperationError` if
+  ## the name collides or the registration fails.
   check(
     duckdb_register_table_function(con.rawHandle, fun.handle),
     fmt"Failed to register table function '{fun.name}'",
@@ -184,6 +257,25 @@ proc register*(con: Connection, fun: TableFunction) =
 
 macro registerTableFunction*(con: typed, iterSym: typed,
     extraArgs: varargs[untyped]): untyped =
+  ## Turns a `{.closure.}` iterator into a registered table function:
+  ##
+  ## .. code-block:: nim
+  ##
+  ##    conn.registerTableFunction(myIter, cardinality = 200)
+  ##
+  ## The iterator's parameters become the SQL call arguments (positional, or
+  ## named with `named = true`), and its return type defines the output
+  ## columns: a plain type for one column, a tuple for several, `Option[T]`
+  ## for nullable columns. Optional macro arguments:
+  ##
+  ## - `cardinality = N` — planner hint for the row count (with `exact = true`
+  ##   to mark it precise).
+  ## - `named = true` — accept `fn(param := val)` call syntax.
+  ## - `columnNames = @["a", "b"]` — override the derived column names.
+  ## - `localInit = myInitProc` — a per-thread initialization callback.
+  ##
+  ## Raises a compile-time error if `iterSym` is not a non-generic `{.closure.}`
+  ## iterator.
   proc getter(nmt: string, val: NimNode): NimNode =
     case nmt
     of "bool": newCall(bindSym"duckdb_get_bool", val)

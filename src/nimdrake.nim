@@ -1,3 +1,31 @@
+## NimDrake is a Nim language package designed to integrate with **DuckDB**,
+## an in-process SQL OLAP database management system. It simplifies database
+## interactions while maintaining flexibility for advanced use cases.
+##
+## NimDrake is built with two ideas in mind: the high-level interface offers
+## quick and easy database operations, ideal for rapid development and
+## simplicity; a lower-level interface interacts directly with DuckDB's core
+## functionality for complex or high-performance implementations when
+## necessary. This dual-layer approach caters to both beginners and advanced
+## users.
+##
+## The mental model, top to bottom:
+##
+## - `Database` → `Connection` — open a database, then `connect` one or more
+##   connections (thread-safe but serialized while querying; prefer one
+##   connection per thread).
+## - Queries — `execute` (raw SQL), prepared statements via `newStatement` +
+##   `bindVal`, or step-through `pending` execution; see the `query` module.
+## - Results — a `QResult` of `DataChunk`s; `chunk.bindAs(i, kt)` gives a typed
+##   `Vector[kt]` for reading, or `Table` for random access.
+## - Extend — register scalar UDFs (`registerScalar`), table functions
+##   (`registerTableFunction`), or scan your own Nim data as views
+##   (`register`).
+##
+## For examples of every layer, see the `query` and `table_functions` module
+## docs, and the cookbook online at
+## https://bontavlad.github.io/NimDrake/cookbook/cookbook.html.
+
 import
   /[
     types, config, complex, ffi, database, qresult, codec, table,
@@ -10,13 +38,6 @@ when defined(features.nimdrake.arrow):
 
 import /compatibility/tensor_table
 export tensor_table
-
-## NimDrake is a Nim language package designed to integrate with **DuckDB**,
-## an in-process SQL OLAP database management system. It simplifies database interactions while maintaining flexibility for advanced use cases.
-## NimDrake is built with two ideas in mind, the high-level interface offers quick and easy database operations, ideal for rapid development and simplicity,
-## and a lower-level interface that directly interacts with DuckDB's core functionalities, enabling complex or high-performance implementations when necessary.
-## This dual-layer approach ensures that NimDrake caters to both beginners and advanced users.
-##
 
 runnableExamples:
   let duck = newDatabase().connect()

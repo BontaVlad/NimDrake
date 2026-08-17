@@ -33,6 +33,9 @@ NimDrake is a [Nim](https://nim-lang.org/) binding for
 
 > NimDrake is pre-alpha. APIs and behavior may change.
 
+**[API documentation](https://bontavlad.github.io/NimDrake/)** — reference for
+every exported symbol, generated from the source doc comments with links back
+to the code.
 **[Cookbook](https://bontavlad.github.io/NimDrake/cookbook/cookbook.html)** — recipes for common tasks.
 
 ---

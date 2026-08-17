@@ -4,11 +4,11 @@
 ##
 ##   proc `init`(state: var S)
 ##   proc `update`(state: var S, p0: T0, ...)               # Tier A (per-row)
-##   proc `update`(states: States[S], v0: Vector[kt0], ...)  # Tier B (vectorized)
+##   proc `update`(states: ``States[S]``, v0: ``Vector[kt0]``, ...)  # Tier B (vectorized)
 ##   proc `combine`(dest: var S, src: S)                    # Tier A
-##   proc `combine`(dest, src: States[S])                   # Tier B
-##   proc `finalize`(state: S): R                           # Tier A; R = T or Option[T]
-##   proc `finalize`(src: States[S], outVec: var Vector[kt], count, offset: int)  # Tier B
+##   proc `combine`(dest, src: ``States[S]``)                   # Tier B
+##   proc `finalize`(state: ``S``): R                           # Tier A; R = ``T`` or ``Option[T]``
+##   proc `finalize`(src: ``States[S]``, outVec: var ``Vector[kt]``, count, offset: int)  # Tier B
 ##   proc `destroy`(state: var S)                           # optional, owning states
 ##
 ## A single macro `registerAggregate` auto-detects the tier from the update
@@ -40,13 +40,15 @@ import /tools/wrench
 # ---------------------------------------------------------------------------
 
 type
-  FunctionInfo* = object
-    ## Non-owning view of a `duckdb_function_info` passed to every callback.
+  FunctionInfo* = object ## Non-owning view of a `duckdb_function_info`
+    ## handle passed to every callback.
     handle*: duckdb_function_info
 
+## The per-query extra data attached via `setBindData` at bind time.
 proc getBindData*(info: FunctionInfo): pointer {.inline.} =
   duckdb_function_get_extra_info(info.handle)
 
+## Fails the aggregate query with `msg`; the query is aborted.
 proc setError*(info: FunctionInfo, msg: string) {.inline.} =
   duckdb_aggregate_function_set_error(info.handle, msg.cstring)
 
@@ -55,29 +57,32 @@ proc setError*(info: FunctionInfo, msg: string) {.inline.} =
 # ---------------------------------------------------------------------------
 
 type
-  States*[T] = object
-    ## Non-owning view over DuckDB's array-of-pointers state layout.
-    ## `[]` compiles to `load ptr, load T` — identical to a raw cast. Bounds
-    ## are checked via `doAssert` in debug builds and compiled out under
-    ## `-d:danger`.
+  States*[T] = object ## Non-owning view over DuckDB's array-of-pointers
+    ## state layout. `[]` compiles to `load ptr, load T` — identical to a raw
+    ## cast. Bounds are checked via `doAssert` in debug builds.
     raw: ptr UncheckedArray[ptr T]
     count: int
 
+## Wraps DuckDB's raw state array; mostly used by the generated wrappers.
 proc initStates*[T](raw: ptr UncheckedArray[ptr T], count: int): States[T] {.inline.} =
   States[T](raw: raw, count: count)
 
+## Number of state slots.
 proc len*[T](s: States[T]): int {.inline.} = s.count
 
+## Access state slot `i` by reference.
 proc `[]`*[T](s: States[T], i: int): var T {.inline.} =
   when not defined(danger):
     doAssert i >= 0 and i < s.count, "States index out of bounds: " & $i
   s.raw[i][]
 
+## Write state slot `i`.
 proc `[]=`*[T](s: States[T], i: int, val: sink T) {.inline.} =
   when not defined(danger):
     doAssert i >= 0 and i < s.count, "States index out of bounds: " & $i
   s.raw[i][] = val
 
+## Iterates the state slots by reference.
 iterator items*[T](s: States[T]): var T {.inline.} =
   for i in 0 ..< s.count: yield s.raw[i][]
 
@@ -86,11 +91,13 @@ iterator items*[T](s: States[T]): var T {.inline.} =
 # ---------------------------------------------------------------------------
 
 type
-  AggregateFunctionBase* = object of RootObj
+  AggregateFunctionBase* = object of RootObj ## Owns a DuckDB aggregate
+    ## function handle; non-copyable.
     name*: string
     handle*: duckdb_aggregate_function
 
-  AggregateFunction* = ref object of AggregateFunctionBase
+  AggregateFunction* = ref object of AggregateFunctionBase ## A registered
+    ## aggregate function; use `register` to expose it to SQL.
 
 proc `=destroy`(agg: var AggregateFunctionBase) =
   if agg.handle != nil:
@@ -105,9 +112,12 @@ proc `=wasMoved`(agg: var AggregateFunctionBase) =
 proc `=copy`(dest: var AggregateFunctionBase, source: AggregateFunctionBase) {.error.}
 proc `=dup`(agg: AggregateFunctionBase): AggregateFunctionBase {.error.}
 
+## Creates an empty aggregate-function handle; prefer the `registerAggregate`
+## macro, which wires the callbacks and registers in one call.
 proc newAggregateFunction*(name: string): AggregateFunction {.inline.} =
   AggregateFunction(name: name, handle: duckdb_create_aggregate_function())
 
+## Registers `fun` on `con`; raises `OperationError` on name collision.
 proc register*(con: Connection, fun: AggregateFunction) =
   check(duckdb_register_aggregate_function(con.rawHandle, fun.handle),
         fmt"Failed to register aggregate function '{fun.name}'")

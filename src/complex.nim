@@ -29,7 +29,7 @@ import /[ffi, types, qresult, codec]
 # ---------------------------------------------------------------------------
 
 type
-  NimValueKind* = enum
+  NimValueKind* = enum ## The materialized value categories a `NimValue` can hold.
     nvBool
     nvInt
     nvUInt
@@ -43,7 +43,11 @@ type
     nvUnion
     nvNull
 
-  NimValue* = ref object
+  NimValue* = ref object ## Recursively materialized cell of any DuckDB kind.
+    ## Allocates per row; the zero-copy `Vector[kt]` views in `qresult` are the
+    ## hot path. Integer widths are lossless: signed 64-bit → `nvInt`,
+    ## unsigned 64-bit → `nvUInt`, HUGEINT → `nvHuge`; UHUGEINT and UUID
+    ## materialize as `nvString`.
     case kind*: NimValueKind
     of nvBool:   boolVal*: bool
     of nvInt:    intVal*: int64
@@ -60,6 +64,7 @@ type
       memberVal*: NimValue
     of nvNull:   discard
 
+## Structural equality; two `nil` refs compare equal.
 func `==`*(a, b: NimValue): bool =
   if a.isNil or b.isNil:
     return a.isNil == b.isNil
@@ -79,6 +84,7 @@ func `==`*(a, b: NimValue): bool =
   of nvUnion:  a.memberName == b.memberName and a.memberVal == b.memberVal
   of nvNull:   true
 
+## Content hash, consistent with `==`.
 func hash*(v: NimValue): Hash =
   result = hash(v.kind)
   case v.kind
@@ -136,6 +142,8 @@ func formatVal(v: NimValue, quoteStr: bool = true): string =
     formatVal(v.memberVal, quoteStr)
   of nvNull: "NULL"
 
+## Formats a `NimValue` in a SQL-ish literal syntax (lists, structs, maps
+## bracket the children); NULL renders as `NULL`.
 proc `$`*(v: NimValue): string =
   formatVal(v, true)
 
@@ -143,6 +151,7 @@ proc `$`*(v: NimValue): string =
 # toNimValue — recursive materializer (Layer B)
 # ---------------------------------------------------------------------------
 
+## Recursively materializes row `i` of any column into a `NimValue`.
 proc toNimValue*(cv: ColumnView, i: int): NimValue =
   if not cv.valid(i):
     return NimValue(kind: nvNull)
@@ -288,6 +297,7 @@ proc toNimValue*(cv: ColumnView, i: int): NimValue =
     raise newException(ValueError,
                        "unsupported DuckDB type for materialization: " & $cv.kind)
 
+## Materializes the whole column; NULL rows become `NimValue(kind: nvNull)`.
 proc toNimValues*(cv: ColumnView): seq[NimValue] =
   result = newSeq[NimValue](cv.length)
   for i in 0 ..< cv.length:
@@ -304,6 +314,8 @@ proc toNimValues*(cv: ColumnView): seq[NimValue] =
 # produces exactly what those column-level helpers yield per row.
 # ---------------------------------------------------------------------------
 
+## STRUCT row `i` as `(fieldName, materialized value)` pairs; NULL rows yield
+## an empty `seq`.
 proc `[]`*(v: Vector[DuckType.Struct], i: int): seq[(string, NimValue)] =
   if not v.valid(i):
     return newSeq[(string, NimValue)](0)
@@ -314,6 +326,8 @@ proc `[]`*(v: Vector[DuckType.Struct], i: int): seq[(string, NimValue)] =
     let child = v.structChild(j)
     result[j] = (name, toNimValue(child, i))
 
+## UNION row `i` as `(activeMemberName, materialized value)`; NULL rows yield
+## `("", nvNull)`.
 proc `[]`*(v: Vector[DuckType.Union], i: int): (string, NimValue) =
   if not v.valid(i):
     return ("", NimValue(kind: nvNull))
@@ -324,17 +338,22 @@ proc `[]`*(v: Vector[DuckType.Union], i: int): (string, NimValue) =
   let member = v.unionMemberChild(tag)
   (name, toNimValue(member, i))
 
+## Row count of the struct-typed vector.
 proc len*(v: Vector[DuckType.Struct]): int {.inline.} = v.length
+## Row count of the union-typed vector.
 proc len*(v: Vector[DuckType.Union]): int {.inline.} = v.length
 
+## Yields each STRUCT row as `(fieldName, value)` pairs (see `[]`).
 iterator items*(v: Vector[DuckType.Struct]): seq[(string, NimValue)] =
   for i in 0 ..< v.length:
     yield v[i]
 
+## Yields each UNION row as `(memberName, value)` (see `[]`).
 iterator items*(v: Vector[DuckType.Union]): (string, NimValue) =
   for i in 0 ..< v.length:
     yield v[i]
 
+## Materializes the whole STRUCT column.
 proc toSeq*(v: Vector[DuckType.Struct]): seq[seq[(string, NimValue)]] =
   let nc = v.structChildCount
   var names = newSeq[string](nc)
@@ -352,6 +371,7 @@ proc toSeq*(v: Vector[DuckType.Struct]): seq[seq[(string, NimValue)]] =
       fields[j] = (names[j], toNimValue(children[j], i))
     result[i] = fields
 
+## Materializes the whole UNION column as `(memberName, value)` per row.
 proc toSeq*(v: Vector[DuckType.Union]): seq[(string, NimValue)] =
   let nMembers = v.unionMemberCount
   var names = newSeq[string](nMembers)
@@ -378,20 +398,25 @@ proc toSeq*(v: Vector[DuckType.Union]): seq[(string, NimValue)] =
 # Typed single-level helpers (Layer A)
 # ---------------------------------------------------------------------------
 
+## Converts a LIST column to `seq[seq[child]]` the typed way; child kind must
+## be non-complex (use `toNimValue` for nested complex children).
 proc toList*[childKt: static DuckType](
     v: Vector[DuckType.List]
-): seq[seq[nimOf(childKt)]] =
+  ): seq[seq[nimOf(childKt)]] =
   when childKt in DuckComplexKind:
     {.error: "toList requires a non-complex childKt; use toNimValue for nested complex types".}
   initListViewFromVector[childKt](v).toSeq
 
+## Converts an ARRAY column to `seq[seq[child]]` the typed way; child kind
+## must be non-complex (use `toNimValue` for nested complex children).
 proc toArray*[childKt: static DuckType](
     v: Vector[DuckType.Array]
-): seq[seq[nimOf(childKt)]] =
+  ): seq[seq[nimOf(childKt)]] =
   when childKt in DuckComplexKind:
     {.error: "toArray requires a non-complex childKt; use toNimValue for nested complex types".}
   initArrayViewFromVector[childKt](v).toSeq
 
+## Converts a STRUCT column to per-row `(name, value)` pairs (recursive).
 proc toStructPairs*(v: Vector[DuckType.Struct]): seq[seq[(string, NimValue)]] =
   let nc = v.structChildCount
   # Hoist the child views and names once per chunk instead of re-deriving
@@ -411,23 +436,28 @@ proc toStructPairs*(v: Vector[DuckType.Struct]): seq[seq[(string, NimValue)]] =
       fields[j] = (names[j], toNimValue(children[j], i))
     result[i] = fields
 
+## The typed column values of struct field `j`.
 proc toStructChild*[childKt: static DuckType](
     v: Vector[DuckType.Struct], j: int
-): seq[nimOf(childKt)] =
+  ): seq[nimOf(childKt)] =
   v.structChild(j).bindAs(childKt).toSeq
 
+## The typed column values of struct field `name`.
 proc toStructChild*[childKt: static DuckType](
     v: Vector[DuckType.Struct], name: string
-): seq[nimOf(childKt)] =
+  ): seq[nimOf(childKt)] =
   v.structChild(name).bindAs(childKt).toSeq
 
+## Converts a MAP column to per-row `OrderedTable[key, val]`; key/value kinds
+## must be non-complex (use `toNimValue` for nested complex keys/values).
 proc toMap*[keyKt, valKt: static DuckType](
     v: Vector[DuckType.Map]
-): seq[OrderedTable[nimOf(keyKt), nimOf(valKt)]] =
+  ): seq[OrderedTable[nimOf(keyKt), nimOf(valKt)]] =
   when keyKt in DuckComplexKind or valKt in DuckComplexKind:
     {.error: "toMap requires non-complex keyKt and valKt; use toNimValue for nested complex types".}
   initMapViewFromVector[keyKt, valKt](v).toSeq
 
+## Converts a UNION column to per-row `(memberName, value)`.
 proc toUnion*(v: Vector[DuckType.Union]): seq[(string, NimValue)] =
   # Hoist the tag view plus the member names/children once per chunk so the
   # row loop performs no FFI calls.
@@ -468,6 +498,9 @@ proc duckTypeOfNimValue(nv: NimValue): Option[DuckType] =
   of nvString: some(DuckType.Varchar)
   else:        none(DuckType)
 
+## Encodes a `NimValue` as a `duckdb_value` for binding. Scalars map
+## directly; LIST/STRUCT are derived from the first element (homogeneity is
+## required); MAP/UNION raise `ValueError`. Caller must destroy the value.
 proc toDuckValue*(nv: NimValue): duckdb_value =
   case nv.kind
   of nvNull:
@@ -550,10 +583,13 @@ proc toDuckValue*(nv: NimValue): duckdb_value =
       "); use typed bindVal/append overloads instead")
 
 
+## The first cell of `qrs` (column 0, row 0) materialized as a `NimValue`;
+## handy for `SELECT`-scalar convenience queries.
 proc scalar*(qrs: QResult): NimValue =
   for chunk in qrs:
     return chunk.vector(0).toNimValue(0)
 
+## The first cell of `qrs` (column 0, row 0) read via a typed `Vector[kt]`.
 proc scalar*(qrs: QResult, kt: static DuckType): nimOf(kt) =
   for chunk in qrs:
     return chunk.bindAs(0, kt)[0]

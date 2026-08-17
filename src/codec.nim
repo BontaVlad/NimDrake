@@ -1,7 +1,25 @@
-## Single-source-of-truth DuckDB ↔ Nim scalar conversion helpers.
+## Timestamp, interval, integer, and decimal conversions between Nim values
+## and the raw DuckDB FFI types from `ffi`.
 ##
-## Every `to*` / `from*` proc is defined here so the two previous parallel
-## decoder stacks (``value.nim`` and ``exp_result.nim``) can be consolidated.
+## The naming convention is the whole story:
+##
+## - `toX` converts a **Nim** value → the raw **DuckDB** type that the FFI
+##   functions in `ffi` accept (`Time` → `duckdb_time`, `Timestamp` →
+##   `duckdb_timestamp`, `Uuid` → `duckdb_hugeint`, ...).
+## - `fromX` converts the raw **DuckDB** type → a **Nim** value.
+## - The `fromDuck*` / `toDuck*` family are the precision-specific
+##   timestamp/time codecs: `fromDuckTimestampS/Ms/Ns` decode COUNT-based
+##   timestamps at seconds/milliseconds/nanoseconds precision, and the `Tz`
+##   variants carry an explicit UTC offset (a `ZonedTime`).
+##
+## Every conversion is component-wise and allocation-free where possible;
+## decimal is the exception — it round-trips through a string via the
+## `decimal_compat` alias.
+##
+## .. note:: These procs are the low level the `qresult` views build on. You
+##   normally touch them only when writing your own encoders/decoders for
+##   exotic columns.
+##
 
 import std/[times, math, strutils]
 import nint128
@@ -17,9 +35,11 @@ export decimal_compat
 # ---------------------------------------------------------------------------
 
 proc toHugeInt*(val: Int128): duckdb_hugeint {.inline.} =
+  ## Reinterprets a signed 128-bit `Int128` as the DuckDB `duckdb_hugeint`.
   duckdb_hugeint(lower: val.lo, upper: val.hi)
 
 proc fromHugeInt*(val: duckdb_hugeint): Int128 {.inline.} =
+  ## Reinterprets a DuckDB `duckdb_hugeint` as a signed `Int128`.
   Int128(hi: val.upper, lo: val.lower)
 
 # ---------------------------------------------------------------------------
@@ -27,9 +47,11 @@ proc fromHugeInt*(val: duckdb_hugeint): Int128 {.inline.} =
 # ---------------------------------------------------------------------------
 
 proc toUHugeInt*(val: UInt128): duckdb_uhugeint {.inline.} =
+  ## Reinterprets an unsigned `UInt128` as the DuckDB `duckdb_uhugeint`.
   duckdb_uhugeint(lower: val.lo, upper: val.hi)
 
 proc fromUHugeInt*(val: duckdb_uhugeint): UInt128 {.inline.} =
+  ## Reinterprets a DuckDB `duckdb_uhugeint` as an unsigned `UInt128`.
   UInt128(hi: val.upper, lo: val.lower)
 
 # ---------------------------------------------------------------------------
@@ -37,14 +59,17 @@ proc fromUHugeInt*(val: duckdb_uhugeint): UInt128 {.inline.} =
 # ---------------------------------------------------------------------------
 
 proc fromTimestamp*(val: int64): Timestamp {.inline.} =
+  ## Decodes `val` microseconds since the Unix epoch into a `Timestamp`.
   let (seconds, microseconds) = divMod(val, 1_000_000)
   let dt = fromUnix(seconds).inZone(utc()) + initDuration(microseconds = microseconds)
   Timestamp(dt)
 
 proc fromTimestamp*(val: duckdb_timestamp): Timestamp {.inline.} =
+  ## Decodes a DuckDB `duckdb_timestamp` (microseconds since epoch) into a `Timestamp`.
   fromTimestamp(val.micros)
 
 proc toTimestamp*(val: Timestamp): duckdb_timestamp {.inline.} =
+  ## Encodes a `Timestamp` as `duckdb_timestamp` microseconds since the epoch.
   let t = val.toTime
   duckdb_timestamp(micros: t.toUnix * 1_000_000 + (t.nanosecond div 1_000))
 
@@ -53,16 +78,19 @@ proc toTimestamp*(val: Timestamp): duckdb_timestamp {.inline.} =
 # ---------------------------------------------------------------------------
 
 proc toDatetime*(val: DateTime): duckdb_date {.inline.} =
+  ## Encodes a `DateTime` as a DuckDB `duckdb_date` (whole days since epoch).
   let
     timeInfo = val.inZone(utc())
     days = floorDiv(timeInfo.toTime.toUnix, 86_400)
   duckdb_date(days: days.int32)
 
 proc fromDatetime*(val: int32): DateTime {.inline.} =
+  ## Decodes `val` days since the Unix epoch into a `DateTime` at midnight UTC.
   let seconds = convert(Days, Seconds, val)
   fromUnix(seconds).inZone(utc())
 
 proc fromDatetime*(val: duckdb_date): DateTime {.inline.} =
+  ## Decodes a DuckDB `duckdb_date` into a `DateTime` at midnight UTC.
   fromDatetime(val.days)
 
 # ---------------------------------------------------------------------------
@@ -70,15 +98,18 @@ proc fromDatetime*(val: duckdb_date): DateTime {.inline.} =
 # ---------------------------------------------------------------------------
 
 proc toTime*(val: Time): duckdb_time {.inline.} =
+  ## Encodes a `Time` as DuckDB `duckdb_time` micros since midnight.
   let micros = convert(Seconds, Microseconds, val.toUnix)
   duckdb_time(micros: micros)
 
 proc fromTime*(val: int64): Time {.inline.} =
+  ## Decodes `val` microseconds since midnight into a `Time`.
   let seconds = val div 1_000_000
   let micros = val mod 1_000_000
   initTime(seconds, micros.int * 1_000)
 
 proc fromTime*(val: duckdb_time): Time {.inline.} =
+  ## Decodes a DuckDB `duckdb_time` into a `Time`.
   fromTime(val.micros)
 
 # ---------------------------------------------------------------------------
@@ -86,6 +117,8 @@ proc fromTime*(val: duckdb_time): Time {.inline.} =
 # ---------------------------------------------------------------------------
 
 proc toInterval*(val: TimeInterval): duckdb_interval {.inline.} =
+  ## Encodes a `TimeInterval` as DuckDB's `duckdb_interval`
+  ## (months/days/micros normalized like DuckDB's `INTERVAL`).
   let micros =
     convert(Hours, Microseconds, val.hours) +
     convert(Minutes, Microseconds, val.minutes) +
@@ -97,6 +130,8 @@ proc toInterval*(val: TimeInterval): duckdb_interval {.inline.} =
   )
 
 proc fromInterval*(val: duckdb_interval): TimeInterval {.inline.} =
+  ## Decodes a DuckDB `duckdb_interval` into a `TimeInterval`, re-splitting
+  ## months into years+months.
   let
     years = val.months div 12
     months = val.months mod 12
@@ -119,20 +154,25 @@ proc fromInterval*(val: duckdb_interval): TimeInterval {.inline.} =
 # ---------------------------------------------------------------------------
 
 proc fromDuckDate*(days: int32): DateTime {.inline.} =
+  ## Decodes a COUNT-based DuckDB `DATE` (days since epoch) into a `DateTime`.
   fromUnix(0).inZone(utc()) + initDuration(days = days.int)
 
 proc fromDuckTime*(micros: int64): Time {.inline.} =
+  ## Decodes a COUNT-based DuckDB `TIME` (micros since midnight) into a `Time`.
   let seconds = micros div 1_000_000
   initTime(seconds, (micros mod 1_000_000).int * 1_000)
 
 proc fromDuckTimestampS*(raw: int64): DateTime {.inline.} =
+  ## Decodes a COUNT-based DuckDB `TIMESTAMP_S` (seconds since epoch).
   fromUnix(raw).inZone(utc())
 
 proc fromDuckTimestampMs*(raw: int64): DateTime {.inline.} =
+  ## Decodes a COUNT-based DuckDB `TIMESTAMP_MS` (milliseconds since epoch).
   let (s, ms) = divmod(raw, 1000)
   fromUnix(s).inZone(utc()) + initDuration(milliseconds = ms)
 
 proc fromDuckTimestampNs*(raw: int64): DateTime {.inline.} =
+  ## Decodes a COUNT-based DuckDB `TIMESTAMP_NS` (nanoseconds since epoch).
   let
     (s, ns) = divMod(raw, 1_000_000_000)
     us = ns div 1000
@@ -140,20 +180,24 @@ proc fromDuckTimestampNs*(raw: int64): DateTime {.inline.} =
   fromUnix(s).inZone(utc()) + initDuration(microseconds = us, nanoseconds = nsRem)
 
 proc fromDuckTimeTz*(raw: int64): ZonedTime {.inline.} =
+  ## Decodes a DuckDB `TIME WITH TIME ZONE` into a `ZonedTime`, applying the
+  ## embedded offset to recover the wall-clock time.
   let tmz = duckdb_from_time_tz(cast[duckdb_time_tz](raw))
   let seconds = tmz.time.hour.int * 3600 + tmz.time.min.int * 60 + tmz.time.sec
   let nanoseconds = tmz.time.micros * 1000
   ZonedTime(time: initTime(seconds, nanoseconds), utcOffset: tmz.offset, isDst: false)
 
 proc fromDuckTimestampTz*(raw: int64): ZonedTime {.inline.} =
-  ## TIMESTAMPTZ is microseconds since epoch in UTC. The zone offset is not
-  ## part of the stored value; `utcOffset` is always 0 on read.
+  ## Decodes a DuckDB `TIMESTAMP WITH TIME ZONE`: microseconds since epoch in
+  ## UTC. The zone offset is not part of the stored value; `utcOffset` is
+  ## always 0 on read.
   let (s, us) = divMod(raw, 1_000_000)
   ZonedTime(time: initTime(s, us * 1_000), utcOffset: 0, isDst: false)
 
 proc fromDuckUuid*(raw: duckdb_hugeint): Uuid {.inline.} =
-  ## DuckDB flips bit 63 of the upper half so that `ORDER BY uuid` matches
-  ## `ORDER BY uuid::varchar` (see DuckDB `BaseUUID::FromString`). Undo it.
+  ## Decodes a DuckDB `UUID` (stored as a big-endian 128-bit int). DuckDB
+  ## flips bit 63 of the upper half so `ORDER BY uuid` matches
+  ## `ORDER BY uuid::varchar`; this undoes that flip.
   var bytes: array[16, uint8]
   let hi = cast[uint64](raw.upper) xor 0x8000_0000_0000_0000'u64
   let lo = raw.lower
@@ -163,6 +207,9 @@ proc fromDuckUuid*(raw: duckdb_hugeint): Uuid {.inline.} =
   initUuid(bytes)
 
 proc fromDuckEnum*(data: pointer, i: int, kt: DuckType): uint {.inline.} =
+  ## Reads the `i`-th enum value from a raw column buffer `data`; the storage
+  ## width follows the backing integer type of `kt`. Raises `ValueError` for
+  ## non-enum kinds.
   case kt
   of DuckType.UTinyInt:
     cast[ptr UncheckedArray[uint8]](data)[i].uint
@@ -174,6 +221,9 @@ proc fromDuckEnum*(data: pointer, i: int, kt: DuckType): uint {.inline.} =
     raise newException(ValueError, "enum kind not supported: " & $kt)
 
 proc fromDuckDecimal*(scale, width: int8, data: pointer, i: int): DecimalType {.inline.} =
+  ## Decodes the `i`-th `DECIMAL(scale, width)` value from a raw column
+  ## buffer `data`. The storage width selects the in-buffer integer size:
+  ## ≤4 int16, ≤9 int32, ≤18 int64, else a duckdb hugeint.
   var val: Int128
   if width <= 4:
     val = i128(cast[ptr UncheckedArray[int16]](data)[i])
@@ -200,30 +250,37 @@ proc fromDuckDecimal*(scale, width: int8, data: pointer, i: int): DecimalType {.
 # ---------------------------------------------------------------------------
 
 proc toDuckTimestampS*(val: DateTime): int64 {.inline.} =
+  ## Encodes `val` as a COUNT-based DuckDB `TIMESTAMP_S` (seconds since epoch).
   let t = val.inZone(utc()).toTime
   t.toUnix
 
 proc toDuckTimestampMs*(val: DateTime): int64 {.inline.} =
+  ## Encodes `val` as a COUNT-based DuckDB `TIMESTAMP_MS` (milliseconds since epoch).
   let t = val.inZone(utc()).toTime
   t.toUnix * 1000 + (t.nanosecond div 1_000_000)
 
 proc toDuckTimestampNs*(val: DateTime): int64 {.inline.} =
+  ## Encodes `val` as a COUNT-based DuckDB `TIMESTAMP_NS` (nanoseconds since epoch).
   let t = val.inZone(utc()).toTime
   t.toUnix * 1_000_000_000 + t.nanosecond
 
 proc toDuckTimeTz*(val: ZonedTime): int64 {.inline.} =
+  ## Encodes a `ZonedTime` as a DuckDB `TIME WITH TIME ZONE`, packing the
+  ## micros and offset into DuckDB's bit layout.
   let micros = val.time.toUnix * 1_000_000 + (val.time.nanosecond div 1_000)
   let packed = duckdb_create_time_tz(cast[int64](micros), int32(val.utcOffset))
   cast[int64](packed.bits)
 
 proc toDuckTimestampTz*(val: ZonedTime): int64 {.inline.} =
-  ## Writes the instant `val.time` as UTC micros since epoch. `utcOffset`
-  ## is display metadata and is not applied; convert a wall-clock time to
-  ## an instant before writing if needed.
+  ## Encodes `val` as a COUNT-based DuckDB `TIMESTAMP WITH TIME ZONE`: the
+  ## instant `val.time` as UTC microseconds since epoch. `utcOffset` is
+  ## display metadata and is not applied; convert a wall-clock time to an
+  ## instant first if needed.
   val.time.toUnix * 1_000_000 + (val.time.nanosecond div 1_000)
 
 proc toDuckUuid*(val: Uuid): duckdb_hugeint {.inline.} =
-  ## Inverse of `fromDuckUuid`: flips bit 63 of the upper half back on.
+  ## Encodes a `Uuid` as the DuckDB `UUID` int (big-endian with bit 63 of the
+  ## upper half flipped so DuckDB's order matches `uuid::varchar`).
   var hi: uint64 = 0
   var lo: uint64 = 0
   for b in 0 .. 7:
@@ -235,6 +292,8 @@ proc toDuckUuid*(val: Uuid): duckdb_hugeint {.inline.} =
   )
 
 proc toDuckDecimal*(val: DecimalType, width: int8, scale: int8): Int128 {.inline.} =
+  ## Encodes a `DecimalType` as the unscaled `Int128` DuckDB stores for a
+  ## `DECIMAL(width, scale)`. Non-finite values (`NaN`, `Inf`) encode as 0.
   let s = $val
   if s == "" or s == "NaN" or s == "Inf" or s == "-Inf":
     return zero(Int128)

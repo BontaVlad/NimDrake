@@ -1,3 +1,5 @@
+## Architecture shim exposing the `decimal` package (`DecimalType` and
+## `Decimal128`) under one name. On non-x86 builds a stub raises instead.
 when defined(i386) or defined(amd64):
   import decimal
   export decimal

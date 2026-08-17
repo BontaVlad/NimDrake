@@ -65,6 +65,8 @@ proc renderCell*(cv: ColumnView, i: int): string =
     result = "<" & $cv.kind & ">"
 
 proc `$`*(q: QResult[Materialized]): string =
+  ## Pretty-prints the first `previewMaxRows` rows as an aligned Unicode table;
+  ## column headers are clipped to 20 chars. Empty results render as "".
   let colCount = q.columnCount
   if colCount == 0:
     return ""

@@ -1,3 +1,22 @@
+## Register in-memory Nim data as queryable DuckDB views.
+##
+## `conn.register(myDataSource)` exposes any `TableSource` (a type providing
+## `columns`, `cardinality`, and `newFiller`) as a view backed by a registered
+## table function, so Nim objects are scannable from SQL directly:
+##
+## .. code-block:: nim
+##
+##    conn.register(myTable)            # view name = variable name
+##    conn.register(q, name = "t")      # or an explicit name
+##    for chunk in conn.execute("SELECT * FROM myTable WHERE ..."):
+##      ...
+##
+## The scan is re-runnable and thread-safe: each scan re-invokes the source's
+## `newFiller`, and the registered view delegates to the shared `nim_tbl_scan`
+## table function registered once per database.
+##
+## .. note:: `QResult[Streaming]` can be registered too, but it is consumed
+##   (eagerly materialized) first, so it is a snapshot rather than a live view.
 import std/[tables, strformat, locks, macros, sets]
 import /[ffi, database, types, qresult, table_functions, query]
 
@@ -5,7 +24,8 @@ import /[ffi, database, types, qresult, table_functions, query]
 # Kinds supported at bind time.
 # ---------------------------------------------------------------------------
 
-const TableScanSupportedKinds* = {
+const TableScanSupportedKinds* = { ## `DuckType` kinds a registered source may
+  ## expose as columns; anything else is rejected at bind time with a clear error.
   DuckType.Boolean,
   DuckType.TinyInt, DuckType.SmallInt, DuckType.Integer, DuckType.BigInt,
   DuckType.UTinyInt, DuckType.USmallInt, DuckType.UInteger, DuckType.UBigInt,
@@ -51,7 +71,12 @@ type
 #   newFiller(s): FillFn
 
 type
-  TableSource* = concept s
+  TableSource* = concept s ## Anything `register` can back a view with. Must
+    ## provide three free procs:
+    ##
+    ## - `columns(s): seq[Column]` — the result schema;
+    ## - `cardinality(s): Cardinality` — a row-count estimate;
+    ## - `newFiller(s): FillFn` — a closure producing the scan chunks.
     mixin columns, cardinality, newFiller
     columns(s) is seq[Column]
     cardinality(s) is Cardinality
@@ -222,7 +247,7 @@ proc registerImpl*[S: TableSource](
 ) =
   ## Register any source that satisfies the `TableSource` concept.
   ## The concept (defined in qresult.nim) requires:
-  ##   columns(s): seq[Column],  cardinality(s): Cardinality,  newFiller(s): FillFn
+  ##   columns(s): ``seq[Column]``,  cardinality(s): Cardinality,  newFiller(s): FillFn
   mixin columns, cardinality, newFiller
   registerEntry(con, name, source.columns, source.cardinality,
     proc(): FillFn {.closure, gcsafe.} = source.newFiller)

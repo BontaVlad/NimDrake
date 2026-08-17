@@ -1,3 +1,6 @@
+## Optional `arraymancer` integration: expose Nim tensors as scanable DuckDB
+## views via `register`. Only compiled with the `--features:tensor` feature
+## flag; see `nimdrake.nimble`.
 when defined(features.nimdrake.tensor):
   import arraymancer/tensor
   import std/[strformat]

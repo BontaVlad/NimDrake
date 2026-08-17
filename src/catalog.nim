@@ -1,6 +1,3 @@
-import std/options
-import /[ffi, exceptions, arc, types, database, table_functions]
-
 ## Catalog introspection without raw SQL.
 ##
 ## Two tiers:
@@ -8,28 +5,35 @@ import /[ffi, exceptions, arc, types, database, table_functions]
 ## **TableDescription** — column-level introspection for a named table.
 ## Obtain from any `Connection`:
 ##
-##   let td = newTableDescription(con, "my_table")
-##   assert td.columnCount > 0
-##   for i in 0 ..< td.columnCount:
-##     echo td.columnName(i), " → ", toDuckType(td.columnType(i))
+## .. code-block:: nim
+##
+##    let td = newTableDescription(con, "my_table")
+##    assert td.columnCount > 0
+##    for i in 0 ..< td.columnCount:
+##      echo td.columnName(i), " → ", toDuckType(td.columnType(i))
 ##
 ## **Catalog / CatalogEntry** — entry lookup by type and name.
 ## Obtainable from a `BindInfo` inside a table-function bind callback
 ## (guaranteed active transaction):
 ##
-##   proc myBind(info: BindInfo) =
-##     let cat = newCatalog(info, "memory")
-##     let entry = cat.getEntry(CatalogEntryType.Table, "main", "t")
-##     echo entry.isSome, " ", entry.entryType
+## .. code-block:: nim
+##
+##    proc myBind(info: BindInfo) =
+##      let cat = newCatalog(info, "memory")
+##      let entry = cat.getEntry(CatalogEntryType.Table, "main", "t")
+##      echo entry.isSome, " ", entry.entryType
 ##
 ## The DuckDB C API for catalogs is transaction-scoped; the standalone
-## ``Connection``-based catalog constructor is intentionally absent
-## because ``duckdb_client_context_get_catalog`` returns ``nil`` outside
-## an active transaction.  For bulk listing of schemas/tables, use
-## ``conn.execute("SELECT … FROM information_schema.tables …")``.
+## `Connection`-based catalog constructor is intentionally absent because
+## `duckdb_client_context_get_catalog` returns `nil` outside an active
+## transaction. For bulk listing of schemas/tables, use
+## `conn.execute("SELECT … FROM information_schema.tables …")`.
+import std/options
+import /[ffi, exceptions, arc, types, database, table_functions]
 
 type
-  CatalogEntryType* {.pure, size: sizeof(cuint).} = enum
+  CatalogEntryType* {.pure, size: sizeof(cuint).} = enum ## The catalog entry
+    ## kinds DuckDB can store; used with `getEntry` to filter lookups.
     Invalid            = DUCKDB_CATALOG_ENTRY_TYPE_INVALID
     Table              = DUCKDB_CATALOG_ENTRY_TYPE_TABLE
     Schema             = DUCKDB_CATALOG_ENTRY_TYPE_SCHEMA
@@ -43,16 +47,19 @@ type
 
 arcResource(duckdbTableDescriptionDestroy):
   type
-    TableDescription* = object
+    TableDescription* = object ## Owns a DuckDB table-description handle with
+                              ## column metadata; freed on destruction.
       handle: duckdbTableDescription
 
 arcResource(duckdbDestroyCatalogEntry):
   type
-    CatalogEntry* = object
+    CatalogEntry* = object ## Owns a catalog entry handle; valid only for the
+                           ## duration of the opening transaction.
       handle: duckdbCatalogEntry
 
 type
-  Catalog* = object
+  Catalog* = object ## An open catalog, valid while a transaction is active;
+                    ## ownership is moved out on destruction.
     handle: duckdbCatalog
     context: duckdbClientContext
 
@@ -100,6 +107,7 @@ proc newTableDescription*(
 # TableDescription accessors
 # ---------------------------------------------------------------------------
 
+## Number of columns in the described table.
 proc columnCount*(td: TableDescription): int {.inline.} =
   duckdb_table_description_get_column_count(td.handle).int
 
@@ -113,6 +121,7 @@ proc columnType*(td: TableDescription; i: int): LogicalType {.inline.} =
   ## Freshly-owned ``LogicalType`` ref for column `i` (destroyed by GC).
   newLogicalType(duckdb_table_description_get_column_type(td.handle, i.idx_t))
 
+## Whether column `i` has a DEFAULT expression.
 proc columnHasDefault*(td: TableDescription; i: int): bool {.inline.} =
   var b: bool
   check(duckdb_column_has_default(td.handle, i.idx_t, b.addr),
@@ -163,9 +172,11 @@ proc getEntry*(c: Catalog; entryType: CatalogEntryType;
   else:
     result = some CatalogEntry(handle: h)
 
+## Whether `table` (in schema, catalog) exists as a table.
 proc tableExists*(c: Catalog; schema, name: string): bool {.inline.} =
   c.getEntry(CatalogEntryType.Table, schema, name).isSome
 
+## Whether `name` (in schema, catalog) exists as a view.
 proc viewExists*(c: Catalog; schema, name: string): bool {.inline.} =
   c.getEntry(CatalogEntryType.View, schema, name).isSome
 
@@ -173,10 +184,11 @@ proc viewExists*(c: Catalog; schema, name: string): bool {.inline.} =
 # CatalogEntry accessors
 # ---------------------------------------------------------------------------
 
+## The entry's kind (`table`, `view`, ...); see `CatalogEntryType`.
 proc entryType*(e: CatalogEntry): CatalogEntryType {.inline.} =
   cast[CatalogEntryType](duckdb_catalog_entry_get_type(e.handle))
 
+## The entry's name. The underlying C string is owned by the entry;
+## this proc copies it.
 proc name*(e: CatalogEntry): string {.inline.} =
-  ## The entry's name.  The underlying C string is owned by the entry;
-  ## this proc copies it.
   $duckdb_catalog_entry_get_name(e.handle)
