@@ -112,25 +112,25 @@ proc `=copy`*(dest: var Statement, source: Statement) {.error.}
 ## Statement is move-only.
 proc `=dup`*(statement: Statement): Statement {.error.}
 
-## Resets a moved-from statement to an empty handle; the old handle was
-## transferred by ARC, not freed here.
 proc `=wasMoved`*(statement: var Statement) =
+  ## Resets a moved-from statement to an empty handle; the old handle was
+  ## transferred by ARC, not freed here.
   statement = Statement(nil)
 
-## Frees the DuckDB logical-type handle and its child-name cache.
 proc `=destroy`*(lt: LogicalTypeObj) =
+  ## Frees the DuckDB logical-type handle and its child-name cache.
   if lt.handle != nil:
     duckdbDestroyLogicalType(lt.handle.addr)
   `=destroy`(lt.childNames)
 
-## Resets a moved-from LogicalTypeObj; the old handle was transferred by ARC.
 proc `=wasMoved`*(lt: var LogicalTypeObj) =
+  ## Resets a moved-from LogicalTypeObj; the old handle was transferred by ARC.
   lt.handle = nil
   lt.childNames = nil
 
-## Frees the DuckDB pending-result handle; the pending query must already be
-## finished (collected via `executeStreaming`) or its work is cancelled.
 proc `=destroy`*(pqresult: PendingQueryResult) =
+  ## Frees the DuckDB pending-result handle; the pending query must already be
+  ## finished (collected via `executeStreaming`) or its work is cancelled.
   if cast[ptr duckdbPendingResult](pqresult) != nil:
     duckdbDestroyPending(cast[ptr duckdbPendingResult](pqresult.addr))
 
@@ -150,20 +150,20 @@ proc rawHandle*(p: PendingQueryResult): duckdbPendingResult {.inline.} =
   ## Underlying DuckDB handle; forwards to the FFI layer.
   cast[duckdbPendingResult](p)
 
-## Adapts a statement to the underlying handled pointer for FFI calls.
 converter toBase*(s: ptr Statement): ptr duckdbPreparedStatement =
+  ## Adapts a statement to the underlying handled pointer for FFI calls.
   cast[ptr duckdbPreparedStatement](s)
 
-## Adapts a statement to the underlying handle for FFI calls.
 converter toBase*(s: Statement): duckdbPreparedStatement =
+  ## Adapts a statement to the underlying handle for FFI calls.
   cast[duckdbPreparedStatement](s)
 
-## Adapts a pending result to the underlying handle pointer for FFI calls.
 converter toBase*(p: ptr PendingQueryResult): ptr duckdbPendingResult =
+  ## Adapts a pending result to the underlying handle pointer for FFI calls.
   cast[ptr duckdbPendingResult](p)
 
-## Adapts a pending result to the underlying handle for FFI calls.
 converter toBase*(p: PendingQueryResult): duckdbPendingResult =
+  ## Adapts a pending result to the underlying handle for FFI calls.
   cast[duckdbPendingResult](p)
 
 proc `$`*(x: Timestamp): string =

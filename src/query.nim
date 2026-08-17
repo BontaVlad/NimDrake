@@ -539,9 +539,9 @@ proc step*(pending: PendingQueryResult): PendingState =
   let raw = duckdb_pending_execute_task(pending)
   result = cast[PendingState](raw)
 
-## True when a pending query has no work left — either finished or errored;
-## collect the result with `executeStreaming` or read `error`.
 proc isFinished*(state: PendingState): bool {.inline.} =
+  ## True when a pending query has no work left — either finished or errored;
+  ## collect the result with `executeStreaming` or read `error`.
   duckdb_pending_execution_is_finished(cast[duckdb_pending_state](state))
 
 proc newPendingResult*(statement: Statement): PendingQueryResult =

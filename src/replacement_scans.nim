@@ -57,101 +57,101 @@ proc `=dup`(rs: ReplacementScanBase): ReplacementScanBase {.error.}
 # ReplacementScanInfo accessors
 # ---------------------------------------------------------------------------
 
-## Declares that this scan handles `name`; bypasses the default catalog and
-## any remaining replacement scans.
 proc setFunctionName*(info: ReplacementScanInfo, name: string) {.inline.} =
+  ## Declares that this scan handles `name`; bypasses the default catalog and
+  ## any remaining replacement scans.
   duckdb_replacement_scan_set_function_name(info.handle, name.cstring)
 
-## Fails the lookup with `msg`; the query aborts with the message.
 proc setError*(info: ReplacementScanInfo, msg: string) {.inline.} =
+  ## Fails the lookup with `msg`; the query aborts with the message.
   duckdb_replacement_scan_set_error(info.handle, msg.cstring)
 
-## Appends a raw `duckdb_value` as a parameter of the rewritten function call.
 proc addParameter*(info: ReplacementScanInfo, value: duckdb_value) {.inline.} =
+  ## Appends a raw `duckdb_value` as a parameter of the rewritten function call.
   duckdb_replacement_scan_add_parameter(info.handle, value)
   duckdb_destroy_value(value.addr)
 
-## Appends a bool parameter.
 proc addParameter*(info: ReplacementScanInfo, v: bool) {.inline.} =
+  ## Appends a bool parameter.
   let val = duckdb_create_bool(v)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
-## Appends an int8 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: int8) {.inline.} =
+  ## Appends an int8 parameter.
   let val = duckdb_create_int8(v)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
-## Appends an int16 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: int16) {.inline.} =
+  ## Appends an int16 parameter.
   let val = duckdb_create_int16(v)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
-## Appends an int32 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: int32) {.inline.} =
+  ## Appends an int32 parameter.
   let val = duckdb_create_int32(v)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
-## Appends an int64 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: int64) {.inline.} =
+  ## Appends an int64 parameter.
   let val = duckdb_create_int64(v)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
-## Appends a uint8 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: uint8) {.inline.} =
+  ## Appends a uint8 parameter.
   let val = duckdb_create_uint8(v)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
-## Appends a uint16 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: uint16) {.inline.} =
+  ## Appends a uint16 parameter.
   let val = duckdb_create_uint16(v)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
-## Appends a uint32 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: uint32) {.inline.} =
+  ## Appends a uint32 parameter.
   let val = duckdb_create_uint32(v)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
-## Appends a uint64 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: uint64) {.inline.} =
+  ## Appends a uint64 parameter.
   let val = duckdb_create_uint64(v)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
-## Appends a float32 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: float32) {.inline.} =
+  ## Appends a float32 parameter.
   let val = duckdb_create_float(v.cfloat)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
-## Appends a float64 parameter.
 proc addParameter*(info: ReplacementScanInfo, v: float64) {.inline.} =
+  ## Appends a float64 parameter.
   let val = duckdb_create_double(v.cdouble)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
-## Appends a varchar parameter; embedded NULs are preserved.
 proc addParameter*(info: ReplacementScanInfo, v: string) {.inline.} =
+  ## Appends a varchar parameter; embedded NULs are preserved.
   let val = duckdb_create_varchar(v.cstring)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
-## Appends a blob parameter.
 proc addParameter*(info: ReplacementScanInfo, v: seq[byte]) {.inline.} =
+  ## Appends a blob parameter.
   let val = duckdb_create_blob(
     cast[ptr uint8](unsafeAddr v[0]), v.len.idx_t)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
-## Appends a param derived from a `NimValue` (complex kinds included).
 proc addParameter*(info: ReplacementScanInfo, nv: NimValue) {.inline.} =
+  ## Appends a param derived from a `NimValue` (complex kinds included).
   addParameter(info, nv.toDuckValue)
 
 # ---------------------------------------------------------------------------

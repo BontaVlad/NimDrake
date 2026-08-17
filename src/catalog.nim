@@ -107,8 +107,8 @@ proc newTableDescription*(
 # TableDescription accessors
 # ---------------------------------------------------------------------------
 
-## Number of columns in the described table.
 proc columnCount*(td: TableDescription): int {.inline.} =
+  ## Number of columns in the described table.
   duckdb_table_description_get_column_count(td.handle).int
 
 proc columnName*(td: TableDescription; i: int): string {.inline.} =
@@ -121,8 +121,8 @@ proc columnType*(td: TableDescription; i: int): LogicalType {.inline.} =
   ## Freshly-owned ``LogicalType`` ref for column `i` (destroyed by GC).
   newLogicalType(duckdb_table_description_get_column_type(td.handle, i.idx_t))
 
-## Whether column `i` has a DEFAULT expression.
 proc columnHasDefault*(td: TableDescription; i: int): bool {.inline.} =
+  ## Whether column `i` has a DEFAULT expression.
   var b: bool
   check(duckdb_column_has_default(td.handle, i.idx_t, b.addr),
     "duckdb_column_has_default failed for column " & $i)
@@ -172,23 +172,23 @@ proc getEntry*(c: Catalog; entryType: CatalogEntryType;
   else:
     result = some CatalogEntry(handle: h)
 
-## Whether `table` (in schema, catalog) exists as a table.
 proc tableExists*(c: Catalog; schema, name: string): bool {.inline.} =
+  ## Whether `table` (in schema, catalog) exists as a table.
   c.getEntry(CatalogEntryType.Table, schema, name).isSome
 
-## Whether `name` (in schema, catalog) exists as a view.
 proc viewExists*(c: Catalog; schema, name: string): bool {.inline.} =
+  ## Whether `name` (in schema, catalog) exists as a view.
   c.getEntry(CatalogEntryType.View, schema, name).isSome
 
 # ---------------------------------------------------------------------------
 # CatalogEntry accessors
 # ---------------------------------------------------------------------------
 
-## The entry's kind (`table`, `view`, ...); see `CatalogEntryType`.
 proc entryType*(e: CatalogEntry): CatalogEntryType {.inline.} =
+  ## The entry's kind (`table`, `view`, ...); see `CatalogEntryType`.
   cast[CatalogEntryType](duckdb_catalog_entry_get_type(e.handle))
 
-## The entry's name. The underlying C string is owned by the entry;
-## this proc copies it.
 proc name*(e: CatalogEntry): string {.inline.} =
+  ## The entry's name. The underlying C string is owned by the entry;
+  ## this proc copies it.
   $duckdb_catalog_entry_get_name(e.handle)

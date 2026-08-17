@@ -68,9 +68,9 @@ proc `=destroy`(schema: ArrowSchema) {.raises: [].} =
   if not isNil(schema.release):
     schema.release(schema.addr)
 
-## Arrow export options for a DuckDB result handle; owned, freed on
-## destruction.
 proc newArrowOptions*(res: ptr duckdb_result): ArrowOptions =
+  ## Arrow export options for a DuckDB result handle; owned, freed on
+  ## destruction.
   result.handle = duckdb_result_get_arrow_options(res)
 
 proc newArrowArray(opt: ArrowOptions, chunk: DataChunk): ArrowArray {.raises: [OperationError]} =
@@ -99,11 +99,11 @@ proc newArrowSchema(opt: ArrowOptions, cols: sink seq[Column]): ArrowSchema {.ra
   if not isNil(err):
     raise newException(OperationError, $duckdb_error_data_message(err))
 
-## Yields each chunk of `qrs` as a narrow `RecordBatch` using the given
-## export options and schema.
 iterator toArrowStream*(
     qrs: QResult[Streaming]; options: ArrowOptions; gSchema: Schema
   ): RecordBatch =
+  ## Yields each chunk of `qrs` as a narrow `RecordBatch` using the given
+  ## export options and schema.
   while true:
     let raw = duckdb_fetch_chunk(qrs.handle.raw)
     if raw == nil: break
@@ -111,17 +111,17 @@ iterator toArrowStream*(
     let aArray = newArrowArray(options, chunk)
     yield newRecordBatch(aArray.addr, gSchema)
 
-## Yields each chunk of `qrs` as a narrow `RecordBatch`; derives the Arrow
-## schema and options from the result automatically.
 iterator toArrowStream*(qrs: QResult[Streaming]): RecordBatch =
+  ## Yields each chunk of `qrs` as a narrow `RecordBatch`; derives the Arrow
+  ## schema and options from the result automatically.
   let options = newArrowOptions(qrs.handle.raw.addr)
   let schema  = newArrowSchema(options, qrs.meta.columns)
   let gSchema = newSchema(cast[pointer](schema.addr))
   for batch in toArrowStream(qrs, options, gSchema):
     yield batch
 
-## Consumes `qrs` into a single `ArrowTable` (all chunks materialized).
 proc toArrowTable*(qrs: QResult[Streaming]): ArrowTable =
+  ## Consumes `qrs` into a single `ArrowTable` (all chunks materialized).
   var recordBatches = newSeq[RecordBatch]()
   let options = newArrowOptions(qrs.handle.raw.addr)
   let schema  = newArrowSchema(options, qrs.meta.columns)
