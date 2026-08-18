@@ -261,7 +261,10 @@ template bindVal*(statement: Statement, i: int, val: TimeInterval): DuckState =
 template bindVal*(statement: Statement, i: int, val: NimValue): DuckState =
   ## Binds a NimValue to the prepared statement at the specified index.
   ## Complex kinds (List, Struct, Map, Union) are not yet supported.
-  duckdb_bind_value(statement, i.idx_t, val.toDuckValue)
+  block:
+    let duckVal = val.toDuckValue
+    defer: duckdb_destroy_value(duckVal.addr)
+    duckdb_bind_value(statement, i.idx_t, duckVal)
 
 template bindVal*[T](statement: Statement, i: int, val: Option[T]): DuckState =
   ## Binds an `Option[T]`: `some(v)` binds `v` via the matching `bindVal`
@@ -387,8 +390,8 @@ template append*(appender: Appender, val: Timestamp): untyped =
     appender, "Failed to append Timestamp value: " & $val)
 
 template append*(appender: Appender, val: DateTime): untyped =
-  ## Appends a DateTime value to the appender.
-  checkAppender(duckdb_append_date(appender, val.toDateTime),
+  ## Appends a DateTime value to the appender as a timestamp.
+  checkAppender(duckdb_append_timestamp(appender, Timestamp(val).toTimestamp),
     appender, "Failed to append DateTime value: " & $val)
 
 template append*(appender: Appender, val: Time): untyped =
@@ -404,8 +407,11 @@ template append*(appender: Appender, val: TimeInterval): untyped =
 template append*(appender: Appender, val: NimValue): untyped =
   ## Appends a NimValue to the appender.
   ## Complex kinds (List, Struct, Map, Union) are not yet supported.
-  checkAppender(duckdb_append_value(appender, val.toDuckValue),
-    appender, "Failed to append NimValue")
+  block:
+    let duckVal = val.toDuckValue
+    let state = duckdb_append_value(appender, duckVal)
+    duckdb_destroy_value(duckVal.addr)
+    checkAppender(state, appender, "Failed to append NimValue")
 
 template append*(appender: Appender, val: DataChunk): untyped =
   ## Appends a DataChunk to the appender (zero-copy bulk insert).
@@ -634,12 +640,38 @@ proc newChunkBuilder*(appender: Appender): ChunkBuilder =
   result = newChunkBuilder(newDataChunk(appender))
 
 proc appendRows*[T](con: Connection, table: string, ent: seq[seq[T]]) =
-  ## Appends a sequence of sequences of type `T` to a specified table in a DuckDB database.
+  ## Appends homogeneous rows in vector-sized chunks.
+  ##
+  ## Numeric values are written directly into a DataChunk and cross the
+  ## appender boundary once per chunk instead of once per cell. Variable-width
+  ## values still require DuckDB to copy their bytes into owned storage.
   var appender = newAppender(con, table)
-  for row in ent:
-    for val in row:
-      appender.append(val)
-    appender.endRow()
+  if ent.len == 0:
+    appender.flush()
+    return
+  let ncols = ent[0].len
+  if ncols == 0:
+    appender.flush()
+    return
+  var columns = newSeq[Column](ncols)
+  for ci in 0 ..< ncols:
+    columns[ci] = newColumn("", newLogicalType(colDuckTypeOf(T)), ci)
+  var first = 0
+  while first < ent.len:
+    let n = min(VECTOR_SIZE, ent.len - first)
+    let chunk = newDataChunk(columns)
+    chunk.setSize(n)
+    var vectors = newSeq[Vector[colDuckTypeOf(T)]](ncols)
+    for ci in 0 ..< ncols:
+      vectors[ci] = chunk.bindAs(ci, colDuckTypeOf(T))
+    for ri in 0 ..< n:
+      let row = ent[first + ri]
+      if row.len != ncols:
+        raise newException(ValueError, "appendRows column count mismatch")
+      for ci in 0 ..< ncols:
+        vectors[ci][ri] = row[ci]
+    appender.append(chunk)
+    first += n
   appender.flush()
 
 proc appendRows*[T](con: Connection, table: string, ent: seq[seq[Option[T]]]) =

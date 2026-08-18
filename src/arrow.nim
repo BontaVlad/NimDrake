@@ -82,7 +82,8 @@ proc newArrowArray(opt: ArrowOptions, chunk: DataChunk): ArrowArray {.raises: [O
     duckdb_destroy_error_data(err.addr)
     raise newException(OperationError, msg)
 
-proc newArrowSchema(opt: ArrowOptions, cols: sink seq[Column]): ArrowSchema {.raises: [OperationError]} =
+proc newArrowSchema(opt: ArrowOptions,
+                    cols: openArray[Column]): ArrowSchema {.raises: [OperationError]} =
   var
     handles = newSeq[duckdbLogicalType](len(cols))
     names = newSeq[cstring](len(cols))

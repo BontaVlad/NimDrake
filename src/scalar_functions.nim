@@ -86,7 +86,7 @@ macro registerScalar*(con: typed, procSym: typed): untyped =
   let retKt = duckTypeDotExpr(retTypeNode)
 
   # params — collect (sym, kt) pairs, reject defaults
-  type Param = tuple[sym: NimNode, kt: NimNode]
+  type Param = tuple[sym: NimNode, kt: NimNode, borrowed: bool]
   var params: seq[Param]
   for j in 1 ..< formalParams.len:
     let id = formalParams[j]
@@ -94,8 +94,9 @@ macro registerScalar*(con: typed, procSym: typed): untyped =
       error("registerScalar proc params cannot have default values.", id)
     let tyNode = getTypeInst(id[^2])
     let kt = duckTypeDotExpr(tyNode)
+    let borrowed = repr(tyNode) == "DuckStringRef"
     for k in 0 ..< id.len - 2:
-      params.add((id[k], kt))
+      params.add((id[k], kt, borrowed))
 
   # wrapper proc — gensymmed, cdecl, local
   let wrapperSym = genSym(nskProc, "scalarWrapper_" & nameStr)
@@ -144,8 +145,11 @@ macro registerScalar*(con: typed, procSym: typed): untyped =
 
   # callArgs: p0[i], p1[i], …
   var callArgs: seq[NimNode]
-  for pi in inputIdents:
-    callArgs.add(nnkBracketExpr.newTree(pi, iSym))
+  for j, pi in inputIdents:
+    if params[j].borrowed:
+      callArgs.add(newCall(newDotExpr(pi, ident"borrow"), iSym))
+    else:
+      callArgs.add(nnkBracketExpr.newTree(pi, iSym))
   let write = nnkAsgn.newTree(
     nnkBracketExpr.newTree(outVecSym, iSym),
     newCall(procSym, callArgs))

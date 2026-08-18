@@ -293,7 +293,7 @@ macro registerTableFunction*(con: typed, iterSym: typed,
       newCall(bindSym"duckdb_get_float", val))
     of "float64", "float": nnkCast.newTree(ident"float64",
       newCall(bindSym"duckdb_get_double", val))
-    of "string": nnkPrefix.newTree(ident"$",
+    of "string": newCall(bindSym"takeDuckVarchar",
       newCall(bindSym"duckdb_get_varchar", val))
     of "DateTime": newCall(bindSym"DateTime", newCall(bindSym"fromTimestamp",
       newDotExpr(newCall(bindSym"duckdb_get_timestamp", val), ident"micros")))
@@ -688,98 +688,81 @@ macro registerTableFunction*(con: typed, iterSym: typed,
       rawSym, nnkCall.newTree(ident"idx_t", countSym)))
 
   else:
-    # ── Multi-column buffered-write path (v2) ──
-    let bufType = nnkBracketExpr.newTree(ident"seq", retTypeInst)
-    let bufSym = genSym(nskVar, "buf")
-    mainBody.add(nnkVarSection.newTree(
-      newIdentDefs(bufSym, bufType, newEmptyNode())))
-
-    mainBody.add(newVarStmt(countSym, newLit 0))
-    let whleBuf = nnkWhileStmt.newTree(
-      nnkInfix.newTree(ident"<", countSym, sizeSym),
-      newStmtList())
-    let bufLoop = whleBuf[1]
-    let valSym = genSym(nskLet, "val")
-    bufLoop.add(newLetStmt(valSym, newCall(itSym)))
-    bufLoop.add(nnkIfStmt.newTree(
-      nnkElifBranch.newTree(
-        newCall(bindSym"finished", itSym),
-        nnkBreakStmt.newTree(newEmptyNode()))))
-    bufLoop.add(newCall(bindSym"add", bufSym, valSym))
-    bufLoop.add(newCall(ident"inc", countSym))
-    let tryBuf = newStmtList(whleBuf)
-    mainBody.add(nnkTryStmt.newTree(tryBuf,
-      nnkExceptBranch.newTree(newStmtList(
-        newCall(bindSym"duckdb_function_set_error",
-          ident"info",
-          newDotExpr(newCall(ident"getCurrentExceptionMsg"),
-            ident"cstring"))))))
-
-    mainBody.add(newCall(bindSym"duckdb_data_chunk_set_size",
-      rawSym, nnkCall.newTree(ident"idx_t", countSym)))
-
+    # ── Multi-column direct-write path ──
+    # Resolve projection positions once, then bind each source column to its
+    # projected output vector before consuming the iterator. This avoids the
+    # old chunk-sized tuple buffer and its second traversal.
     let pidsSym = genSym(nskLet, "pids")
     mainBody.add(newLetStmt(pidsSym,
       newDotExpr(ident"initData", ident"projectedIds")))
-
+    let posSym = genSym(nskVar, "positions")
+    mainBody.add(newVarStmt(posSym,
+      newCall(nnkBracketExpr.newTree(ident"newSeq", ident"int"),
+        newLit outCols.len)))
+    let posInit = newStmtList()
     let pIdent = ident"p"
-    var projLoop = nnkForStmt.newTree(
+    posInit.add(nnkForStmt.newTree(
+      pIdent,
+      nnkInfix.newTree(ident"..<", newLit 0,
+        newDotExpr(posSym, ident"len")),
+      nnkAsgn.newTree(nnkBracketExpr.newTree(posSym, pIdent), newLit(-1))))
+    posInit.add(nnkForStmt.newTree(
       pIdent,
       nnkInfix.newTree(ident"..<", newLit 0,
         newDotExpr(pidsSym, ident"len")),
-      newStmtList())
-    let projBody = projLoop[^1]
+      nnkAsgn.newTree(
+        nnkBracketExpr.newTree(posSym,
+          nnkBracketExpr.newTree(pidsSym, pIdent)), pIdent)))
+    mainBody.add(posInit)
 
-    let origSym = genSym(nskLet, "origIdx")
-    projBody.add(newLetStmt(origSym,
-      nnkBracketExpr.newTree(pidsSym, pIdent)))
-
-    let iIdent = ident"i"
-    var ifStmt: NimNode = nil
+    var vecSyms: seq[NimNode]
     for i, col in outCols:
-      let vecSym = genSym(nskVar, "v")
-      var branch = newStmtList()
-      let vecRaw = genSym(nskLet, "vecRaw")
-      let bufElem = nnkBracketExpr.newTree(bufSym, iIdent)
-      branch.add(newLetStmt(vecRaw,
-        newCall(bindSym"duckdb_data_chunk_get_vector",
-          rawSym, nnkCall.newTree(ident"idx_t", pIdent))))
-      branch.add(newVarStmt(vecSym,
+      let vecSym = genSym(nskVar, "v" & $i)
+      vecSyms.add(vecSym)
+      let posExpr = nnkBracketExpr.newTree(posSym, newLit i)
+      let vecPos = newCall(bindSym"max", posExpr, newLit 0)
+      mainBody.add(newVarStmt(vecSym,
         newCall(nnkBracketExpr.newTree(bindSym"initVector", col.ktNode),
-          vecRaw, sizeSym)))
-      var writeLoop = nnkForStmt.newTree(
-        iIdent,
-        nnkInfix.newTree(ident"..<", newLit 0, countSym),
-        newStmtList())
+          newCall(bindSym"duckdb_data_chunk_get_vector", rawSym,
+            newCall(bindSym"idx_t", vecPos)), sizeSym)))
 
-      let colVal = nnkBracketExpr.newTree(bufElem, newLit col.fieldIdx)
+    mainBody.add(newVarStmt(countSym, newLit 0))
+    let whleDirect = nnkWhileStmt.newTree(
+      nnkInfix.newTree(ident"<", countSym, sizeSym), newStmtList())
+    let directBody = whleDirect[1]
+    let valSym = genSym(nskLet, "val")
+    directBody.add(newLetStmt(valSym, newCall(itSym)))
+    directBody.add(nnkIfStmt.newTree(
+      nnkElifBranch.newTree(
+        newCall(bindSym"finished", itSym),
+        nnkBreakStmt.newTree(newEmptyNode()))))
+    for i, col in outCols:
+      let colVal = nnkBracketExpr.newTree(valSym, newLit col.fieldIdx)
+      let write = newStmtList()
       if col.isOption:
-        writeLoop[^1].add(nnkIfStmt.newTree(
+        write.add(nnkIfStmt.newTree(
           nnkElifBranch.newTree(
             newDotExpr(colVal, ident"isSome"),
-            newStmtList(
-              nnkAsgn.newTree(
-                nnkBracketExpr.newTree(vecSym, iIdent),
-                newDotExpr(colVal, ident"get")))),
-          nnkElse.newTree(
-            newStmtList(
-              newCall(newDotExpr(vecSym, ident"setNull"), iIdent)))))
+            newStmtList(nnkAsgn.newTree(
+              nnkBracketExpr.newTree(vecSyms[i], countSym),
+              newDotExpr(colVal, ident"get")))),
+          nnkElse.newTree(newStmtList(newCall(
+            newDotExpr(vecSyms[i], ident"setNull"), countSym)))))
       else:
-        writeLoop[^1].add(nnkAsgn.newTree(
-          nnkBracketExpr.newTree(vecSym, iIdent),
-          colVal))
-      branch.add(writeLoop)
-
-      let cond = nnkInfix.newTree(ident"==", origSym, newLit i)
-      if ifStmt.isNil:
-        ifStmt = nnkIfStmt.newTree(
-          nnkElifBranch.newTree(cond, branch))
-      else:
-        ifStmt.add(nnkElifBranch.newTree(cond, branch))
-
-    projBody.add(ifStmt)
-
-    mainBody.add(projLoop)
+        write.add(nnkAsgn.newTree(
+          nnkBracketExpr.newTree(vecSyms[i], countSym), colVal))
+      directBody.add(nnkIfStmt.newTree(
+        nnkElifBranch.newTree(
+          nnkInfix.newTree(ident">=",
+            nnkBracketExpr.newTree(posSym, newLit i), newLit 0), write)))
+    directBody.add(newCall(ident"inc", countSym))
+    mainBody.add(nnkTryStmt.newTree(whleDirect,
+      nnkExceptBranch.newTree(newStmtList(
+        newCall(bindSym"duckdb_function_set_error", ident"info",
+          newDotExpr(newCall(ident"getCurrentExceptionMsg"),
+            ident"cstring"))))))
+    mainBody.add(newCall(bindSym"duckdb_data_chunk_set_size", rawSym,
+      nnkCall.newTree(ident"idx_t", countSym)))
 
   result.add(newProc(
     name = mainProcName,
@@ -825,5 +808,3 @@ macro registerTableFunction*(con: typed, iterSym: typed,
     newDotExpr(tfName, ident"handle"), mainProcName))
   regStmts.add(newCall(bindSym"register", con, tfName))
   result.add(regStmts)
-
-

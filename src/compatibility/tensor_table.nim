@@ -41,7 +41,8 @@ when defined(features.nimdrake.tensor):
     else:
       var w = dstChunk.vector(colIdx, tensorDT(T))
       for i in 0 ..< n:
-        let srcIdx = t.offset + (startRow + i) * t.strides[0] + colIdx * t.strides[1]
+        let srcIdx = t.offset + (startRow + i) * t.strides[0] +
+          colIdx * t.strides[1]
         w[i] = t.data[srcIdx]
 
   proc newFiller*[T](s: TensorSource[T]): FillFn =

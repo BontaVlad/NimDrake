@@ -139,14 +139,14 @@ proc addParameter*(info: ReplacementScanInfo, v: float64) {.inline.} =
 
 proc addParameter*(info: ReplacementScanInfo, v: string) {.inline.} =
   ## Appends a varchar parameter; embedded NULs are preserved.
-  let val = duckdb_create_varchar(v.cstring)
+  let val = duckdb_create_varchar_length(v.cstring, v.len.idx_t)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
 proc addParameter*(info: ReplacementScanInfo, v: seq[byte]) {.inline.} =
   ## Appends a blob parameter.
   let val = duckdb_create_blob(
-    cast[ptr uint8](unsafeAddr v[0]), v.len.idx_t)
+    if v.len == 0: nil else: cast[ptr uint8](unsafeAddr v[0]), v.len.idx_t)
   duckdb_replacement_scan_add_parameter(info.handle, val)
   duckdb_destroy_value(val.addr)
 
@@ -160,9 +160,7 @@ proc addParameter*(info: ReplacementScanInfo, nv: NimValue) {.inline.} =
 
 proc destroyScanContext(p: pointer) {.cdecl.} =
   if p != nil:
-    let rs = cast[ReplacementScan](p)
-    if rs[].extraData != nil:
-      GC_unref(rs[].extraData)
+    GC_unref(cast[ReplacementScan](p))
 
 proc trampoline(info: duckdb_replacement_scan_info;
                 tableName: cstring;
@@ -195,8 +193,6 @@ proc register*(db: Database, scan: ReplacementScan) =
   ## through its callback before the catalog lookup fails. Registration order
   ## decides precedence between multiple scans.
   GC_ref(scan)
-  if scan.extraData != nil:
-    GC_ref(scan.extraData)
   duckdb_add_replacement_scan(
     db.rawHandle, trampoline, cast[pointer](scan), destroyScanContext)
 

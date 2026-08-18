@@ -13,6 +13,8 @@
 ##   timezone stored, matching DuckDB's `TIMESTAMP` (as opposed to
 ##   `TIMESTAMP WITH TIME ZONE`, carried as `ZonedTime`).
 import std/[times]
+import nint128
+import uuid4
 
 import /[ffi, exceptions]
 
@@ -98,6 +100,9 @@ type
     handle*: duckdbLogicalType
     childNames*: ref seq[string] ## Lazily-populated cache of struct/union
                                   ## child/member names. Nil until first access.
+    enumLabels*: ref seq[string] ## Cached enum dictionary labels.
+    childTypes*: ref seq[LogicalType] ## Cached LIST/ARRAY/STRUCT/MAP/UNION types.
+    entryType*: LogicalType ## Cached MAP entry STRUCT type.
 
   LogicalType* = ref LogicalTypeObj ## Owns a DuckDB logical-type handle plus a
                                    ## cache of struct/union child/member names.
@@ -117,16 +122,24 @@ proc `=wasMoved`*(statement: var Statement) =
   ## transferred by ARC, not freed here.
   statement = Statement(nil)
 
+proc `=wasMoved`*(lt: var LogicalTypeObj)
+
 proc `=destroy`*(lt: LogicalTypeObj) =
   ## Frees the DuckDB logical-type handle and its child-name cache.
   if lt.handle != nil:
     duckdbDestroyLogicalType(lt.handle.addr)
   `=destroy`(lt.childNames)
+  `=destroy`(lt.enumLabels)
+  `=destroy`(lt.childTypes)
+  `=destroy`(lt.entryType)
 
 proc `=wasMoved`*(lt: var LogicalTypeObj) =
   ## Resets a moved-from LogicalTypeObj; the old handle was transferred by ARC.
   lt.handle = nil
   lt.childNames = nil
+  lt.enumLabels = nil
+  lt.childTypes = nil
+  lt.entryType = nil
 
 proc `=destroy`*(pqresult: PendingQueryResult) =
   ## Frees the DuckDB pending-result handle; the pending query must already be
@@ -206,7 +219,7 @@ proc toDuckType*[T](t: typedesc[T]): DuckType =
   when T is bool:
     DuckType.Boolean
   elif T is int8 or T is int16 or T is int32 or T is int64 or T is int or
-       T is uint8 or T is uint16 or T is uint32 or T is uint64:
+       T is uint8 or T is uint16 or T is uint32 or T is uint64 or T is uint:
     when T is int8: DuckType.TinyInt
     elif T is int16: DuckType.SmallInt
     elif T is int32: DuckType.Integer
@@ -222,6 +235,12 @@ proc toDuckType*[T](t: typedesc[T]): DuckType =
     DuckType.Varchar
   elif T is seq[byte]:
     DuckType.Blob
+  elif T is Int128:
+    DuckType.HugeInt
+  elif T is UInt128:
+    DuckType.UHugeInt
+  elif T is Uuid:
+    DuckType.UUID
   elif T is TimeInterval:
     DuckType.Interval
   elif T is Timestamp or T is DateTime:
@@ -249,21 +268,51 @@ proc newLogicalType*(i: duckdb_logical_type): LogicalType =
   # ref during concurrent reads — that was a data race under ARC.  This
   # one-time FFI cost is amortised over the whole QResult lifetime.
   let kind = toDuckType(result)
-  if kind == DuckType.Struct:
+  if kind == DuckType.List:
+    new(result.childTypes)
+    result.childTypes[] = @[
+      newLogicalType(duckdb_list_type_child_type(i))]
+  elif kind == DuckType.Array:
+    new(result.childTypes)
+    result.childTypes[] = @[
+      newLogicalType(duckdb_array_type_child_type(i))]
+  elif kind == DuckType.Struct:
     let n = duckdb_struct_type_child_count(i).int
     new(result.childNames)
     result.childNames[] = newSeq[string](n)
+    new(result.childTypes)
+    result.childTypes[] = newSeq[LogicalType](n)
     for k in 0 ..< n:
       let cs = duckdb_struct_type_child_name(i, k.idx_t)
       result.childNames[k] = $cs
       duckdb_free(cast[pointer](cs))
+      result.childTypes[k] = newLogicalType(
+        duckdb_struct_type_child_type(i, k.idx_t))
   elif kind == DuckType.Union:
     let n = duckdb_union_type_member_count(i).int
     new(result.childNames)
     result.childNames[] = newSeq[string](n)
+    new(result.childTypes)
+    result.childTypes[] = newSeq[LogicalType](n)
     for k in 0 ..< n:
       let cs = duckdb_union_type_member_name(i, k.idx_t)
       result.childNames[k] = $cs
+      duckdb_free(cast[pointer](cs))
+      result.childTypes[k] = newLogicalType(
+        duckdb_union_type_member_type(i, k.idx_t))
+  elif kind == DuckType.Map:
+    new(result.childTypes)
+    result.childTypes[] = @[
+      newLogicalType(duckdb_map_type_key_type(i)),
+      newLogicalType(duckdb_map_type_value_type(i))]
+    result.entryType = newLogicalType(duckdb_list_type_child_type(i))
+  elif kind == DuckType.Enum:
+    let n = duckdb_enum_dictionary_size(i).int
+    new(result.enumLabels)
+    result.enumLabels[] = newSeq[string](n)
+    for k in 0 ..< n:
+      let cs = duckdb_enum_dictionary_value(i, k.idx_t)
+      result.enumLabels[k] = $cs
       duckdb_free(cast[pointer](cs))
 
 proc newLogicalType*(pt: DuckType): LogicalType =

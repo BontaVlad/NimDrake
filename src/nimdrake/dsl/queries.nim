@@ -89,7 +89,6 @@ type
     coln, qmark, aliasGen: int
     onConflictTargetSet, onConflictActionSet: bool
     onConflictIsDoUpdate, onConflictWhereSet: bool
-    singleReturningCol: bool
 
 const
   equals = "="
@@ -103,8 +102,7 @@ proc newQueryBuilder(): QueryBuilder {.compileTime.} =
     env: @[], ctes: @[], cteBase: 0, kind: qkNone, params: @[],
     colAliases: @[], coln: 0, qmark: 0, aliasGen: 1,
     onConflictTargetSet: false, onConflictActionSet: false,
-    onConflictIsDoUpdate: false, onConflictWhereSet: false,
-    singleReturningCol: false)
+    onConflictIsDoUpdate: false, onConflictWhereSet: false)
 
 proc getAlias(q: QueryBuilder): string {.compileTime.} =
   result = "t" & $q.aliasGen
@@ -459,7 +457,7 @@ proc lookupCte(ctes: openArray[tuple[name, sql: string]]; name: string): int {.c
     if cmpIgnoreCase(cte.name, name) == 0:
       return i
 
-proc sourceAlias(q: QueryBuilder; src: string): string {.compileTime.} =
+proc sourceAlias(q: QueryBuilder): string {.compileTime.} =
   if q.kind == qkJoin and q.env.len > 0:
     result = q.env[^1]
   else:
@@ -469,7 +467,7 @@ proc tableSel(n: NimNode; q: QueryBuilder) {.compileTime.} =
   if n.kind == nnkCall and q.kind != qkDelete:
     let call = n
     let tab = $call[0]
-    let alias = sourceAlias(q, tab)
+    let alias = sourceAlias(q)
     if q.kind == qkSelect:
       escIdent(q.fromm, tab)
       q.fromm.add " as " & alias
@@ -696,8 +694,6 @@ proc queryh(n: NimNode; q: QueryBuilder) {.compileTime.} =
     cond(n[1], q.having, q.params, q)
   of "limit":
     expectLen n, 2
-    if n[1].kind == nnkIntLit and n[1].intVal == 1:
-      q.singleReturningCol = true
     cond(n[1], q.limit, q.params, q)
   of "offset":
     expectLen n, 2
@@ -759,7 +755,6 @@ proc queryh(n: NimNode; q: QueryBuilder) {.compileTime.} =
     expectLen n, 2
     q.returning = " returning "
     cond(n[1], q.returning, q.params, q)
-    q.singleReturningCol = true
   else:
     macros.error "unknown query component " & repr(n), n
 
@@ -825,7 +820,6 @@ proc buildSetOpQueryParts(op: string; branches: openArray[NimNode];
   if branches.len < 2:
     macros.error "set operations require at least two queries", lineInfo
   q.kind = qkSelect
-  q.singleReturningCol = false
   for i, branchNode in branches:
     var branch = newQueryBuilder()
     branch.qmark = q.qmark

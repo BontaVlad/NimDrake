@@ -16,7 +16,8 @@ proc duckTypeDotExpr*(elemType: NimNode): NimNode =
   elif n == "uint64" or n == "uint": newDotExpr(dt, ident"UBigInt")
   elif n == "float32": newDotExpr(dt, ident"Float")
   elif n == "float64" or n == "float": newDotExpr(dt, ident"Double")
-  elif n == "string": newDotExpr(dt, ident"Varchar")
+  elif n == "string" or n == "DuckStringRef":
+    newDotExpr(dt, ident"Varchar")
   elif n == "seq[byte]": newDotExpr(dt, ident"Blob")
   elif n == "Timestamp" or n == "DateTime": newDotExpr(dt, ident"Timestamp")
   elif n == "Time": newDotExpr(dt, ident"Time")

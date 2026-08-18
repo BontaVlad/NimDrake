@@ -339,7 +339,7 @@ macro registerAggregate*(con: typed,
       error("registerAggregate: update requires at least one SQL argument", pU)
 
     # Parse args, auto-detect specialHandling from Option[T]
-    type Arg = tuple[name, ty, kt: NimNode]
+    type Arg = tuple[name, ty, kt: NimNode, borrowed: bool]
     var args: seq[Arg] = @[]
     var hasOption = false
     for j in 2 ..< fpU.len:
@@ -351,8 +351,9 @@ macro registerAggregate*(con: typed,
       let inner =
         if optInner.isNil: argTyNode
         else: (hasOption = true; optInner)
+      let borrowed = repr(getTypeInst(inner)) == "DuckStringRef"
       for k in 0 ..< id.len - 2:
-        args.add((id[k], inner, ktOf(inner, "update arg")))
+        args.add((id[k], inner, ktOf(inner, "update arg"), borrowed))
     let specialHandling = hasOption
 
     # combine: (var S, S)
@@ -419,8 +420,11 @@ macro registerAggregate*(con: typed,
         else: nullCheck = nnkInfix.newTree(ident"or", nullCheck, term)
       let rowCall = newCall(updateProc,
         nnkDerefExpr.newTree(nnkBracketExpr.newTree(stId, rowIdx)))
-      for v in inputIdents:
-        rowCall.add(nnkBracketExpr.newTree(v, rowIdx))
+      for j, v in inputIdents:
+        if args[j].borrowed:
+          rowCall.add(newCall(newDotExpr(v, ident"borrow"), rowIdx))
+        else:
+          rowCall.add(nnkBracketExpr.newTree(v, rowIdx))
       loopBody.add nnkIfStmt.newTree(
         nnkElifBranch.newTree(nullCheck,
           newStmtList(nnkContinueStmt.newTree(newEmptyNode()))),
@@ -435,9 +439,12 @@ macro registerAggregate*(con: typed,
         let optSym = ident("aOpt" & $j)
         loopBody.add newLetStmt(optSym,
           nnkIfExpr.newTree(
-            nnkElifExpr.newTree(newCall(newDotExpr(v, ident"valid"), rowIdx),
-              newCall(nnkBracketExpr.newTree(bindSym"some", aT),
-                nnkBracketExpr.newTree(v, rowIdx))),
+             nnkElifExpr.newTree(newCall(newDotExpr(v, ident"valid"), rowIdx),
+               newCall(nnkBracketExpr.newTree(bindSym"some", aT),
+                 if args[j].borrowed:
+                   newCall(newDotExpr(v, ident"borrow"), rowIdx)
+                 else:
+                   nnkBracketExpr.newTree(v, rowIdx))),
             nnkElseExpr.newTree(
               newCall(nnkBracketExpr.newTree(bindSym"none", aT)))))
         rowCall.add(optSym)
