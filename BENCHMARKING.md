@@ -171,12 +171,20 @@ Use the following profile-case names with Heaptrack or the FFI counter.
 | `bench_binding.nim` | `list`, `struct`, `empty_list`, `null_first_list` |
 | `bench_ingestion.nim` | `column_build`, `builder`, `tuple_rows` |
 | `bench_type_paths.nim` | `scalar_udf`, `appender` |
-| `bench_arrow.nim` | `record_batch` |
+| `bench_vector.nim` | `column_view`, `bind_typed`, `bind_from_chunk`, `indexed_read`, `iterator_read`, `bulk_read`, `string_read`, `string_borrow` |
+| `bench_arrow.nim` | `one_window`, `many_windows`, `many_windows_wide`, `traverse_prebuilt` |
+
+For vector benchmarks, compare `column_view` with `bind_typed` and
+`bind_from_chunk`, then compare `indexed_read`, `iterator_read`, and `bulk_read`
+to separate view setup from row access. Compare `string_read` with
+`string_borrow` when string materialization is part of the workload.
 
 For a list benchmark, compare `owning_lookup` with `borrowed_lookup` or
 `borrowed_iteration`. For projection work, compare `one_column` with
-`registered_one_column` and inspect the FFI vector counts. For Arrow work, use
-`record_batch` and inspect the Arrow export counters.
+`registered_one_column` and inspect the FFI vector counts. For Arrow work,
+compare `one_window` with `many_windows` and `many_windows_wide`. Use
+`traverse_prebuilt` to separate conversion from materialization and inspect the
+Arrow export and DuckDB conversion counters.
 
 ## 5. Run Heaptrack
 
@@ -312,8 +320,13 @@ The counter writes these fields:
 | Field | Meaning |
 |---|---|
 | `duckdb_data_chunk_get_vector` | Calls that obtain a vector from a data chunk |
+| `duckdb_data_chunk_from_arrow` | Calls that convert one exported ArrowArray into a DuckDB data chunk |
+| `duckdb_schema_from_arrow` | Calls that convert an Arrow schema into DuckDB's converted schema |
+| `duckdb_destroy_arrow_converted_schema` | Calls that release a converted Arrow schema |
 | `duckdb_vector_reference_vector` | Calls that reference one vector from another |
 | `duckdb_vector_get_column_type` | Calls that obtain a vector logical type |
+| `duckdb_vector_get_data` | Calls that obtain a vector data pointer |
+| `duckdb_vector_get_validity` | Calls that obtain a vector validity pointer |
 | `duckdb_list_vector_get_child` | LIST child-vector access calls |
 | `duckdb_struct_vector_get_child` | STRUCT child-vector access calls |
 | `duckdb_array_vector_get_child` | ARRAY child-vector access calls |
@@ -396,7 +409,7 @@ count. Divide by `N - 1`.
 Build and run the Arrow profile with the Arrow feature enabled.
 
 ```text
-just benchmark-ffi benchmarks/bench_arrow.nim record_batch 100
+just benchmark-ffi benchmarks/bench_arrow.nim many_windows 100
 ```
 
 The command uses the benchmark file's Arrow imports. The local environment must
@@ -410,8 +423,11 @@ garrow_record_batch_export_schema
 ```
 
 The schema counter must be zero when NimDrake passes a nil schema output to
-Narrow. The export counter must match the number of Arrow export operations for
-the workload.
+Arrow. The export counter must match the number of Arrow export operations for
+the workload. With Narrow's older paired-export API, the schema counter is
+expected to match the export count because NimDrake releases that unused
+schema locally. `duckdb_schema_from_arrow` should be one per materialized
+RecordBatch, not one per window.
 
 Do not treat a zero schema count as proof of zero-copy ownership by itself.
 Use the Arrow ownership tests and ASan/LSan tests for ownership evidence.

@@ -24,7 +24,7 @@ Status values are `pending`, `in progress`, `blocked`, or `complete`.
 | Baseline FFI counts | complete | `benchmark-ffi` reports vector and child-call counters |
 | MAP borrowed access | complete | Borrowed pairs, keys, values, lookup, and null-preserving refs pass tests |
 | Raw decimal path | complete | Raw formatter is used by display and generic materialization; tests pass |
-| Arrow window export | complete | Narrow `bef8f4b` array-only export; 19 integration tests plus 2 ownership tests pass under normal execution and ASan/LSan; preload counter recorded 22 exports and 0 schema outputs |
+| Arrow window export | complete | Nil-schema export is used when Narrow exposes `exportRecordBatchArray`; Narrow `0.0.1` keeps the paired fallback. Focused normal and ASan tests pass; the array-only path records 0 schema outputs |
 | Projection pushdown | complete | QResult projected fillers, legacy adapter, and cross-thread-safe registered scans pass tests and ASan |
 | Canonical type table | complete | `colDuckTypeOf`, `valueTypeOf`, `rawVectorTypeOf`, and `TypeDescriptor` use the canonical mapping; compile-time mapping tests and type-path benchmarks pass |
 | Value-oriented `NimValue` | complete | Scalars, UUID, UHUGEINT, temporal, interval, decimal, enum, and recursive values use native/value-oriented storage |
@@ -33,6 +33,8 @@ Status values are `pending`, `in progress`, `blocked`, or `complete`.
 | Schema-driven binding | complete | Supplied schemas and appender dispatch support empty/NULL-first LIST, STRUCT, MAP, UNION, ENUM, and ARRAY values; prepared ARRAY binding, row-width validation, conversion failures, and rollback paths pass |
 | Streaming and borrowed ingestion | complete | Typed row emitters, dynamic `NimValue` producers, borrowed scalar cells, and immediate borrowed LIST/ARRAY/STRUCT/MAP/UNION ingestion pass normal and sanitizer tests |
 | Final tests and gates | complete | Non-Arrow and Arrow `just test 1` gates pass with ASan/LSan; non-Arrow and Arrow release matrices pass; Criterion, Heaptrack, and projection FFI checks complete |
+| Vector/ColumnView focused benchmarks | complete | Added matched setup/access cases; direct `DataChunk.bindAs` is about 28% faster in the focused comparison and QResult tests pass under normal and ASan modes |
+| Arrow/Narrow focused benchmarks | complete | Added one-window, multi-window, wide-batch, and prebuilt traversal cases; FFI counters distinguish schema conversion, window conversion, and vector access |
 
 ## Measurement Rules
 
@@ -210,13 +212,10 @@ compiling and running.
 **Priority:** medium, dependency-gated. **Status:** complete.
 
 New Narrow revisions provide `exportRecordBatchArray`, which calls
-`garrow_record_batch_export` with a nil schema output. NimDrake's
-`src/narrow_table_scan.nim` uses this operation for every window when it is
-available, and has a compile-time compatibility adapter for Narrow `0.0.1`
-that releases the unused schema from the older paired export. In both cases
-the converted DuckDB chunk retains ownership of the Arrow buffers. The new
-path is validated against Narrow commit `bef8f4b`, published on `origin/main`.
-NimDrake's optional dependency constraint remains `narrow >= 0.0.1`.
+`garrow_record_batch_export` with a nil schema output. NimDrake uses that path
+when the API is available and retains a Narrow `0.0.1` fallback that releases
+the unused schema. The converted DuckDB chunk retains ownership of the Arrow
+buffers. NimDrake's optional dependency constraint remains `narrow >= 0.0.1`.
 
 Test successful conversion, nested arrays, and multi-window batches. The focused
 Arrow suite passes 19/19, and the ownership suite passes 2/2, under normal

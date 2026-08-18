@@ -384,6 +384,26 @@ proc newColumnView(
   result.width = col.width
   result.enumWidth = col.enumWidth
 
+proc newBoundVector[kt: static DuckType](
+    c: DataChunk, i: int, col: Column
+): Vector[kt] {.inline.} =
+  ## Build a typed vector directly from a chunk column. This is the fast path
+  ## for `DataChunk.bindAs`; it avoids materializing an intermediate
+  ## type-erased `ColumnView` after the runtime kind check has succeeded.
+  let vec = duckdb_data_chunk_get_vector(c.handle, i.idx_t)
+  result.vec = vec
+  result.data = duckdb_vector_get_data(vec)
+  result.length = c.len
+  result.validity = cast[ptr UncheckedArray[uint64]](duckdb_vector_get_validity(vec))
+  result.chunk = c
+  when kt == DuckType.Decimal:
+    result.scale = col.scale
+    result.width = col.width
+  elif kt == DuckType.Enum:
+    result.enumWidth = col.enumWidth
+  when kt in DuckComplexKind:
+    result.ltype = col.ltype
+
 proc vector*(c: DataChunk, i: int): ColumnView {.inline.} =
   ## The type-erased view of column `i`; raises `ValueError` out of range.
   if i < 0 or i >= c.meta.columns.len:
@@ -505,11 +525,22 @@ proc bindAs*(cv: ColumnView, kt: static DuckType): Vector[kt] {.inline.} =
 
 proc bindAs*(c: DataChunk, i: int, kt: static DuckType): Vector[kt] {.inline.} =
   ## Binds column `i` of a chunk to a typed `Vector[kt]`; see `bindAs(ColumnView)`.
-  c.vector(i).bindAs(kt)
+  if i < 0 or i >= c.meta.columns.len:
+    raise newException(ValueError, "column index out of range: " & $i)
+  let col = c.meta.columns[i]
+  if col.kind != kt:
+    raise newException(
+      ValueError,
+      "Vector kind mismatch: column is " & $col.kind & ", requested " & $kt,
+    )
+  newBoundVector[kt](c, i, col)
 
 proc bindAs*(c: DataChunk, name: string, kt: static DuckType): Vector[kt] {.inline.} =
   ## Binds the named column of a chunk to a typed `Vector[kt]`.
-  c[name].bindAs(kt)
+  let i = c.meta.nameIndex.getOrDefault(name, -1)
+  if i < 0:
+    raise newException(KeyError, "no such column: " & name)
+  c.bindAs(i, kt)
 
 # ---------------------------------------------------------------------------
 # Raw-handle vector construction — for scalar UDF wrappers.
