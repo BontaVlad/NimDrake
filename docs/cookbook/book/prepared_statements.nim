@@ -46,9 +46,10 @@ nbCode:
 
 nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
 nbText: """
-## Named parameters
+## Named parameters: bind and execute
 
-Use `$name` syntax for named parameters:
+Use `$name` syntax when a parameter name makes a query easier to read. Resolve
+the name once, bind a typed value, and then execute the statement:
 """
 
 nbCode:
@@ -57,7 +58,11 @@ nbCode:
     let stmt = con.newStatement("SELECT CAST($val AS BIGINT) AS result")
 
     let idx = stmt.bindParameter("val")
-    echo "Parameter index: ", idx
+    discard stmt.bindVal(idx, 42'i64)
+
+    let r = con.executeStreaming(stmt)
+    for chunk in r:
+      echo chunk.bindAs(0, DuckType.BigInt)[0]
 
 nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
 nbText: """
@@ -154,4 +159,11 @@ nbCode:
       for name in chunk.bindAs(0, DuckType.Varchar):
         echo name
 nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
+## Choose the execution method
+
+Use `executeMaterialized` for DML because DuckDB does not return a streaming
+result for `INSERT`, `UPDATE`, or `DELETE`. Use `executeStreaming` for a
+prepared `SELECT` when the rows can be processed incrementally.
+"""
 nbSave

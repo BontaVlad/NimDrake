@@ -311,7 +311,8 @@ for batch in result.toArrowStream():
 ```
 
 See [Optional Arrow support](#optional-arrow-support) for installation
-requirements.
+requirements and the [Arrow results cookbook](https://bontavlad.github.io/NimDrake/cookbook/arrow_results.html)
+for streaming, materialized tables, and Arrow-to-DuckDB round trips.
 
 ## Documentation
 
@@ -329,6 +330,7 @@ just test 8                       # run tests in parallel
 just test --features=arrow        # include Arrow tests
 just test --durations=10          # show the slowest tests
 just cookbook                     # build and execute every cookbook snippet
+just cookbook-arrow               # also execute the optional Arrow snippets
 just checkdocs                    # check exported doc-comment coverage
 just fetch-lib                    # vendor DuckDB into src/include/
 just generate                     # regenerate FFI bindings with Futhark
@@ -348,8 +350,11 @@ dependency with `nimble install -y nimibook`. On Ubuntu, install PCRE1 with:
 sudo apt install libpcre3
 ```
 
-Every cookbook snippet is compiled and executed while the book is built. A
-broken recipe therefore fails `just cookbook`.
+Every core cookbook snippet is compiled and executed while the book is built.
+A broken recipe therefore fails `just cookbook`.
+
+The Arrow chapter includes static examples in the normal book build. Run
+`just cookbook-arrow` to compile and execute its snippets with Arrow support.
 
 ## License
 

@@ -207,6 +207,16 @@ cookbook:
     nim r nbook.nim init
     nim r nbook.nim build --mm:arc
 
+# Build the cookbook with the optional Arrow chapter's executable snippets.
+# Requires narrow and the Arrow GLib development libraries.
+cookbook-arrow:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}$HOME/.local/lib"
+    cd docs/cookbook
+    nim r nbook.nim init
+    nim r nbook.nim build --mm:arc -d:features.nimdrake.arrow
+
 # Render the cookbook book (same as `cookbook`; kept for compatibility).
 docs:
     just cookbook

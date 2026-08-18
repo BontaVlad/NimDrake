@@ -153,6 +153,30 @@ nbCode:
 
 nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
 nbText: """
+## Append typed nullable rows
+
+Use `appendRows` when your input already exists as Nim values. A tuple gives
+the row shape, and `Option[T]` maps directly to a nullable DuckDB column.
+"""
+
+nbCode:
+  block:
+    type Reading = tuple[id: int64, label: string, value: Option[float64]]
+
+    let con = newDatabase().connect()
+    con.execute("CREATE TABLE readings (id BIGINT, label VARCHAR, value DOUBLE)")
+
+    let rows: seq[Reading] = @[
+      (int64(1), "temperature", some(21.5)),
+      (int64(2), "temperature", none(float64)),
+      (int64(3), "temperature", some(22.0)),
+    ]
+    con.appendRows("readings", rows)
+
+    echo con.execute("SELECT id, label, value FROM readings ORDER BY id")
+
+nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
 ## Column-count errors surface at endRow
 
 Column-count mistakes raise `OperationError` when the row is closed:

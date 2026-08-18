@@ -98,13 +98,17 @@ nbCode:
 
 nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
 nbText: """
-## Typed container views — bindAs sequelist, Table, OrderedTable
+## Typed container views — bindAs seq, Table, OrderedTable
 
 For hot paths where the column shape is known at compile time, pass the
-expected Nim container type to `bindAs` and get a zero-copy typed view.
-This builds on the descent procs above but caches the bound child vector(s)
-once per column, so callers no longer chain `mapEntriesChild` /
-`structChild(0)` / `structChild(1)` per call.
+expected Nim container type to `bindAs` and get a typed view. The view caches
+its child vectors once per column, so a loop does not repeat the child lookup.
+
+There are two different operations:
+
+* Indexing a row, such as `lv[0]`, creates a Nim container.
+* Borrowing a row, such as `lv.borrowList(0)`, reads the DuckDB buffers without
+  allocating a container.
 """
 
 nbText: """

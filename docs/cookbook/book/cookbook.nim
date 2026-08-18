@@ -11,15 +11,28 @@ Recipes for common tasks when working with DuckDB in Nim using
 For the complete API reference for every exported symbol, see the
 [API documentation](https://bontavlad.github.io/NimDrake/theindex.html).
 
-Every recipe in this book is executed while the book is built: the code
+Every core recipe in this book is executed while the book is built: the code
 snippet is compiled and run, and its response is included below the snippet.
-If a recipe stops working, the book build fails.
+If a core recipe stops working, the book build fails.
+
+The recipes use three result paths:
+
+* Use `execute` for small results and one-off SQL.
+* Use `executeStreaming` when the result can be large or when you want to
+  process one DuckDB chunk at a time.
+* Use typed vectors when the result schema is known and you want typed,
+  zero-copy reads. Materialize a `Table` only when you need random access
+  across chunks.
+
+The Arrow chapter is optional. Its executable snippets run when the cookbook
+is built with `-d:features.nimdrake.arrow` and the Arrow GLib libraries.
 """
 
 nbText: """
 ## Getting started
 
-Import `nimdrake` and open an in-memory database:
+Import `nimdrake` and open an in-memory database. A `Database` owns the
+DuckDB instance. Create one `Connection` for each independent query flow.
 
 ```nim
 import nimdrake
@@ -27,7 +40,8 @@ import nimdrake
 let con = newDatabase().connect()
 ```
 
-All recipes assume these imports and a live connection `con`.
+Most recipes create their own connection so that they can run independently.
+When a recipe uses `con`, it means a live connection created with this pattern.
 
 ## Contents
 
@@ -38,5 +52,6 @@ All recipes assume these imports and a live connection `con`.
 * [Bulk Insert with Appender](bulk_insert.html)
 * [User-Defined Functions](user_defined_functions.html)
 * [Complex Types](complex_types.html)
+* [Arrow Results](arrow_results.html)
 """
 nbSave

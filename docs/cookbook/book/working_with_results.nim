@@ -19,7 +19,7 @@ proc stripBlockCode(code: string): string =
 nbText: """
 ## Working with Results
 
-Accessing query results with zero-copy typed vectors.
+Choose between materialized rows, streaming chunks, and typed column views.
 
 ```nim
 import nimdrake
@@ -29,7 +29,9 @@ import nimdrake
 nbText: """
 ## Access columns by index
 
-`chunk.vector(i)` returns a zero-copy view. Use `bindAs` to type it:
+`chunk.vector(i)` returns a view over the current DuckDB chunk. Use `bindAs` to
+select the expected type. Primitive values stay in DuckDB's buffer while you
+read them:
 """
 
 nbCode:
@@ -63,7 +65,8 @@ nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
 nbText: """
 ## Collect all values into a seq
 
-`toSeq` materializes a column into a Nim sequence:
+`toSeq` copies a column into a Nim sequence. Use it when the copied values need
+to outlive the result chunk or when a Nim container is the required API:
 """
 
 nbCode:
@@ -79,7 +82,8 @@ nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
 nbText: """
 ## Check for NULL values
 
-Use `valid(i)` to check if a value is NULL:
+Use `valid(i)` before reading a nullable value. Use `toSeqOpt` when you want a
+whole column and need to preserve NULL values in `Option[T]`:
 """
 
 nbCode:
@@ -91,6 +95,7 @@ nbCode:
       let v = chunk.vector(0).bindAs DuckType.BigInt
       echo "NULL? ", not v.valid(0)  # true
       echo "NULL? ", not v.valid(1)  # false
+      echo v.toSeqOpt
 
 nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
 nbText: """
@@ -169,5 +174,49 @@ nbCode:
     let r = con.execute("SELECT i FROM generate_series(1, 1000) AS t(i)")
 
     echo "rows: ", r.len
+nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
+nbText: """
+## Build a typed report from a streaming result
+
+This workflow combines a prepared statement, streaming execution, named
+columns, NULL handling, and a typed column total in one pass. Keep the chunk
+alive while you use its vector views, then store only the values that you need.
+"""
+
+nbCode:
+  block:
+    let con = newDatabase().connect()
+    con.execute("""
+      CREATE TABLE measurements (
+        sensor VARCHAR,
+        reading DOUBLE,
+        note VARCHAR
+      )
+    """)
+    con.executeMaterialized(
+      "INSERT INTO measurements VALUES (?, ?, ?), (?, ?, ?), (?, ?, ?)",
+      ("north", 20.5, "ok", "north", 21.0, "ok", "south", 19.0, "sample"))
+
+    let stmt = con.newStatement("""
+      SELECT sensor, reading, NULLIF(note, 'sample') AS note
+      FROM measurements
+      WHERE reading >= ?
+      ORDER BY sensor
+    """)
+    let result = con.executeStreaming(stmt, (20.0,))
+
+    var rows = 0
+    var total = 0.0
+    for chunk in result:
+      let sensors = chunk["sensor"].bindAs DuckType.Varchar
+      let readings = chunk["reading"].bindAs DuckType.Double
+      let notes = chunk["note"].bindAs DuckType.Varchar
+      for i in 0 ..< chunk.len:
+        inc rows
+        total += readings[i]
+        echo sensors[i], " reading=", readings[i],
+          " note_is_null=", not notes.valid(i)
+
+    echo "rows: ", rows, " total: ", total
 nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
 nbSave

@@ -53,15 +53,17 @@ nb.blk.NbCode.code = stripBlockCode(nb.blk.NbCode.code)
 nbText: """
 ## Create a persistent database
 
-To create or open a persistent database, set the path of the database file, e.g., my_database.duckdb, when creating the connection.
-This path can point to an existing database or to a file that does not yet exist and DuckDB will open or create a database at that location as needed.
-The file may have an arbitrary extension, but .db or .duckdb are two common choices with .ddb also used sometimes.
+To create or open a persistent database, pass the database file path to
+`newDatabase`, for example `my_database.duckdb`.
+The path can point to an existing file or to a file that does not yet exist.
+DuckDB opens the existing database or creates a new one at that path.
 """
 
 nbCode:
   block:
     let path = getTempDir() / "my_app.duckdb"
-    removeFile(path)  # clean slate from any previous run
+    if fileExists(path):
+      removeFile(path)  # clean slate from any previous run
 
     let db = newDatabase(path)
     let con = db.connect()
@@ -151,7 +153,7 @@ In in-process mode, DuckDB has two configurable options for concurrency:
 
 * **Read-write mode**: one process can both read and write to the database.
 * **Read-only mode**: multiple processes can read from the database, but no
-  processes can write (`access_mode = 'READ_ONLY'`, see the recipe above).
+  processes can write (`access_mode = 'READ_ONLY'`, see the read-only section).
 
 When using read-write mode, DuckDB supports multiple writer threads using a
 combination of MVCC (Multi-Version Concurrency Control) and optimistic
@@ -208,7 +210,8 @@ Reopen an existing database with `access_mode = read_only` to prevent writes:
 nbCode:
   block:
     let path = getTempDir() / "readonly.duckdb"
-    removeFile(path)  # clean slate
+    if fileExists(path):
+      removeFile(path)  # clean slate
 
     block setup:
       let db = newDatabase(path)
@@ -268,8 +271,8 @@ the same rows at the same time will cause a transaction conflict error:
 * Conflict error: a transaction receives this error when it modifies a row
   that another, still uncommitted, transaction has already modified.
 
-The conflict surfaces at write time, and a rolled-back transaction can
-simply be retried once the first transaction has finished:
+The conflict surfaces at write time. A rolled-back transaction can be retried
+after the first transaction finishes:
 """
 
 nbCode:
