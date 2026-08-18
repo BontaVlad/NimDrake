@@ -190,15 +190,9 @@ benchmark-ffi target case iterations="100":
 generate:
     nim c -r -d:useFuthark -d:nodeclguards:true -d:exportall:true src/nimdrake.nim
 
-# Vendor libduckdb.so + duckdb.h into src/include/ (linux amd64, glibc).
+# Vendor the matching DuckDB release asset into src/include/.
 fetch-lib:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    D="src/include"; V="v1.5.4"; A="libduckdb-linux-amd64.zip"
-    T="$(mktemp -d)"; mkdir -p "$D"
-    wget -q "https://github.com/duckdb/duckdb/releases/download/$V/$A" -O "$T/$A"
-    unzip -o "$T/$A" -d "$T/x"; cp "$T/x/libduckdb.so" "$D/"; cp "$T/x/duckdb.h" "$D/"
-    rm -rf "$T"; echo "Vendored libduckdb to $D/"; ls -la "$D/"
+    nimble fetchLib
 
 # Build the cookbook with nimibook; every snippet is executed and its output
 # embedded in the book. Fails if any snippet breaks. Requires nimibook

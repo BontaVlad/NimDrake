@@ -36,6 +36,9 @@ when not defined(nimsuggest) and not defined(useFuthark):
     switch("passL", "-L" & duckdbIncDir)
     switch("passL", "-lduckdb")
     switch("passL", "-Wl,-rpath," & duckdbIncDir)
+    when defined(linux):
+      switch("passL", "-Wl,-rpath,\\$ORIGIN/include")
+      switch("passL", "-Wl,-rpath,\\$ORIGIN/src/include")
     when defined(macosx):
       # Keep the system path as a secondary rpath so a missing vendored dylib
       # doesn't shadow a system install users may have for other tools.

@@ -37,7 +37,24 @@ when defined(useFuthark):
   {.passC: gorge("pkg-config --cflags duckdb 2>/dev/null || true").}
   {.passL: gorge("pkg-config --libs duckdb 2>/dev/null || echo '-lduckdb'").}
 else:
+  import std/os
+
   include "generated.nim"
+
+  # config.nims is not installed with the package, so provide package-relative
+  # linker and runtime paths from the FFI module itself.
+  when not defined(nimsuggest):
+    const duckdbLibDir = currentSourcePath.parentDir / "include"
+    {.passL: "-L" & duckdbLibDir.}
+    {.passL: "-lduckdb".}
+    when defined(linux):
+      {.passL: "-Wl,-rpath,\\$ORIGIN/include".}
+      {.passL: "-Wl,-rpath,\\$ORIGIN/src/include".}
+      {.passL: "-Wl,-rpath," & duckdbLibDir.}
+    elif defined(macosx):
+      {.passL: "-Wl,-rpath,@loader_path/include".}
+      {.passL: "-Wl,-rpath,@loader_path/src/include".}
+      {.passL: "-Wl,-rpath," & duckdbLibDir.}
 
   let VECTOR_SIZE* = duckdbVectorSize().int
   let ROW_GROUP_SIZE* = VECTOR_SIZE * 100

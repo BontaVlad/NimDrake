@@ -47,6 +47,10 @@ links back to the code.
 nimble install nimdrake
 ```
 
+Installation downloads and verifies the pinned DuckDB v1.5.4 native library
+for Linux amd64/arm64, macOS, or Windows amd64/arm64. A system DuckDB install
+is still supported as a fallback when the package is built from source.
+
 With dev dependencies (tests, benchmarks, FFI regeneration):
 
 ```bash
@@ -58,7 +62,8 @@ nimble install nimdrake --parser:declarative --features:dev
 NimDrake needs `libduckdb.so` / `libduckdb.dylib` / `duckdb.dll`. The build
 looks in two places, in order:
 
-1. **Vendored** — `src/include/`, populate with `just fetch-lib`
+1. **Vendored** — `src/include/`, populated automatically by `nimble install`
+   or manually with `just fetch-lib`
 2. **System** — `pkg-config duckdb` or `ldconfig`
 
 ---

@@ -41,9 +41,10 @@ tests/test_tensor
 # CI cache for DuckDB downloads (macOS/Windows)
 .duckdb-cache/
 
-# Vendored DuckDB artifacts (downloaded via `just fetch-lib`, not committed)
+# Vendored DuckDB artifacts (downloaded via Nimble or `just fetch-lib`)
 src/include/libduckdb.so
 src/include/libduckdb.dylib
 src/include/duckdb.dll
 src/include/duckdb.h
+src/include/libduckdb.lib
 src/include/duckdb_static.lib
