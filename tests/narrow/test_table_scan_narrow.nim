@@ -3,7 +3,7 @@ import std/algorithm
 
 when defined(features.nimdrake.arrow):
   import narrow
-  import ../../src/[database, query, qresult, types, table_scan, narrow_table_scan]
+  import ../../src/[database, query, qresult, types, complex, arrow, table_scan, narrow_table_scan]
 
   # Build a materialized DuckDB result from a RecordBatch and register it as a view.
   proc reg(conn: Connection, batch: RecordBatch, name: static string): QResult[Materialized] =
@@ -313,6 +313,57 @@ when defined(features.nimdrake.arrow):
       let conn = newDatabase().connect()
       let r = conn.reg(batch, "arrow_empty")
       check r.len == 0
+
+    test "large RecordBatch is split into multiple windows":
+      const Rows = 4097
+      let schema = newSchema([newField[int64]("x")])
+      var values = newSeq[int64](Rows)
+      for i in 0 ..< Rows:
+        values[i] = i.int64
+      let batch = newRecordBatch(schema, newArray[int64](values))
+
+      let conn = newDatabase().connect()
+      let r = conn.reg(batch, "arrow_windows")
+      check r.len == Rows
+      var chunkCount = 0
+      var seen = 0
+      var first = -1'i64
+      var last = -1'i64
+      for chunk in r:
+        inc chunkCount
+        let column = chunk.bindAs(0, DuckType.BigInt)
+        for i in 0 ..< column.len:
+          if seen == 0:
+            first = column[i]
+          last = column[i]
+          inc seen
+      check chunkCount >= 2
+      check seen == Rows
+      check first == 0
+      check last == (Rows - 1).int64
+
+    test "nested Arrow batch converts without schema export per window":
+      let source = newDatabase().connect()
+      let stmt = source.newStatement("""
+        SELECT
+          [seq, seq + 1] AS xs,
+          {'a': seq, 'b': seq * 2} AS point
+        FROM generate_series(1, 3) AS t(seq)
+      """)
+      var batch: RecordBatch
+      for candidate in source.executeStreaming(stmt).toArrowStream():
+        batch = candidate
+        break
+
+      let conn = newDatabase().connect()
+      let r = newMaterialized(batch, conn)
+      check r.len == 3
+      for chunk in r:
+        let lists = toList[DuckType.BigInt](chunk.bindAs(0, DuckType.List))
+        check lists == @[@[1'i64, 2], @[2'i64, 3], @[3'i64, 4]]
+        let points = toStructChild[DuckType.BigInt](
+          chunk.bindAs(1, DuckType.Struct), "b")
+        check points == @[2'i64, 4, 6]
 
     test "UTinyInt and USmallInt type mapping is correct":
       let schema = newSchema([

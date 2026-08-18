@@ -8,18 +8,19 @@
 ## and no recursion into children beyond the declared child types.
 ##
 ## **Layer B — sum-type ``NimValue``** + ``toNimValue`` recursive
-## materializer.  Fully generic row-by-row materialization, allocates per row.
+## materializer. Fully generic row-by-row materialization with inline scalar
+## values and recursively allocated containers.
 ## For ad-hoc querying where the column shape is not known statically.
 ##
 ## ``NimValue`` preserves integer widths losslessly: signed 64-bit values map
 ## to ``nvInt``, unsigned 64-bit to ``nvUInt``, and HUGEINT to ``nvHuge``
-## (``Int128``). UHUGEINT and UUID have no lossless Nim scalar slot and
-## materialize as ``nvString``.
+## (``Int128``). Temporal, UUID, decimal, and enum values retain their native
+## value representations as well.
 ##
 ## The zero-copy descent procs in ``qresult.nim`` remain the hot path for
 ## performance-sensitive code.
 
-import std/[tables, hashes, times, strutils, sequtils, options]
+import std/[tables, hashes, times, options]
 import nint128
 
 import /[ffi, types, qresult, codec]
@@ -34,7 +35,20 @@ type
     nvInt
     nvUInt
     nvHuge
+    nvUHuge
+    nvUUID
     nvFloat
+    nvTimestamp
+    nvTimestampS
+    nvTimestampMs
+    nvTimestampNs
+    nvDate
+    nvTime
+    nvTimeTz
+    nvTimestampTz
+    nvInterval
+    nvDecimal
+    nvEnum
     nvString
     nvBlob
     nvList
@@ -43,17 +57,33 @@ type
     nvUnion
     nvNull
 
-  NimValue* = ref object ## Recursively materialized cell of any DuckDB kind.
-    ## Allocates per row; the zero-copy `Vector[kt]` views in `qresult` are the
-    ## hot path. Integer widths are lossless: signed 64-bit → `nvInt`,
-    ## unsigned 64-bit → `nvUInt`, HUGEINT → `nvHuge`; UHUGEINT and UUID
-    ## materialize as `nvString`.
+  NimValue* = object ## Value-oriented materialized cell of any DuckDB kind.
+    ## Scalar cells are stored inline. Recursive containers use seq storage;
+    ## UNION keeps one ref only for its recursive member value.
     case kind*: NimValueKind
     of nvBool:   boolVal*: bool
     of nvInt:    intVal*: int64
     of nvUInt:   uintVal*: uint64
     of nvHuge:   hugeVal*: Int128
+    of nvUHuge:  uhugeVal*: UInt128
+    of nvUUID:   uuidVal*: Uuid
     of nvFloat:  floatVal*: float64
+    of nvTimestamp: timestampVal*: Timestamp
+    of nvTimestampS: timestampSVal*: DateTime
+    of nvTimestampMs: timestampMsVal*: DateTime
+    of nvTimestampNs: timestampNsVal*: DateTime
+    of nvDate: dateVal*: DateTime
+    of nvTime: timeVal*: Time
+    of nvTimeTz: timeTzVal*: ZonedTime
+    of nvTimestampTz: timestampTzVal*: ZonedTime
+    of nvInterval: intervalVal*: TimeInterval
+    of nvDecimal:
+      decimalRaw*: Int128
+      decimalWidth*: int8
+      decimalScale*: int8
+    of nvEnum:
+      enumVal*: uint
+      enumLabels*: ref seq[string]
     of nvString: strVal*: string
     of nvBlob:   blobVal*: seq[byte]
     of nvList:   listVal*: seq[NimValue]
@@ -61,13 +91,15 @@ type
     of nvMap:    mapVal*: seq[(NimValue, NimValue)]
     of nvUnion:
       memberName*: string
-      memberVal*: NimValue
+      memberVal*: ref NimValue
     of nvNull:   discard
 
+proc refValue(value: NimValue): ref NimValue =
+  new(result)
+  result[] = value
+
 func `==`*(a, b: NimValue): bool =
-  ## Structural equality; two `nil` refs compare equal.
-  if a.isNil or b.isNil:
-    return a.isNil == b.isNil
+  ## Structural equality for value-oriented materialized values.
   if a.kind != b.kind:
     return false
   case a.kind
@@ -75,13 +107,29 @@ func `==`*(a, b: NimValue): bool =
   of nvInt:    a.intVal == b.intVal
   of nvUInt:   a.uintVal == b.uintVal
   of nvHuge:   a.hugeVal == b.hugeVal
+  of nvUHuge:  a.uhugeVal == b.uhugeVal
+  of nvUUID:   a.uuidVal == b.uuidVal
   of nvFloat:  a.floatVal == b.floatVal
+  of nvTimestamp: a.timestampVal == b.timestampVal
+  of nvTimestampS: a.timestampSVal == b.timestampSVal
+  of nvTimestampMs: a.timestampMsVal == b.timestampMsVal
+  of nvTimestampNs: a.timestampNsVal == b.timestampNsVal
+  of nvDate: a.dateVal == b.dateVal
+  of nvTime: a.timeVal == b.timeVal
+  of nvTimeTz: a.timeTzVal == b.timeTzVal
+  of nvTimestampTz: a.timestampTzVal == b.timestampTzVal
+  of nvInterval: a.intervalVal == b.intervalVal
+  of nvDecimal:
+    a.decimalRaw == b.decimalRaw and a.decimalWidth == b.decimalWidth and
+      a.decimalScale == b.decimalScale
+  of nvEnum:
+    a.enumVal == b.enumVal and a.enumLabels == b.enumLabels
   of nvString: a.strVal == b.strVal
   of nvBlob:   a.blobVal == b.blobVal
   of nvList:   a.listVal == b.listVal
   of nvStruct: a.fields == b.fields
   of nvMap:    a.mapVal == b.mapVal
-  of nvUnion:  a.memberName == b.memberName and a.memberVal == b.memberVal
+  of nvUnion:  a.memberName == b.memberName and a.memberVal[] == b.memberVal[]
   of nvNull:   true
 
 func hash*(v: NimValue): Hash =
@@ -92,7 +140,51 @@ func hash*(v: NimValue): Hash =
   of nvInt:    result = result !& hash(v.intVal)
   of nvUInt:   result = result !& hash(v.uintVal)
   of nvHuge:   result = result !& hash(v.hugeVal)
+  of nvUHuge:  result = result !& hash(v.uhugeVal)
+  of nvUUID:   result = result !& hash(v.uuidVal)
   of nvFloat:  result = result !& hash(v.floatVal)
+  of nvTimestamp:
+    let t = v.timestampVal.toTime
+    result = result !& hash(t.toUnix)
+    result = result !& hash(t.nanosecond)
+  of nvTimestampS, nvTimestampMs, nvTimestampNs, nvDate:
+    let t =
+      case v.kind
+      of nvTimestampS: v.timestampSVal.toTime
+      of nvTimestampMs: v.timestampMsVal.toTime
+      of nvTimestampNs: v.timestampNsVal.toTime
+      else: v.dateVal.toTime
+    result = result !& hash(t.toUnix)
+    result = result !& hash(t.nanosecond)
+  of nvTime:
+    result = result !& hash(v.timeVal.toUnix)
+    result = result !& hash(v.timeVal.nanosecond)
+  of nvTimeTz:
+    result = result !& hash(v.timeTzVal.time.toUnix)
+    result = result !& hash(v.timeTzVal.time.nanosecond)
+    result = result !& hash(v.timeTzVal.utcOffset)
+    result = result !& hash(v.timeTzVal.isDst)
+  of nvTimestampTz:
+    result = result !& hash(v.timestampTzVal.time.toUnix)
+    result = result !& hash(v.timestampTzVal.time.nanosecond)
+    result = result !& hash(v.timestampTzVal.utcOffset)
+    result = result !& hash(v.timestampTzVal.isDst)
+  of nvInterval:
+    result = result !& hash(v.intervalVal.years)
+    result = result !& hash(v.intervalVal.months)
+    result = result !& hash(v.intervalVal.days)
+    result = result !& hash(v.intervalVal.hours)
+    result = result !& hash(v.intervalVal.minutes)
+    result = result !& hash(v.intervalVal.seconds)
+    result = result !& hash(v.intervalVal.microseconds)
+  of nvDecimal:
+    result = result !& hash(v.decimalRaw)
+    result = result !& hash(v.decimalWidth)
+    result = result !& hash(v.decimalScale)
+  of nvEnum:
+    result = result !& hash(v.enumVal)
+    if v.enumLabels != nil:
+      result = result !& hash(v.enumLabels[])
   of nvString: result = result !& hash(v.strVal)
   of nvBlob:   result = result !& hash(v.blobVal)
   of nvList:
@@ -108,39 +200,115 @@ func hash*(v: NimValue): Hash =
       result = result !& hash(val)
   of nvUnion:
     result = result !& hash(v.memberName)
-    result = result !& hash(v.memberVal)
+    result = result !& hash(v.memberVal[])
   of nvNull: discard
   result = !$result
 
-func formatVal(v: NimValue, quoteStr: bool = true): string =
-  if v.isNil:
-    return "NULL"
+proc appendFormat(result: var string, v: NimValue, quoteStr: bool) =
+  proc formatUuid(value: Uuid): string =
+    const hex = "0123456789abcdef"
+    let bytes = value.bytes
+    result = newStringOfCap(36)
+    for i, byte in bytes:
+      if i in {4, 6, 8, 10}:
+        result.add '-'
+      result.add hex[int(byte shr 4)]
+      result.add hex[int(byte and 0x0f)]
+
+  proc enumName(value: NimValue): string =
+    if value.enumLabels != nil and value.enumVal < value.enumLabels[].len.uint:
+      value.enumLabels[][value.enumVal]
+    else:
+      $value.enumVal
+
   case v.kind
-  of nvBool: (if v.boolVal: "true" else: "false")
-  of nvInt: $v.intVal
-  of nvUInt: $v.uintVal
-  of nvHuge: $v.hugeVal
-  of nvFloat: $v.floatVal
+  of nvBool:
+    result.add if v.boolVal: "true" else: "false"
+  of nvInt:
+    result.add $v.intVal
+  of nvUInt:
+    result.add $v.uintVal
+  of nvHuge:
+    result.add $v.hugeVal
+  of nvUHuge:
+    result.add $v.uhugeVal
+  of nvUUID:
+    result.add formatUuid(v.uuidVal)
+  of nvFloat:
+    result.add $v.floatVal
+  of nvTimestamp:
+    result.add $v.timestampVal
+  of nvTimestampS:
+    result.add $v.timestampSVal
+  of nvTimestampMs:
+    result.add $v.timestampMsVal
+  of nvTimestampNs:
+    result.add $v.timestampNsVal
+  of nvDate:
+    result.add $v.dateVal
+  of nvTime:
+    result.add $v.timeVal
+  of nvTimeTz:
+    result.add $v.timeTzVal
+  of nvTimestampTz:
+    result.add $v.timestampTzVal
+  of nvInterval:
+    result.add $v.intervalVal
+  of nvDecimal:
+    result.add formatDuckDecimal(v.decimalRaw, v.decimalScale)
+  of nvEnum:
+    result.add enumName(v)
   of nvString:
-    if quoteStr: "'" & v.strVal.replace("'", "''") & "'"
-    else: v.strVal
+    if quoteStr:
+      result.add '\''
+      for ch in v.strVal:
+        result.add ch
+        if ch == '\'':
+          result.add '\''
+      result.add '\''
+    else:
+      result.add v.strVal
   of nvBlob:
-    var s = "'\\x"
+    const hex = "0123456789abcdef"
+    result.add "'\\x"
     for b in v.blobVal:
-      s.add(toLowerAscii(b.toHex(2)))
-    s.add("'")
-    s
+      result.add hex[int(b shr 4)]
+      result.add hex[int(b and 0x0f)]
+    result.add '\''
   of nvList:
-    "[" & v.listVal.mapIt(formatVal(it, quoteStr)).join(", ") & "]"
+    result.add '['
+    for i, item in v.listVal:
+      if i > 0:
+        result.add ", "
+      appendFormat(result, item, quoteStr)
+    result.add ']'
   of nvStruct:
-    "{" & v.fields.mapIt(
-      "'" & it[0] & "': " & formatVal(it[1], false)).join(", ") & "}"
+    result.add '{'
+    for i, field in v.fields:
+      if i > 0:
+        result.add ", "
+      result.add '\''
+      result.add field[0]
+      result.add "': "
+      appendFormat(result, field[1], false)
+    result.add '}'
   of nvMap:
-    "{" & v.mapVal.mapIt(
-      formatVal(it[0], false) & "=" & formatVal(it[1], false)).join(", ") & "}"
+    result.add '{'
+    for i, pair in v.mapVal:
+      if i > 0:
+        result.add ", "
+      appendFormat(result, pair[0], false)
+      result.add '='
+      appendFormat(result, pair[1], false)
+    result.add '}'
   of nvUnion:
-    formatVal(v.memberVal, quoteStr)
-  of nvNull: "NULL"
+    appendFormat(result, v.memberVal[], quoteStr)
+  of nvNull:
+    result.add "NULL"
+
+proc formatVal(v: NimValue, quoteStr: bool = true): string =
+  result = newStringOfCap(32)
+  appendFormat(result, v, quoteStr)
 
 proc `$`*(v: NimValue): string =
   ## Formats a `NimValue` in a SQL-ish literal syntax (lists, structs, maps
@@ -203,53 +371,46 @@ proc toNimValue*(cv: ColumnView, i: int): NimValue =
     result = NimValue(kind: nvHuge, hugeVal: v[i])
   of DuckType.UHugeInt:
     let v = cv.bindAs(DuckType.UHugeInt)
-    result = NimValue(kind: nvString, strVal: $v[i])
+    result = NimValue(kind: nvUHuge, uhugeVal: v[i])
   of DuckType.UUID:
     let v = cv.bindAs(DuckType.UUID)
-    result = NimValue(kind: nvString, strVal: $v[i])
+    result = NimValue(kind: nvUUID, uuidVal: v[i])
   of DuckType.Enum:
     let rawIdx = fromDuckEnum(cv.data, i, cv.enumWidth)
-    var name: string
-    if cv.ltype != nil and cv.ltype.enumLabels != nil and
-        rawIdx < cv.ltype.enumLabels[].len.uint:
-      name = cv.ltype.enumLabels[][rawIdx]
-    elif cv.ltype != nil and cv.ltype.handle != nil:
-      let cs = duckdb_enum_dictionary_value(cv.ltype.handle, rawIdx.idx_t)
-      name = $cs
-      duckdb_free(cast[pointer](cs))
-    else:
-      name = $rawIdx
-    result = NimValue(kind: nvString, strVal: name)
+    result = NimValue(kind: nvEnum, enumVal: rawIdx,
+      enumLabels: if cv.ltype == nil: nil else: cv.ltype.enumLabels)
   of DuckType.Timestamp:
     let v = cv.bindAs(DuckType.Timestamp)
-    result = NimValue(kind: nvString, strVal: $v[i])
+    result = NimValue(kind: nvTimestamp, timestampVal: v[i])
   of DuckType.TimestampS:
     let v = cv.bindAs(DuckType.TimestampS)
-    result = NimValue(kind: nvString, strVal: $v[i])
+    result = NimValue(kind: nvTimestampS, timestampSVal: v[i])
   of DuckType.TimestampMs:
     let v = cv.bindAs(DuckType.TimestampMs)
-    result = NimValue(kind: nvString, strVal: $v[i])
+    result = NimValue(kind: nvTimestampMs, timestampMsVal: v[i])
   of DuckType.TimestampNs:
     let v = cv.bindAs(DuckType.TimestampNs)
-    result = NimValue(kind: nvString, strVal: $v[i])
+    result = NimValue(kind: nvTimestampNs, timestampNsVal: v[i])
   of DuckType.Date:
     let v = cv.bindAs(DuckType.Date)
-    result = NimValue(kind: nvString, strVal: $v[i])
+    result = NimValue(kind: nvDate, dateVal: v[i])
   of DuckType.Time:
     let v = cv.bindAs(DuckType.Time)
-    result = NimValue(kind: nvString, strVal: $v[i])
+    result = NimValue(kind: nvTime, timeVal: v[i])
   of DuckType.TimeTz:
     let v = cv.bindAs(DuckType.TimeTz)
-    result = NimValue(kind: nvString, strVal: $v[i])
+    result = NimValue(kind: nvTimeTz, timeTzVal: v[i])
   of DuckType.TimestampTz:
     let v = cv.bindAs(DuckType.TimestampTz)
-    result = NimValue(kind: nvString, strVal: $v[i])
+    result = NimValue(kind: nvTimestampTz, timestampTzVal: v[i])
   of DuckType.Interval:
     let v = cv.bindAs(DuckType.Interval)
-    result = NimValue(kind: nvString, strVal: $v[i])
+    result = NimValue(kind: nvInterval, intervalVal: v[i])
   of DuckType.Decimal:
     let v = cv.bindAs(DuckType.Decimal)
-    result = NimValue(kind: nvString, strVal: $v[i])
+    let (raw, width, scale) = v.borrowDecimal(i)
+    result = NimValue(kind: nvDecimal, decimalRaw: raw,
+      decimalWidth: width, decimalScale: scale)
   of DuckType.List:
     let vl = cv.bindAs(DuckType.List)
     let (off, ln) = vl.listEntry(i)
@@ -295,10 +456,99 @@ proc toNimValue*(cv: ColumnView, i: int): NimValue =
       let name = vu.unionMemberName(tag)
       let memberCV = vu.unionMemberChild(tag)
       result = NimValue(kind: nvUnion, memberName: name,
-                        memberVal: toNimValue(memberCV, i))
+                        memberVal: refValue(toNimValue(memberCV, i)))
   else:
     raise newException(ValueError,
                        "unsupported DuckDB type for materialization: " & $cv.kind)
+
+type
+  NimDecoder = ref object
+    ## Chunk-bound decoder. Child views and union metadata are bound once.
+    kind: DuckType
+    cv: ColumnView
+    listView: Vector[DuckType.List]
+    arrayView: Vector[DuckType.Array]
+    mapView: Vector[DuckType.Map]
+    unionTagData: ptr UncheckedArray[uint8]
+    unionTagValidity: ptr UncheckedArray[uint64]
+    childNames: seq[string]
+    children: seq[NimDecoder]
+
+proc newNimDecoder(cv: ColumnView): NimDecoder =
+  result = NimDecoder(kind: cv.kind, cv: cv)
+  case cv.kind
+  of DuckType.List:
+    result.listView = cv.bindAs(DuckType.List)
+    result.children = @[newNimDecoder(result.listView.listChild)]
+  of DuckType.Array:
+    result.arrayView = cv.bindAs(DuckType.Array)
+    result.children = @[newNimDecoder(result.arrayView.arrayChild)]
+  of DuckType.Struct:
+    let view = cv.bindAs(DuckType.Struct)
+    let count = view.structChildCount
+    result.childNames = newSeq[string](count)
+    result.children = newSeq[NimDecoder](count)
+    for j in 0 ..< count:
+      result.childNames[j] = view.structChildName(j)
+      result.children[j] = newNimDecoder(view.structChild(j))
+  of DuckType.Map:
+    result.mapView = cv.bindAs(DuckType.Map)
+    let entries = result.mapView.mapEntriesChild.bindAs(DuckType.Struct)
+    result.children = @[
+      newNimDecoder(entries.structChild(0)),
+      newNimDecoder(entries.structChild(1))]
+  of DuckType.Union:
+    let view = cv.bindAs(DuckType.Union)
+    let tag = view.unionTagView
+    result.unionTagData = tag.data
+    result.unionTagValidity = tag.validity
+    let count = view.unionMemberCount
+    result.childNames = newSeq[string](count)
+    result.children = newSeq[NimDecoder](count)
+    for j in 0 ..< count:
+      result.childNames[j] = view.unionMemberName(j)
+      result.children[j] = newNimDecoder(view.unionMemberChild(j))
+  else:
+    discard
+
+proc decode(decoder: NimDecoder, i: int): NimValue =
+  if not decoder.cv.valid(i):
+    return NimValue(kind: nvNull)
+  case decoder.kind
+  of DuckType.List:
+    let (offset, length) = decoder.listView.listEntry(i)
+    result = NimValue(kind: nvList, listVal: newSeq[NimValue](length.int))
+    for j in 0 ..< length.int:
+      result.listVal[j] = decoder.children[0].decode(offset.int + j)
+  of DuckType.Array:
+    let size = decoder.arrayView.arraySize
+    result = NimValue(kind: nvList, listVal: newSeq[NimValue](size))
+    for j in 0 ..< size:
+      result.listVal[j] = decoder.children[0].decode(i * size + j)
+  of DuckType.Struct:
+    result = NimValue(kind: nvStruct,
+      fields: newSeq[(string, NimValue)](decoder.children.len))
+    for j, child in decoder.children:
+      result.fields[j] = (decoder.childNames[j], child.decode(i))
+  of DuckType.Map:
+    let (offset, length) = decoder.mapView.mapEntry(i)
+    result = NimValue(kind: nvMap,
+      mapVal: newSeq[(NimValue, NimValue)](length.int))
+    for j in 0 ..< length.int:
+      let index = offset.int + j
+      result.mapVal[j] = (decoder.children[0].decode(index),
+                          decoder.children[1].decode(index))
+  of DuckType.Union:
+    if decoder.unionTagValidity != nil and
+        (decoder.unionTagValidity[i shr 6] and (1'u64 shl (i and 63))) == 0:
+      return NimValue(kind: nvNull)
+    let tag = decoder.unionTagData[i].int
+    if tag < 0 or tag >= decoder.children.len:
+      return NimValue(kind: nvNull)
+    result = NimValue(kind: nvUnion, memberName: decoder.childNames[tag],
+      memberVal: refValue(decoder.children[tag].decode(i)))
+  else:
+    result = decoder.cv.toNimValue(i)
 
 proc toNimValues*(cv: ColumnView): seq[NimValue] =
   ## Materializes the whole column; NULL rows become `NimValue(kind: nvNull)`.
@@ -311,6 +561,28 @@ proc toNimValues*(cv: ColumnView): seq[NimValue] =
     NimValue(kind: nvUInt, uintVal: value)
   proc makeFloat[T](value: T): NimValue =
     NimValue(kind: nvFloat, floatVal: float64(value))
+  proc makeUHuge(value: UInt128): NimValue =
+    NimValue(kind: nvUHuge, uhugeVal: value)
+  proc makeUUID(value: Uuid): NimValue =
+    NimValue(kind: nvUUID, uuidVal: value)
+  proc makeTimestamp(value: Timestamp): NimValue =
+    NimValue(kind: nvTimestamp, timestampVal: value)
+  proc makeTimestampS(value: DateTime): NimValue =
+    NimValue(kind: nvTimestampS, timestampSVal: value)
+  proc makeTimestampMs(value: DateTime): NimValue =
+    NimValue(kind: nvTimestampMs, timestampMsVal: value)
+  proc makeTimestampNs(value: DateTime): NimValue =
+    NimValue(kind: nvTimestampNs, timestampNsVal: value)
+  proc makeDate(value: DateTime): NimValue =
+    NimValue(kind: nvDate, dateVal: value)
+  proc makeTime(value: Time): NimValue =
+    NimValue(kind: nvTime, timeVal: value)
+  proc makeTimeTz(value: ZonedTime): NimValue =
+    NimValue(kind: nvTimeTz, timeTzVal: value)
+  proc makeTimestampTz(value: ZonedTime): NimValue =
+    NimValue(kind: nvTimestampTz, timestampTzVal: value)
+  proc makeInterval(value: TimeInterval): NimValue =
+    NimValue(kind: nvInterval, intervalVal: value)
   proc makeString(value: string): NimValue =
     NimValue(kind: nvString, strVal: value)
   proc makeBlob(value: seq[byte]): NimValue =
@@ -355,17 +627,49 @@ proc toNimValues*(cv: ColumnView): seq[NimValue] =
     for i in 0 ..< cv.length:
       if v.valid(i): result[i] = NimValue(kind: nvHuge, hugeVal: v[i])
       else: result[i] = NimValue(kind: nvNull)
-  of DuckType.Timestamp, DuckType.TimestampS, DuckType.TimestampMs,
-     DuckType.TimestampNs, DuckType.Date, DuckType.Time, DuckType.TimeTz,
-     DuckType.TimestampTz, DuckType.Interval, DuckType.Decimal,
-     DuckType.UUID, DuckType.Enum:
-    # These representations intentionally remain textual for compatibility,
-    # but bind the vector once instead of once per row.
+  of DuckType.UHugeInt:
+    fillScalar(DuckType.UHugeInt, makeUHuge)
+  of DuckType.UUID:
+    fillScalar(DuckType.UUID, makeUUID)
+  of DuckType.Timestamp:
+    fillScalar(DuckType.Timestamp, makeTimestamp)
+  of DuckType.TimestampS:
+    fillScalar(DuckType.TimestampS, makeTimestampS)
+  of DuckType.TimestampMs:
+    fillScalar(DuckType.TimestampMs, makeTimestampMs)
+  of DuckType.TimestampNs:
+    fillScalar(DuckType.TimestampNs, makeTimestampNs)
+  of DuckType.Date:
+    fillScalar(DuckType.Date, makeDate)
+  of DuckType.Time:
+    fillScalar(DuckType.Time, makeTime)
+  of DuckType.TimeTz:
+    fillScalar(DuckType.TimeTz, makeTimeTz)
+  of DuckType.TimestampTz:
+    fillScalar(DuckType.TimestampTz, makeTimestampTz)
+  of DuckType.Interval:
+    fillScalar(DuckType.Interval, makeInterval)
+  of DuckType.Decimal:
+    let v = cv.bindAs(DuckType.Decimal)
     for i in 0 ..< cv.length:
-      result[i] = toNimValue(cv, i)
+      if v.valid(i):
+        let (raw, width, scale) = v.borrowDecimal(i)
+        result[i] = NimValue(kind: nvDecimal, decimalRaw: raw,
+          decimalWidth: width, decimalScale: scale)
+      else:
+        result[i] = NimValue(kind: nvNull)
+  of DuckType.Enum:
+    let v = cv.bindAs(DuckType.Enum)
+    for i in 0 ..< cv.length:
+      if v.valid(i):
+        result[i] = NimValue(kind: nvEnum, enumVal: v[i],
+          enumLabels: if cv.ltype == nil: nil else: cv.ltype.enumLabels)
+      else:
+        result[i] = NimValue(kind: nvNull)
   else:
+    let decoder = newNimDecoder(cv)
     for i in 0 ..< cv.length:
-      result[i] = toNimValue(cv, i)
+      result[i] = decoder.decode(i)
 
 # ---------------------------------------------------------------------------
 # Per-row `[]` materialisers for Struct and Union
@@ -523,7 +827,18 @@ proc duckTypeOfNimValue(nv: NimValue): Option[DuckType] =
   of nvInt:    some(DuckType.BigInt)
   of nvUInt:   some(DuckType.UBigInt)
   of nvHuge:   some(DuckType.HugeInt)
+  of nvUHuge:  some(DuckType.UHugeInt)
+  of nvUUID:   some(DuckType.UUID)
   of nvFloat:  some(DuckType.Double)
+  of nvTimestamp: some(DuckType.Timestamp)
+  of nvTimestampS: some(DuckType.TimestampS)
+  of nvTimestampMs: some(DuckType.TimestampMs)
+  of nvTimestampNs: some(DuckType.TimestampNs)
+  of nvDate: some(DuckType.Date)
+  of nvTime: some(DuckType.Time)
+  of nvTimeTz: some(DuckType.TimeTz)
+  of nvTimestampTz: some(DuckType.TimestampTz)
+  of nvInterval: some(DuckType.Interval)
   of nvString: some(DuckType.Varchar)
   else:        none(DuckType)
 
@@ -542,8 +857,45 @@ proc toDuckValue*(nv: NimValue): duckdb_value =
     result = duckdb_create_uint64(nv.uintVal)
   of nvHuge:
     result = duckdb_create_hugeint(nv.hugeVal.toHugeInt)
+  of nvUHuge:
+    result = duckdb_create_uhugeint(nv.uhugeVal.toUHugeInt)
+  of nvUUID:
+    let raw = nv.uuidVal.toDuckUuid
+    result = duckdb_create_uuid(duckdb_uhugeint(
+      lower: raw.lower, upper: cast[uint64](raw.upper)))
   of nvFloat:
     result = duckdb_create_double(nv.floatVal)
+  of nvTimestamp:
+    result = duckdb_create_timestamp(nv.timestampVal.toTimestamp)
+  of nvTimestampS:
+    result = duckdb_create_timestamp_s(duckdb_timestamp_s(
+      seconds: toDuckTimestampS(nv.timestampSVal)))
+  of nvTimestampMs:
+    result = duckdb_create_timestamp_ms(duckdb_timestamp_ms(
+      millis: toDuckTimestampMs(nv.timestampMsVal)))
+  of nvTimestampNs:
+    result = duckdb_create_timestamp_ns(duckdb_timestamp_ns(
+      nanos: toDuckTimestampNs(nv.timestampNsVal)))
+  of nvDate:
+    result = duckdb_create_date(toDatetime(nv.dateVal))
+  of nvTime:
+    result = duckdb_create_time(toTime(nv.timeVal))
+  of nvTimeTz:
+    result = duckdb_create_time_tz_value(duckdb_time_tz(
+      bits: uint64(toDuckTimeTz(nv.timeTzVal))))
+  of nvTimestampTz:
+    result = duckdb_create_timestamp_tz(duckdb_timestamp(
+      micros: toDuckTimestampTz(nv.timestampTzVal)))
+  of nvInterval:
+    result = duckdb_create_interval(toInterval(nv.intervalVal))
+  of nvDecimal:
+    result = duckdb_create_decimal(duckdb_decimal(
+      width: nv.decimalWidth.uint8,
+      scale: nv.decimalScale.uint8,
+      value: nv.decimalRaw.toHugeInt))
+  of nvEnum:
+    raise newException(ValueError,
+      "cannot derive an enum logical type without a schema")
   of nvString:
     result = duckdb_create_varchar_length(
       nv.strVal.cstring, nv.strVal.len.idx_t)
@@ -617,6 +969,233 @@ proc toDuckValue*(nv: NimValue): duckdb_value =
       "toDuckValue not yet implemented for complex kinds (" & $nv.kind &
       "); use typed bindVal/append overloads instead")
 
+proc logicalChild(lt: LogicalType, index: int): LogicalType =
+  if lt.childTypes != nil:
+    return lt.childTypes[][index]
+  case toDuckType(lt)
+  of DuckType.List, DuckType.Array:
+    newLogicalType(duckdb_list_type_child_type(lt.handle))
+  of DuckType.Map:
+    if index == 0:
+      newLogicalType(duckdb_map_type_key_type(lt.handle))
+    else:
+      newLogicalType(duckdb_map_type_value_type(lt.handle))
+  of DuckType.Struct:
+    newLogicalType(duckdb_struct_type_child_type(lt.handle, index.idx_t))
+  of DuckType.Union:
+    newLogicalType(duckdb_union_type_member_type(lt.handle, index.idx_t))
+  else:
+    raise newException(ValueError, "logical type has no child types")
+
+proc requireValueKind(nv: NimValue, expected: set[NimValueKind],
+    target: DuckType) =
+  if nv.kind notin expected:
+    raise newException(ValueError,
+      "NimValue kind " & $nv.kind & " does not match " & $target)
+
+proc valueArray(values: seq[duckdb_value]): ptr duckdb_value {.inline.} =
+  if values.len == 0: nil
+  else: cast[ptr duckdb_value](values[0].addr)
+
+proc toDuckValue*(nv: NimValue, logicalType: LogicalType): duckdb_value =
+  ## Encodes a value against a supplied logical schema. Complex values do not
+  ## need first-element type inference when this overload is used.
+  if nv.kind == nvNull:
+    return duckdb_create_null_value()
+  let target = toDuckType(logicalType)
+  case target
+  of DuckType.Boolean:
+    requireValueKind(nv, {nvBool}, target)
+    result = duckdb_create_bool(nv.boolVal)
+  of DuckType.TinyInt:
+    requireValueKind(nv, {nvInt}, target)
+    result = duckdb_create_int8(nv.intVal.int8)
+  of DuckType.SmallInt:
+    requireValueKind(nv, {nvInt}, target)
+    result = duckdb_create_int16(nv.intVal.int16)
+  of DuckType.Integer:
+    requireValueKind(nv, {nvInt}, target)
+    result = duckdb_create_int32(nv.intVal.int32)
+  of DuckType.BigInt:
+    requireValueKind(nv, {nvInt}, target)
+    result = duckdb_create_int64(nv.intVal)
+  of DuckType.UTinyInt:
+    requireValueKind(nv, {nvInt, nvUInt}, target)
+    let value = if nv.kind == nvUInt: nv.uintVal else:
+      (if nv.intVal < 0: raise newException(ValueError,
+        "negative value does not match " & $target) else: nv.intVal.uint64)
+    result = duckdb_create_uint8(value.uint8)
+  of DuckType.USmallInt:
+    requireValueKind(nv, {nvInt, nvUInt}, target)
+    let value = if nv.kind == nvUInt: nv.uintVal else:
+      (if nv.intVal < 0: raise newException(ValueError,
+        "negative value does not match " & $target) else: nv.intVal.uint64)
+    result = duckdb_create_uint16(value.uint16)
+  of DuckType.UInteger:
+    requireValueKind(nv, {nvInt, nvUInt}, target)
+    let value = if nv.kind == nvUInt: nv.uintVal else:
+      (if nv.intVal < 0: raise newException(ValueError,
+        "negative value does not match " & $target) else: nv.intVal.uint64)
+    result = duckdb_create_uint32(value.uint32)
+  of DuckType.UBigInt:
+    requireValueKind(nv, {nvUInt}, target)
+    result = duckdb_create_uint64(nv.uintVal)
+  of DuckType.HugeInt:
+    requireValueKind(nv, {nvHuge}, target)
+    result = duckdb_create_hugeint(nv.hugeVal.toHugeInt)
+  of DuckType.UHugeInt:
+    requireValueKind(nv, {nvUHuge, nvUInt}, target)
+    let value =
+      if nv.kind == nvUHuge:
+        nv.uhugeVal
+      else:
+        UInt128(hi: 0'u64, lo: nv.uintVal)
+    result = duckdb_create_uhugeint(value.toUHugeInt)
+  of DuckType.UUID:
+    requireValueKind(nv, {nvUUID}, target)
+    let raw = nv.uuidVal.toDuckUuid
+    result = duckdb_create_uuid(duckdb_uhugeint(
+      lower: raw.lower, upper: cast[uint64](raw.upper)))
+  of DuckType.Float:
+    requireValueKind(nv, {nvFloat}, target)
+    result = duckdb_create_float(nv.floatVal.cfloat)
+  of DuckType.Double:
+    requireValueKind(nv, {nvFloat}, target)
+    result = duckdb_create_double(nv.floatVal)
+  of DuckType.Varchar, DuckType.Bit:
+    requireValueKind(nv, {nvString}, target)
+    result = duckdb_create_varchar_length(nv.strVal.cstring, nv.strVal.len.idx_t)
+  of DuckType.Blob:
+    requireValueKind(nv, {nvBlob}, target)
+    result = duckdb_create_blob(
+      if nv.blobVal.len == 0: nil else: cast[ptr uint8](nv.blobVal[0].addr),
+      nv.blobVal.len.idx_t)
+  of DuckType.Decimal:
+    let width = duckdb_decimal_width(logicalType.handle).int8
+    let scale = duckdb_decimal_scale(logicalType.handle).int8
+    let raw =
+      if nv.kind == nvDecimal:
+        nv.decimalRaw
+      elif nv.kind == nvString:
+        let decimal = newDecimal(nv.strVal)
+        toDuckDecimal(decimal, width, scale)
+      else:
+        raise newException(ValueError,
+          "schema decimal binding requires a decimal or string value")
+    result = duckdb_create_decimal(duckdb_decimal(
+      width: width.uint8, scale: scale.uint8,
+      value: toHugeInt(raw)))
+  of DuckType.Timestamp:
+    requireValueKind(nv, {nvTimestamp}, target)
+    result = duckdb_create_timestamp(nv.timestampVal.toTimestamp)
+  of DuckType.TimestampS:
+    requireValueKind(nv, {nvTimestampS}, target)
+    result = duckdb_create_timestamp_s(duckdb_timestamp_s(
+      seconds: toDuckTimestampS(nv.timestampSVal)))
+  of DuckType.TimestampMs:
+    requireValueKind(nv, {nvTimestampMs}, target)
+    result = duckdb_create_timestamp_ms(duckdb_timestamp_ms(
+      millis: toDuckTimestampMs(nv.timestampMsVal)))
+  of DuckType.TimestampNs:
+    requireValueKind(nv, {nvTimestampNs}, target)
+    result = duckdb_create_timestamp_ns(duckdb_timestamp_ns(
+      nanos: toDuckTimestampNs(nv.timestampNsVal)))
+  of DuckType.Date:
+    requireValueKind(nv, {nvDate}, target)
+    result = duckdb_create_date(toDatetime(nv.dateVal))
+  of DuckType.Time:
+    requireValueKind(nv, {nvTime}, target)
+    result = duckdb_create_time(toTime(nv.timeVal))
+  of DuckType.TimeTz:
+    requireValueKind(nv, {nvTimeTz}, target)
+    result = duckdb_create_time_tz_value(duckdb_time_tz(
+      bits: uint64(toDuckTimeTz(nv.timeTzVal))))
+  of DuckType.TimestampTz:
+    requireValueKind(nv, {nvTimestampTz}, target)
+    result = duckdb_create_timestamp_tz(duckdb_timestamp(
+      micros: toDuckTimestampTz(nv.timestampTzVal)))
+  of DuckType.Interval:
+    requireValueKind(nv, {nvInterval}, target)
+    result = duckdb_create_interval(toInterval(nv.intervalVal))
+  of DuckType.List:
+    requireValueKind(nv, {nvList}, target)
+    let childType = logicalChild(logicalType, 0)
+    var values = newSeq[duckdb_value](nv.listVal.len)
+    defer:
+      for value in values:
+        if value != nil: duckdb_destroy_value(value.addr)
+    for i, value in nv.listVal:
+      values[i] = value.toDuckValue(childType)
+    var emptyValue: duckdb_value = nil
+    let valuesPtr = if values.len == 0: addr emptyValue else: valueArray(values)
+    result = duckdb_create_list_value(childType.handle, valuesPtr, values.len.idx_t)
+  of DuckType.Array:
+    requireValueKind(nv, {nvList}, target)
+    let childType = logicalChild(logicalType, 0)
+    let size = duckdb_array_type_array_size(logicalType.handle).int
+    if nv.listVal.len != size:
+      raise newException(ValueError, "ARRAY value length does not match schema")
+    var values = newSeq[duckdb_value](size)
+    defer:
+      for value in values:
+        if value != nil: duckdb_destroy_value(value.addr)
+    for i, value in nv.listVal:
+      values[i] = value.toDuckValue(childType)
+    # DuckDB 1.5.x accepts the child LIST value at append/bind boundaries, but
+    # its C API array constructor returns nil for the same valid ARRAY value.
+    result = duckdb_create_list_value(childType.handle, valueArray(values), size.idx_t)
+  of DuckType.Struct:
+    if nv.kind != nvStruct or logicalType.childTypes == nil or
+        nv.fields.len != logicalType.childTypes[].len:
+      raise newException(ValueError, "STRUCT value does not match schema field count")
+    var values = newSeq[duckdb_value](nv.fields.len)
+    defer:
+      for value in values:
+        if value != nil: duckdb_destroy_value(value.addr)
+    for i, field in nv.fields:
+      if logicalType.childNames == nil or logicalType.childNames[][i] != field[0]:
+        raise newException(ValueError, "STRUCT field does not match schema")
+      values[i] = field[1].toDuckValue(logicalChild(logicalType, i))
+    result = duckdb_create_struct_value(logicalType.handle, valueArray(values))
+  of DuckType.Map:
+    if nv.kind != nvMap:
+      raise newException(ValueError, "MAP value does not match schema")
+    let keyType = logicalChild(logicalType, 0)
+    let valueType = logicalChild(logicalType, 1)
+    var keys = newSeq[duckdb_value](nv.mapVal.len)
+    var values = newSeq[duckdb_value](nv.mapVal.len)
+    defer:
+      for value in keys:
+        if value != nil: duckdb_destroy_value(value.addr)
+      for value in values:
+        if value != nil: duckdb_destroy_value(value.addr)
+    for i, pair in nv.mapVal:
+      keys[i] = pair[0].toDuckValue(keyType)
+      values[i] = pair[1].toDuckValue(valueType)
+    var emptyKey, emptyValue: duckdb_value = nil
+    let keysPtr = if keys.len == 0: addr emptyKey else: valueArray(keys)
+    let valuesPtr = if values.len == 0: addr emptyValue else: valueArray(values)
+    result = duckdb_create_map_value(logicalType.handle, keysPtr,
+      valuesPtr, nv.mapVal.len.idx_t)
+  of DuckType.Union:
+    if nv.kind != nvUnion or logicalType.childNames == nil:
+      raise newException(ValueError, "UNION value does not match schema")
+    var tag = -1
+    for i, name in logicalType.childNames[]:
+      if name == nv.memberName:
+        tag = i
+        break
+    if tag < 0:
+      raise newException(ValueError, "UNION member does not match schema")
+    let value = nv.memberVal[].toDuckValue(logicalChild(logicalType, tag))
+    defer: duckdb_destroy_value(value.addr)
+    result = duckdb_create_union_value(logicalType.handle, tag.idx_t, value)
+  of DuckType.Enum:
+    if nv.kind != nvEnum:
+      raise newException(ValueError, "ENUM value does not match schema")
+    result = duckdb_create_enum_value(logicalType.handle, nv.enumVal.uint64)
+  else:
+    result = nv.toDuckValue
 
 proc scalar*(qrs: QResult): NimValue =
   ## The first cell of `qrs` (column 0, row 0) materialized as a `NimValue`;

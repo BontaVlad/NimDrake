@@ -48,6 +48,7 @@ type
     columns: seq[Column]
     cardinality: Cardinality
     makeFiller: FillerFactory
+    makeProjectedFiller: ProjectedFillFactory
 
   ScanRegistry = ref object
     ## One per database (keyed by `rawDbHandle` in `extraDataRegistry`).
@@ -57,10 +58,34 @@ type
     data: Table[string, RegistryEntry]
     registeredCons: HashSet[pointer]
 
-  InitData = ref object
+  InitData = object
     ## The per-scan fill closure, boxed so it can live in DuckDB's init-data
-    ## slot.  `FillFn` is a closure value, not a ref, so it must be heap-boxed.
+    ## slot. Shared storage avoids transferring an ORC-managed ref between
+    ## DuckDB's init and destruction threads.
     fill: FillFn
+
+proc legacyProjectedFiller(
+    entry: RegistryEntry, projectedIds: seq[int]): FillFn =
+  ## Adapts a legacy full-schema filler to a projected output chunk. The
+  ## temporary full chunk keeps old sources source-compatible while the output
+  ## vectors reference only the requested positions.
+  let makeLegacy = entry.makeFiller
+  let columns = entry.columns
+  result = proc(chunk: duckdb_data_chunk): int {.closure, gcsafe.} =
+    var types = newSeq[duckdb_logical_type](columns.len)
+    for i, column in columns:
+      types[i] = column.ltype.handle
+    let fullChunk = duckdb_create_data_chunk(
+      if types.len == 0: nil else: cast[ptr duckdb_logical_type](types[0].addr),
+      types.len.idx_t)
+    defer: duckdb_destroy_data_chunk(fullChunk.addr)
+    let fullFiller = makeLegacy()
+    let n = fullFiller(fullChunk)
+    for outputIndex, sourceIndex in projectedIds:
+      duckdb_vector_reference_vector(
+        duckdb_data_chunk_get_vector(chunk, outputIndex.idx_t),
+        duckdb_data_chunk_get_vector(fullChunk, sourceIndex.idx_t))
+    n
 
 # ---------------------------------------------------------------------------
 # TableSource concept — structural type for register()-able sources.
@@ -89,7 +114,7 @@ var
 scanLock.initLock()
 
 # ---------------------------------------------------------------------------
-# =destroy hooks for DuckDB-owned bind/init data (GC_ref/unref dance)
+# Destructors for DuckDB-owned bind/init data
 # ---------------------------------------------------------------------------
 
 proc destroyEntry(p: pointer) {.cdecl.} =
@@ -99,7 +124,9 @@ proc destroyEntry(p: pointer) {.cdecl.} =
   GC_unref(cast[RegistryEntry](p))
 
 proc destroyInitData(p: pointer) {.cdecl.} =
-  `=destroy`(cast[InitData](p))
+  let data = cast[ptr InitData](p)
+  `=destroy`(data[])
+  deallocShared(data)
 
 # ---------------------------------------------------------------------------
 # Table function callbacks
@@ -141,13 +168,28 @@ proc scanBind(info: BindInfo) {.cdecl.} =
 
 proc scanInit(info: InitInfo) {.cdecl.} =
   let entry = cast[RegistryEntry](info.getBindData())
-  var id = InitData(fill: entry.makeFiller())
-  GC_ref(id)
-  info.setInitData(cast[pointer](id), destroyInitData)
+  let projectedCount = info.columnCount
+  var projectedIds = newSeq[int](projectedCount)
+  for i in 0 ..< projectedCount:
+    projectedIds[i] = info.columnIndex(i)
+  var fill =
+    if entry.makeProjectedFiller != nil:
+      entry.makeProjectedFiller(projectedIds)
+    elif projectedCount == entry.columns.len:
+      entry.makeFiller()
+    else:
+      legacyProjectedFiller(entry, projectedIds)
+  let data = cast[ptr InitData](allocShared0(sizeof(InitData)))
+  data[].fill = move(fill)
+  info.setInitData(cast[pointer](data), destroyInitData)
 
 proc scanMain(info: FunctionInfo, rawChunk: duckdb_data_chunk) {.cdecl.} =
-  let initData = cast[InitData](info.getInitData())
-  let n = initData.fill(rawChunk)
+  let initData = cast[ptr InitData](info.getInitData())
+  # Borrow the closure environment on the DuckDB worker thread. An owning copy
+  # would register an ORC cycle root on this thread and unregister it on the
+  # Nim thread when DuckDB destroys the init data.
+  var fill {.cursor.} = initData[].fill
+  let n = fill(rawChunk)
   duckdb_data_chunk_set_size(rawChunk, n.idx_t)
 
 # ---------------------------------------------------------------------------
@@ -185,9 +227,10 @@ proc ensureRegistered(con: Connection): ScanRegistry =
       parameters = @[newLogicalType(DuckType.Varchar)],
       bindProc = scanBind,
       initProc = scanInit,
-      mainProc = scanMain,
-      extraData = cast[ref RootObj](cast[pointer](result)),
-    )
+       mainProc = scanMain,
+       extraData = cast[ref RootObj](cast[pointer](result)),
+       projectionPushdown = true,
+     )
     con.register(tf)
     scanLock.acquire()
     result.registeredCons.incl(con.rawHandle)
@@ -213,11 +256,13 @@ database.dbCloseHook = proc(dbKey: pointer) {.raises: [].} =
 proc registerEntry(
     con: Connection, name: string,
     columns: seq[Column], card: Cardinality,
-    makeFiller: FillerFactory
+    makeFiller: FillerFactory,
+    makeProjectedFiller: ProjectedFillFactory = nil
 ) =
   let extra = ensureRegistered(con)
   let entry = RegistryEntry(
-    columns: columns, cardinality: card, makeFiller: makeFiller)
+    columns: columns, cardinality: card, makeFiller: makeFiller,
+    makeProjectedFiller: makeProjectedFiller)
   scanLock.acquire()
   try:
     extra.data[name] = entry
@@ -251,6 +296,15 @@ proc registerImpl*[S: TableSource](
   mixin columns, cardinality, newFiller
   registerEntry(con, name, source.columns, source.cardinality,
     proc(): FillFn {.closure, gcsafe.} = source.newFiller)
+
+proc registerImpl*(con: Connection, name: string,
+    source: sink QResult[Materialized]) =
+  ## Registers a materialized QResult with projection-aware vector replay.
+  let q = source
+  registerEntry(con, name, q.meta.columns, knownCardinality(q.rlen),
+    proc(): FillFn {.closure, gcsafe.} = q.newFiller,
+    proc(projectedIds: seq[int]): FillFn {.closure, gcsafe.} =
+      q.newProjectedFiller(projectedIds))
 
 proc registerImpl*(con: Connection, name: string, source: sink QResult[Streaming]) =
   ## Register a streaming result by eagerly materializing it first.

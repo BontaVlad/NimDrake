@@ -1,6 +1,9 @@
 # ASan and leak detection on/off (overridable with `just --set asan 0 --set leaks false test`).
 asan := "1"
 leaks := "1"
+bench_root := "benchmarks"
+bench_out := "nimcache/benchmarks"
+profile_out := "profiles"
 
 # Run all tests. Sequential by default, parallel with `just test 8`.
 # Pass --features=arrow to also run narrow/Arrow tests.
@@ -55,6 +58,107 @@ test cores="1" features="":
         printf '%s\n' "${FILES[@]}" | xargs -P "{{cores}}" -I {} bash -c 'run "$1"' _ {}
     fi
 
+# Run release Criterion benchmarks. Set `output` to a result directory.
+# Examples: `just benchmark`, `just benchmark benchmarks/bench_map.nim`,
+# `just benchmark benchmarks/bench_map.nim benchmarks/results/baseline`.
+benchmark target="" output="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    root="{{bench_root}}"
+    out="{{output}}"
+    [[ -n "$out" ]] || out="$root/results/$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$out" "{{bench_out}}"
+
+    target="{{target}}"
+    files=()
+    if [[ -z "$target" ]]; then
+        for file in "$root"/bench_*.nim; do [[ -f "$file" ]] && files+=("$file"); done
+    elif [[ -f "$target" ]]; then
+        files=("$target")
+    elif [[ -d "$target" ]]; then
+        for file in "$target"/bench_*.nim; do [[ -f "$file" ]] && files+=("$file"); done
+    else
+        printf 'benchmark target not found: %s\n' "$target" >&2
+        exit 2
+    fi
+    [[ ${#files[@]} -gt 0 ]] || { printf 'no benchmark files found\n' >&2; exit 2; }
+
+    for file in "${files[@]}"; do
+        [[ "$file" == "$root/bench_arrow.nim" ]] && continue
+        name="$(basename "$file" .nim)"
+        binary="{{bench_out}}/$name"
+        echo "==> $file"
+        nim c --verbosity:0 --hints:off -d:release --opt:speed --mm:orc \
+            -o:"$binary" "$file"
+        NIMDRAKE_BENCH_OUTPUT="$out/$name.json" "$binary"
+    done
+    echo "Benchmark results: $out"
+
+# Run the optional Narrow/Arrow benchmark with the Arrow feature enabled.
+benchmark-arrow target="benchmarks/bench_arrow.nim" output="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    file="{{target}}"
+    [[ -f "$file" ]] || { echo "benchmark file not found: $file" >&2; exit 2; }
+    out="{{output}}"
+    [[ -n "$out" ]] || out="{{bench_root}}/results/arrow-$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$out" "{{bench_out}}"
+    name="$(basename "$file" .nim)"
+    binary="{{bench_out}}/$name"
+    nim c --verbosity:0 --hints:off -d:release --opt:speed --mm:orc \
+        -d:features.nimdrake.arrow -o:"$binary" "$file"
+    NIMDRAKE_BENCH_OUTPUT="$out/$name.json" "$binary"
+
+# Compare matching Criterion JSON files or two JSON files.
+benchmark-compare baseline candidate threshold="0":
+    python3 "{{bench_root}}/compare.py" "{{baseline}}" "{{candidate}}" --threshold "{{threshold}}"
+
+# Record one deterministic heaptrack profile. `target` is a benchmark file.
+# Example: `just benchmark-heaptrack benchmarks/bench_map.nim borrowed_lookup 100`.
+benchmark-heaptrack target case iterations="100":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v heaptrack >/dev/null || { echo "heaptrack is required" >&2; exit 127; }
+    command -v heaptrack_print >/dev/null || { echo "heaptrack_print is required" >&2; exit 127; }
+    file="{{target}}"
+    [[ -f "$file" ]] || { echo "benchmark file not found: $file" >&2; exit 2; }
+    mkdir -p "{{bench_out}}" "{{profile_out}}"
+    name="$(basename "$file" .nim)"
+    binary="{{bench_out}}/$name"
+    nim c --verbosity:0 --hints:off -d:release --opt:speed --mm:orc -d:useMalloc \
+        --debuginfo:on --passC:-g --passC:-fno-omit-frame-pointer \
+        --passL:-g -o:"$binary" "$file"
+    base="{{profile_out}}/${name}-{{case}}-$(date +%Y%m%d_%H%M%S)"
+    heaptrack --record-only -o "$base" "$binary" --profile-case "{{case}}" --iterations "{{iterations}}"
+    trace=""
+    for candidate in "$base"*.zst "$base"*.gz; do [[ -f "$candidate" ]] && trace="$candidate"; done
+    [[ -n "$trace" ]] || { echo "heaptrack trace not found for $base" >&2; exit 1; }
+    heaptrack_print --print-allocators --print-peaks --print-temporary --print-leaks \
+        -f "$trace" | tee "$trace.txt"
+    python3 "{{bench_root}}/heaptrack_summary.py" "$trace.txt" --output "$trace.json"
+    echo "Heaptrack trace: $trace"
+
+# Count selected DuckDB FFI calls for one deterministic profile case.
+benchmark-ffi target case iterations="100":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    command -v cc >/dev/null || { echo "a C compiler is required" >&2; exit 127; }
+    file="{{target}}"
+    [[ -f "$file" ]] || { echo "benchmark file not found: $file" >&2; exit 2; }
+    mkdir -p "{{bench_out}}" "{{profile_out}}"
+    cc -shared -fPIC -O2 -Wall -Wextra -o "{{bench_out}}/ffi_counter.so" \
+        "{{bench_root}}/ffi_counter.c" -ldl
+    name="$(basename "$file" .nim)"
+    binary="{{bench_out}}/$name"
+    nim c --verbosity:0 --hints:off -d:release --opt:speed --mm:orc \
+        -o:"$binary" "$file"
+    output="{{profile_out}}/${name}-{{case}}-$(date +%Y%m%d_%H%M%S).json"
+    LD_PRELOAD="$(pwd)/{{bench_out}}/ffi_counter.so" \
+    NIMDRAKE_FFI_OUTPUT="$output" \
+        "$binary" --profile-case "{{case}}" --iterations "{{iterations}}"
+    python3 -m json.tool "$output"
+
 # Regenerate FFI bindings from duckdb.h via Futhark.
 generate:
     nim c -r -d:useFuthark -d:nodeclguards:true -d:exportall:true src/nimdrake.nim
@@ -94,6 +198,10 @@ checkdocs:
 # Remove all build artifacts.
 clean:
     rm -rf nimcache coverage coverage.info
+
+# Remove benchmark-only output without touching source or test artifacts.
+benchmark-clean:
+    rm -rf "{{bench_out}}" "{{profile_out}}" "{{bench_root}}/results"
 
 # List all available commands.
 default:

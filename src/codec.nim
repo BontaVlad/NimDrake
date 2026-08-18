@@ -13,15 +13,15 @@
 ##   variants carry an explicit UTC offset (a `ZonedTime`).
 ##
 ## Every conversion is component-wise and allocation-free where possible;
-## decimal is the exception — it round-trips through a string via the
-## `decimal_compat` alias.
+## high-level decimal conversion remains available, while raw decimal display
+## uses the appendable formatter below.
 ##
 ## .. note:: These procs are the low level the `qresult` views build on. You
 ##   normally touch them only when writing your own encoders/decoders for
 ##   exotic columns.
 ##
 
-import std/[times, math, strutils]
+import std/[times, math]
 import nint128
 export nint128
 import uuid4
@@ -220,6 +220,8 @@ proc fromDuckEnum*(data: pointer, i: int, kt: DuckType): uint {.inline.} =
   else:
     raise newException(ValueError, "enum kind not supported: " & $kt)
 
+proc formatDuckDecimal*(raw: Int128, scale: int8): string
+
 proc fromDuckDecimal*(scale, width: int8, data: pointer, i: int): DecimalType {.inline.} =
   ## Decodes the `i`-th `DECIMAL(scale, width)` value from a raw column
   ## buffer `data`. The storage width selects the in-buffer integer size:
@@ -234,16 +236,33 @@ proc fromDuckDecimal*(scale, width: int8, data: pointer, i: int): DecimalType {.
   else:
     let raw = cast[ptr UncheckedArray[duckdb_hugeint]](data)[i]
     val = fromHugeInt(raw)
-  var fracScale = i128(1)
+  newDecimal(formatDuckDecimal(val, scale))
+
+proc formatDuckDecimal*(raw: Int128, scale: int8): string =
+  ## Formats an unscaled DuckDB DECIMAL value without constructing DecimalType.
+  ## The sign is applied to the complete magnitude, which preserves values
+  ## between -1 and 0 that a whole/fraction split can otherwise misrender.
+  doAssert scale >= 0, "decimal scale must not be negative"
+  var factor = i128(1)
   for _ in 0 ..< scale:
-    fracScale = fracScale * i128(10)
-  let
-    whole = val div fracScale
-    fractional = val mod fracScale
-    absFrac = cast[UInt128](if fractional < zero(Int128): -fractional else: fractional)
-    fracStr = $absFrac
-    paddedFrac = repeat('0', scale - fracStr.len) & fracStr
-  newDecimal($whole & "." & paddedFrac)
+    factor = factor * i128(10)
+  let negative = raw < zero(Int128)
+  let magnitude = if negative: -raw else: raw
+  let whole = magnitude div factor
+  let fractional = magnitude mod factor
+  result = newStringOfCap(32)
+  if negative:
+    result.add '-'
+  result.add $whole
+  if scale > 0:
+    var fractionalText = $fractional
+    if fractionalText.len < scale:
+      result.add '.'
+      for _ in 0 ..< scale - fractionalText.len:
+        result.add '0'
+    else:
+      result.add '.'
+    result.add fractionalText
 
 # ---------------------------------------------------------------------------
 # Inverse encoders — write path for Vector[kt][] =

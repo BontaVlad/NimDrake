@@ -14,6 +14,9 @@ src/nimdrake
 benchmarks/benchmark_vector
 benchmarks/heaptrack.nim.1.gz
 benchmarks/nim-heaptrack/
+benchmarks/results/
+benchmarks/ffi_counter.so
+profiles/
 nimble/
 src/lib/
 # Stray compiled test binaries (no file extension)

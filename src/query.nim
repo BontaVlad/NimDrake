@@ -19,9 +19,9 @@
 ## `DecimalType`, `Uuid`).
 ##
 ## For bulk inserts, `newAppender` hands out an `Appender` that buffers rows
-## on an existing table. Rows are committed with `flush` / `close` — the
-## `=destroy` hook does **not** flush. `appendRows` wraps the whole lifecycle
-## for a `seq` of rows.
+## on an existing table. Call `flush` / `close` to commit rows explicitly.
+## DuckDB may finalize pending rows when it destroys the native handle.
+## `appendRows` wraps the whole lifecycle for a `seq` of rows.
 ##
 ## .. note:: A `Statement`, `PendingQueryResult`, and `Appender` each own a
 ##   DuckDB handle and must never outlive their `Connection`. Copying an
@@ -94,8 +94,8 @@ converter toBase*(s: string): Query =
   Query(s)
 
 proc `=destroy`*(appender: Appender) =
-  ## Frees the DuckDB appender handle. Does **not** flush buffered rows —
-  ## call `flush` or `close` first, or appended rows are lost.
+  ## Frees the DuckDB appender handle. Call `flush` or `close` explicitly;
+  ## finalization of pending rows is delegated to DuckDB.
   if cast[ptr duckdbAppender](appender) != nil:
     discard duckdbAppenderDestroy(appender.addr)
 
@@ -260,11 +260,20 @@ template bindVal*(statement: Statement, i: int, val: TimeInterval): DuckState =
 
 template bindVal*(statement: Statement, i: int, val: NimValue): DuckState =
   ## Binds a NimValue to the prepared statement at the specified index.
-  ## Complex kinds (List, Struct, Map, Union) are not yet supported.
   block:
-    let duckVal = val.toDuckValue
-    defer: duckdb_destroy_value(duckVal.addr)
-    duckdb_bind_value(statement, i.idx_t, duckVal)
+    let parameterType = duckdb_param_logical_type(statement.rawHandle, i.idx_t)
+    if parameterType == nil:
+      let duckVal = val.toDuckValue
+      defer: duckdb_destroy_value(duckVal.addr)
+      duckdb_bind_value(statement, i.idx_t, duckVal)
+    else:
+      let logicalType = newLogicalType(parameterType)
+      let duckVal = val.toDuckValue(logicalType)
+      if duckVal == nil:
+        raise newException(ValueError,
+          "schema-driven NimValue conversion returned an invalid value")
+      defer: duckdb_destroy_value(duckVal.addr)
+      duckdb_bind_value(statement, i.idx_t, duckVal)
 
 template bindVal*[T](statement: Statement, i: int, val: Option[T]): DuckState =
   ## Binds an `Option[T]`: `some(v)` binds `v` via the matching `bindVal`
@@ -406,12 +415,62 @@ template append*(appender: Appender, val: TimeInterval): untyped =
 
 template append*(appender: Appender, val: NimValue): untyped =
   ## Appends a NimValue to the appender.
-  ## Complex kinds (List, Struct, Map, Union) are not yet supported.
+  ## Complex values that need target-schema information should use the
+  ## schema-aware overload or `appendRows(seq[seq[NimValue]])`.
   block:
     let duckVal = val.toDuckValue
     let state = duckdb_append_value(appender, duckVal)
     duckdb_destroy_value(duckVal.addr)
     checkAppender(state, appender, "Failed to append NimValue")
+
+template append*(appender: Appender, val: NimValue, target: LogicalType): untyped =
+  ## Appends a NimValue using the target column's logical schema.
+  block:
+    let duckVal = val.toDuckValue(target)
+    if duckVal == nil:
+      raise newException(ValueError,
+        "schema-driven NimValue conversion returned an invalid value")
+    defer:
+      if duckVal != nil:
+        duckdb_destroy_value(duckVal.addr)
+    checkAppender(duckdb_append_value(appender, duckVal), appender,
+      "Failed to append schema-driven NimValue")
+
+template append*(appender: Appender, val: DuckStringRef, target: LogicalType): untyped =
+  ## Appends a borrowed string/blob cell using the target column's schema.
+  ## The referenced bytes remain valid only while the source chunk is alive.
+  block:
+    let state =
+      if not val.valid:
+        duckdb_append_null(appender)
+      else:
+        case toDuckType(target)
+        of DuckType.Varchar, DuckType.Bit:
+          duckdb_append_varchar_length(appender, cast[cstring](val.data), val.len.idx_t)
+        of DuckType.Blob:
+          duckdb_append_blob(appender, val.data, val.len.idx_t)
+        else:
+          raise newException(ValueError,
+            "borrowed string value requires VARCHAR, BIT, or BLOB target")
+    checkAppender(state, appender, "Failed to append borrowed string value")
+
+proc appendBorrowed*(
+    appender: Appender, source: ColumnView, row: int, target: LogicalType) =
+  ## Consumes one borrowed nested source view immediately.
+  ##
+  ## The source view is materialized into an owned `NimValue` before append.
+  ## This keeps the source chunk lifetime separate from the appender lifetime.
+  if source.kind notin DuckComplexKind:
+    raise newException(ValueError,
+      "appendBorrowed requires a LIST, ARRAY, STRUCT, MAP, or UNION source")
+  if row < 0 or row >= source.length:
+    raise newException(ValueError, "appendBorrowed row is out of bounds")
+  if source.kind != toDuckType(target):
+    raise newException(ValueError, "borrowed source and target types differ")
+  if target.handle == nil:
+    raise newException(ValueError, "borrowed target logical type is nil")
+  let owned = source.toNimValue(row)
+  appender.append(owned, target)
 
 template append*(appender: Appender, val: DataChunk): untyped =
   ## Appends a DataChunk to the appender (zero-copy bulk insert).
@@ -591,7 +650,7 @@ proc flush*(appender: Appender) {.discardable.} =
 proc close*(appender: Appender) {.discardable.} =
   ## Close the appender, flushing any pending rows first.
   ## After closing, the appender cannot accept more rows.
-  ## The `=destroy` hook does NOT flush — call `close` or `flush` explicitly.
+  ## Call `close` or `flush` explicitly when the commit point must be clear.
   let error = duckdb_appender_close(appender)
   if error:
     let errorMessage = $duckdb_appender_error(appender)
@@ -639,40 +698,97 @@ proc newChunkBuilder*(appender: Appender): ChunkBuilder =
   ## convenient front-end for `newDataChunk`.
   result = newChunkBuilder(newDataChunk(appender))
 
+proc appendRows*[T: Values](con: Connection, table: string, ent: openArray[T]) =
+  ## Appends tuple or object rows from an `openArray`.
+  ##
+  ## Each row is consumed immediately through the typed appender overloads;
+  ## the appender does not retain the caller's row storage. `Option` fields map
+  ## to values or NULL through `append(Option[T])`.
+  var appender = newAppender(con, table)
+  for row in ent:
+    for value in row.fields:
+      appender.append(value)
+    appender.endRow()
+  appender.flush()
+
+proc appendRows*[T: Values](
+    con: Connection, table: string, rows: iterator(): T) =
+  ## Appends tuple or object rows produced by an iterator.
+  ##
+  ## Rows are consumed one at a time and are not retained after the appender
+  ## accepts them. Use `Option` fields for nullable columns.
+  var appender = newAppender(con, table)
+  for row in rows:
+    for value in row.fields:
+      appender.append(value)
+    appender.endRow()
+  appender.flush()
+
+proc appendRows*[T: Values](
+    con: Connection, table: string,
+    produce: proc(emit: proc(row: T) {.closure.}) {.closure.}) =
+  ## Appends tuple or object rows generated by a callback.
+  ##
+  ## The callback receives an emitter and may produce rows lazily. The emitter
+  ## consumes each row immediately; neither the callback nor the appender
+  ## retains caller-owned row storage after emission.
+  var appender = newAppender(con, table)
+  let emit = proc(row: T) {.closure.} =
+    for value in row.fields:
+      appender.append(value)
+    appender.endRow()
+  produce(emit)
+  appender.flush()
+
 proc appendRows*[T](con: Connection, table: string, ent: seq[seq[T]]) =
   ## Appends homogeneous rows in vector-sized chunks.
   ##
   ## Numeric values are written directly into a DataChunk and cross the
   ## appender boundary once per chunk instead of once per cell. Variable-width
   ## values still require DuckDB to copy their bytes into owned storage.
-  var appender = newAppender(con, table)
-  if ent.len == 0:
-    appender.flush()
-    return
-  let ncols = ent[0].len
-  if ncols == 0:
-    appender.flush()
-    return
-  var columns = newSeq[Column](ncols)
-  for ci in 0 ..< ncols:
-    columns[ci] = newColumn("", newLogicalType(colDuckTypeOf(T)), ci)
-  var first = 0
-  while first < ent.len:
-    let n = min(VECTOR_SIZE, ent.len - first)
-    let chunk = newDataChunk(columns)
-    chunk.setSize(n)
-    var vectors = newSeq[Vector[colDuckTypeOf(T)]](ncols)
-    for ci in 0 ..< ncols:
-      vectors[ci] = chunk.bindAs(ci, colDuckTypeOf(T))
-    for ri in 0 ..< n:
-      let row = ent[first + ri]
-      if row.len != ncols:
+  con.execute("BEGIN TRANSACTION")
+  var committed = false
+  var appender = Appender(nil)
+  try:
+    appender = newAppender(con, table)
+    let targetColumns = duckdb_appender_column_count(appender).int
+    if ent.len == 0:
+      appender.flush()
+    else:
+      let ncols = ent[0].len
+      if ncols != targetColumns:
         raise newException(ValueError, "appendRows column count mismatch")
+      var columns = newSeq[Column](ncols)
       for ci in 0 ..< ncols:
-        vectors[ci][ri] = row[ci]
-    appender.append(chunk)
-    first += n
-  appender.flush()
+        columns[ci] = newColumn("", newLogicalType(colDuckTypeOf(T)), ci)
+      var first = 0
+      while first < ent.len:
+        let n = min(VECTOR_SIZE, ent.len - first)
+        let chunk = newDataChunk(columns)
+        chunk.setSize(n)
+        var vectors = newSeq[Vector[colDuckTypeOf(T)]](ncols)
+        for ci in 0 ..< ncols:
+          vectors[ci] = chunk.bindAs(ci, colDuckTypeOf(T))
+        for ri in 0 ..< n:
+          let row = ent[first + ri]
+          if row.len != ncols:
+            raise newException(ValueError, "appendRows column count mismatch")
+          for ci in 0 ..< ncols:
+            vectors[ci][ri] = row[ci]
+        appender.append(chunk)
+        first += n
+      appender.flush()
+    con.execute("COMMIT TRANSACTION")
+    committed = true
+  except Exception:
+    if not committed:
+      if cast[ptr duckdbAppender](appender) != nil:
+        discard duckdb_appender_clear(appender)
+      try:
+        con.execute("ROLLBACK TRANSACTION")
+      except Exception:
+        discard
+    raise
 
 proc appendRows*[T](con: Connection, table: string, ent: seq[seq[Option[T]]]) =
   ## Appends a sequence of sequences of ``Options[T]`` to a specified table in a DuckDB database.
@@ -682,6 +798,59 @@ proc appendRows*[T](con: Connection, table: string, ent: seq[seq[Option[T]]]) =
       appender.append(val)
     appender.endRow()
   appender.flush()
+
+proc appendNimValueRows(
+    con: Connection, table: string,
+    produce: proc(emit: proc(row: seq[NimValue]) {.closure.}) {.closure.}
+) =
+  ## Shared schema-driven implementation for dynamic row producers.
+  con.execute("BEGIN TRANSACTION")
+  var committed = false
+  var appender = Appender(nil)
+  try:
+    appender = newAppender(con, table)
+    var targetTypes: seq[LogicalType]
+    for column in appender.columns:
+      targetTypes.add(column.tpy)
+
+    let emit = proc(row: seq[NimValue]) {.closure.} =
+      if row.len != targetTypes.len:
+        raise newException(ValueError, "appendRows column count mismatch")
+      for i, value in row:
+        appender.append(value, targetTypes[i])
+      appender.endRow()
+    produce(emit)
+    appender.flush()
+    con.execute("COMMIT TRANSACTION")
+    committed = true
+  except Exception:
+    if not committed:
+      if cast[ptr duckdbAppender](appender) != nil:
+        discard duckdb_appender_clear(appender)
+      try:
+        con.execute("ROLLBACK TRANSACTION")
+      except Exception:
+        discard
+    raise
+
+proc appendRows*(con: Connection, table: string, ent: seq[seq[NimValue]]) =
+  ## Appends dynamic NimValue rows using the target table schema.
+  ##
+  ## The target logical types are cached once from the appender. This permits
+  ## empty, NULL-first, nested, map, union, and enum values that cannot infer
+  ## their type from the value alone. The operation is transaction-backed so a
+  ## conversion or appender failure does not leave a partial dynamic insert.
+  appendNimValueRows(con, table,
+    proc(emit: proc(row: seq[NimValue]) {.closure.}) {.closure.} =
+      for row in ent:
+        emit(row))
+
+proc appendRows*(
+    con: Connection, table: string,
+    produce: proc(emit: proc(row: seq[NimValue]) {.closure.}) {.closure.}
+) =
+  ## Produces dynamic NimValue rows lazily through the target-schema appender.
+  appendNimValueRows(con, table, produce)
 
 proc newAppender*[T](con: Connection, table: string, ent: seq[seq[T]]) {.
     deprecated: "use appendRows".} =

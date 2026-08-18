@@ -1,6 +1,7 @@
 import std/[tables, strutils]
 import unittest2
 import nint128
+import uuid4
 import ../src/[types, database, query, qresult, complex, exceptions]
 
 proc normalize(x: string): string =
@@ -473,7 +474,7 @@ suite "Complex — toNimValue type coverage":
     let r = conn.execute("SELECT TIMESTAMP '2020-06-15 12:30:00.123456'")
     for chunk in r:
       let nv = chunk.vector(0).toNimValue(0)
-      check nv.kind == nvString
+      check nv.kind == nvTimestamp
       check "2020-06-15" in $nv
 
   test "toNimValue Date":
@@ -481,7 +482,7 @@ suite "Complex — toNimValue type coverage":
     let r = conn.execute("SELECT DATE '2023-12-25'")
     for chunk in r:
       let nv = chunk.vector(0).toNimValue(0)
-      check nv.kind == nvString
+      check nv.kind == nvDate
       check "2023-12-25" in $nv
 
   test "toNimValue Time":
@@ -489,14 +490,14 @@ suite "Complex — toNimValue type coverage":
     let r = conn.execute("SELECT TIME '01:02:03'")
     for chunk in r:
       let nv = chunk.vector(0).toNimValue(0)
-      check nv.kind == nvString
+      check nv.kind == nvTime
 
   test "toNimValue Interval":
     let conn = newDatabase().connect()
     let r = conn.execute("SELECT INTERVAL '1 year 2 months'")
     for chunk in r:
       let nv = chunk.vector(0).toNimValue(0)
-      check nv.kind == nvString
+      check nv.kind == nvInterval
 
   test "toNimValue Blob":
     let conn = newDatabase().connect()
@@ -524,6 +525,38 @@ suite "Complex — toNimValue type coverage":
       check nv.kind == nvUInt
       check $nv.uintVal == "18446744073709551615"
       check nv.uintVal == 18446744073709551615'u64
+
+  test "toNimValue native scalar variants":
+    let conn = newDatabase().connect()
+    for chunk in conn.execute(
+        "SELECT 340282366920938463463374607431768211455::UHUGEINT"):
+      let nv = chunk.vector(0).toNimValue(0)
+      check nv.kind == nvUHuge
+      check nv.uhugeVal == UInt128(hi: high(uint64), lo: high(uint64))
+    for chunk in conn.execute(
+        "SELECT 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::UUID"):
+      let nv = chunk.vector(0).toNimValue(0)
+      check nv.kind == nvUUID
+      check nv.uuidVal == initUuid("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11")
+      check $nv == "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+    for chunk in conn.execute("SELECT 12.34::DECIMAL(8, 2)"):
+      let nv = chunk.vector(0).toNimValue(0)
+      check nv.kind == nvDecimal
+      check $nv == "12.34"
+    discard conn.execute("CREATE TYPE nv_mood AS ENUM ('sad', 'ok', 'happy')")
+    for chunk in conn.execute("SELECT 'happy'::nv_mood"):
+      let nv = chunk.vector(0).toNimValue(0)
+      check nv.kind == nvEnum
+      check nv.enumVal == 2
+      check $nv == "happy"
+
+  test "native decimal schema binding":
+    let conn = newDatabase().connect()
+    var stmt = conn.newStatement("SELECT ?::DECIMAL(8, 2)")
+    let nv = NimValue(kind: nvDecimal, decimalRaw: i128(1234),
+      decimalWidth: 8, decimalScale: 2)
+    check stmt.bindVal(1, nv) == DuckState.Duckdbsuccess
+    check $conn.executeMaterialized(stmt).scalar() == "12.34"
 
   test "NimValue equality for struct":
     let a = NimValue(kind: nvStruct, fields: @[("a", NimValue(kind: nvInt, intVal: 1))])
@@ -593,6 +626,23 @@ suite "Complex — toNimValue type coverage":
     for chunk in r:
       let back = chunk.vector(0).toNimValue(0)
       check back == nv
+
+  test "schema-driven binding accepts empty and NULL-first lists":
+    let conn = newDatabase().connect()
+    var empty = conn.newStatement("SELECT ?::BIGINT[]")
+    let emptyValue = NimValue(kind: nvList, listVal: @[])
+    check empty.bindVal(1, emptyValue) == DuckState.Duckdbsuccess
+    let emptyResult = conn.executeMaterialized(empty)
+    check emptyResult.scalar().listVal.len == 0
+
+    var nullFirst = conn.newStatement("SELECT ?::BIGINT[]")
+    let nullFirstValue = NimValue(kind: nvList, listVal: @[
+      NimValue(kind: nvNull), NimValue(kind: nvInt, intVal: 7)])
+    check nullFirst.bindVal(1, nullFirstValue) == DuckState.Duckdbsuccess
+    let nullFirstResult = conn.executeMaterialized(nullFirst)
+    let back = nullFirstResult.scalar()
+    check back.listVal[0].kind == nvNull
+    check back.listVal[1].intVal == 7
 
   test "toDuckValue round-trip for Struct":
     let conn = newDatabase().connect()

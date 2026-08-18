@@ -2,8 +2,12 @@ import std/[sequtils, times, options, tables]
 import unittest2
 import nint128
 import utils
-import ../src/[ffi, database, qresult, types, query, transaction, exceptions, config, codec]
+import ../src/[ffi, database, qresult, types, complex, query, transaction, exceptions, config, codec]
 import ../src/compatibility/decimal_compat
+
+iterator tupleRows(): (int64, string) {.closure.} =
+  yield (3'i64, "three")
+  yield (4'i64, "four")
 
 {.warning[Deprecated]: off.}
 
@@ -393,6 +397,19 @@ suite "Test bind val dispatch":
       for chunk in r:
         check chunk.bindAs(0, DuckType.Interval).toSeq == @[valInterval]
 
+  test "Bind NimValue ARRAY against prepared schema":
+    conn.transient:
+      conn.execute("CREATE TABLE prepared_table (array_val BIGINT[3]);")
+      let prepared = newStatement(conn, "INSERT INTO prepared_table VALUES (?);")
+      let value = NimValue(kind: nvList, listVal: @[
+        NimValue(kind: nvInt, intVal: 10),
+        NimValue(kind: nvInt, intVal: 20),
+        NimValue(kind: nvInt, intVal: 30)])
+      conn.executeMaterialized(prepared, (value, ))
+      let r = conn.execute("SELECT array_val FROM prepared_table;")
+      for chunk in r:
+        check chunk.vector(0).toNimValue(0).listVal.mapIt(it.intVal) == @[10'i64, 20, 30]
+
   test "Bind blob val":
     let conn = newDatabase().connect()
     conn.execute("CREATE TABLE blob_table (blob_val BLOB);")
@@ -421,6 +438,290 @@ suite "Test appender dispatch":
   setup:
     let db = newDatabase()
     let conn = db.connect()
+
+  test "appendRows accepts openArray tuple rows":
+    conn.execute("CREATE TABLE tuple_rows (id BIGINT, name VARCHAR);")
+    let rows: array[2, (int64, string)] = [
+      (1'i64, "one"), (2'i64, "two")]
+    conn.appendRows("tuple_rows", rows)
+    let r = conn.execute("SELECT * FROM tuple_rows ORDER BY id")
+    for chunk in r:
+      check chunk.bindAs(0, DuckType.BigInt).toSeq == @[1'i64, 2'i64]
+      check chunk.bindAs(1, DuckType.Varchar).toSeq == @["one", "two"]
+
+  test "appendRows openArray preserves Option NULLs":
+    conn.execute("CREATE TABLE nullable_rows (id BIGINT, name VARCHAR);")
+    let rows: array[2, (Option[int64], Option[string])] = [
+      (some(1'i64), some("one")), (none(int64), none(string))]
+    conn.appendRows("nullable_rows", rows)
+    let r = conn.execute("SELECT * FROM nullable_rows ORDER BY id NULLS LAST")
+    for chunk in r:
+      check chunk.bindAs(0, DuckType.BigInt)[0] == 1
+      check chunk.bindAs(0, DuckType.BigInt).valid(1) == false
+      check chunk.bindAs(1, DuckType.Varchar)[0] == "one"
+      check chunk.bindAs(1, DuckType.Varchar).valid(1) == false
+
+  test "appendRows consumes tuple iterator":
+    conn.execute("CREATE TABLE iterator_rows (id BIGINT, name VARCHAR);")
+    conn.appendRows("iterator_rows", tupleRows)
+    let r = conn.execute("SELECT * FROM iterator_rows ORDER BY id")
+    for chunk in r:
+      check chunk.bindAs(0, DuckType.BigInt).toSeq == @[3'i64, 4'i64]
+      check chunk.bindAs(1, DuckType.Varchar).toSeq == @["three", "four"]
+
+  test "appendRows consumes row callback":
+    conn.execute("CREATE TABLE callback_rows (id BIGINT, name VARCHAR);")
+    conn.appendRows("callback_rows", proc(
+        emit: proc(row: (int64, string)) {.closure.}) {.closure.} =
+      emit((5'i64, "five"))
+      emit((6'i64, "six")))
+    let r = conn.execute("SELECT * FROM callback_rows ORDER BY id")
+    for chunk in r:
+      check chunk.bindAs(0, DuckType.BigInt).toSeq == @[5'i64, 6'i64]
+      check chunk.bindAs(1, DuckType.Varchar).toSeq == @["five", "six"]
+
+  test "appender accepts borrowed string cells":
+    conn.execute("CREATE TABLE borrowed_source (value VARCHAR);")
+    conn.execute("CREATE TABLE borrowed_target (value VARCHAR);")
+    conn.execute("INSERT INTO borrowed_source VALUES (concat('a', chr(0), 'b')), ('second');")
+    let source = conn.execute("SELECT value FROM borrowed_source ORDER BY value")
+    var appender = newAppender(conn, "borrowed_target")
+    let target = newLogicalType(duckdb_appender_column_type(appender, 0))
+    for chunk in source:
+      let values = chunk.bindAs(0, DuckType.Varchar)
+      for i in 0 ..< values.len:
+        appender.append(values.borrow(i), target)
+        appender.endRow()
+    appender.flush()
+    let targetResult = conn.execute("SELECT value FROM borrowed_target ORDER BY value")
+    for chunk in targetResult:
+      check chunk.bindAs(0, DuckType.Varchar).toSeq == @["a\0b", "second"]
+
+  test "appender consumes borrowed nested views immediately":
+    conn.execute("""
+      CREATE TABLE borrowed_nested_source AS
+      SELECT [i, NULL]::BIGINT[] AS list_value,
+        [i, i + 1]::BIGINT[2] AS array_value,
+        {'a': i, 'b': 'value_' || i}::STRUCT(a BIGINT, b VARCHAR) AS struct_value,
+        MAP {'key_' || i: i} AS map_value,
+        union_value(num := i) AS union_value
+      FROM range(3) t(i);
+    """)
+    conn.execute("""
+      CREATE TABLE borrowed_nested_target AS
+      SELECT * FROM borrowed_nested_source WHERE false;
+    """)
+    var appender = newAppender(conn, "borrowed_nested_target")
+    var targetTypes: seq[LogicalType]
+    for column in 0 ..< duckdb_appender_column_count(appender).int:
+      targetTypes.add(newLogicalType(duckdb_appender_column_type(
+        appender, column.idx_t)))
+    block:
+      let source = conn.execute("SELECT * FROM borrowed_nested_source ORDER BY list_value")
+      for chunk in source:
+        for row in 0 ..< chunk.len:
+          for column in 0 ..< targetTypes.len:
+            appender.appendBorrowed(chunk.vector(column), row, targetTypes[column])
+          appender.endRow()
+    appender.flush()
+    check conn.execute("SELECT count(*)::BIGINT FROM borrowed_nested_target").scalar().intVal == 3
+    let nestedResult = conn.execute("SELECT * FROM borrowed_nested_target ORDER BY list_value")
+    for chunk in nestedResult:
+      check chunk.vector(0).toNimValue(0).listVal[1].kind == nvNull
+      check chunk.vector(1).toNimValue(0).listVal.len == 2
+      check chunk.vector(2).toNimValue(0).fields.len == 2
+      check chunk.vector(3).toNimValue(0).mapVal.len == 1
+      check chunk.vector(4).toNimValue(0).memberName == "num"
+
+  test "appender rejects borrowed view type and row mismatches":
+    conn.execute("CREATE TABLE borrowed_mismatch (value BIGINT[]);")
+    var appender = newAppender(conn, "borrowed_mismatch")
+    let target = newLogicalType(duckdb_appender_column_type(appender, 0))
+    let source = conn.execute("SELECT 'not a list'::VARCHAR")
+    for chunk in source:
+      expect ValueError:
+        appender.appendBorrowed(chunk.vector(0), 0, target)
+      expect ValueError:
+        appender.appendBorrowed(chunk.vector(0), 1, target)
+
+  test "appendRows NimValue uses target schema for empty and NULL-first lists":
+    conn.execute("CREATE TABLE nimvalue_lists (a BIGINT[], b BIGINT[]);")
+    let rows: seq[seq[NimValue]] = @[
+      @[
+        NimValue(kind: nvList, listVal: @[]),
+        NimValue(kind: nvList, listVal: @[NimValue(kind: nvNull),
+          NimValue(kind: nvInt, intVal: 7)]),
+      ],
+    ]
+    conn.appendRows("nimvalue_lists", rows)
+    let r = conn.execute("SELECT * FROM nimvalue_lists")
+    for chunk in r:
+      let emptyValue = chunk.vector(0).toNimValue(0)
+      let nullFirstValue = chunk.vector(1).toNimValue(0)
+      check emptyValue.kind == nvList
+      check emptyValue.listVal.len == 0
+      check nullFirstValue.listVal[0].kind == nvNull
+      check nullFirstValue.listVal[1].intVal == 7
+
+  test "appendRows NimValue consumes a streaming producer":
+    conn.execute("CREATE TABLE nimvalue_stream (x BIGINT[]);")
+    let produce: proc(emit: proc(row: seq[NimValue]) {.closure.}) {.closure.} =
+      proc(emit: proc(row: seq[NimValue]) {.closure.}) {.closure.} =
+        emit(@[NimValue(kind: nvList, listVal: @[NimValue(kind: nvInt, intVal: 1)])])
+        emit(@[NimValue(kind: nvList, listVal: @[NimValue(kind: nvInt, intVal: 2)])])
+    conn.appendRows("nimvalue_stream", produce)
+    check conn.execute("SELECT count(*)::BIGINT FROM nimvalue_stream").scalar().intVal == 2
+
+  test "appendRows NimValue supports schema-driven struct and map":
+    conn.execute("""
+      CREATE TABLE nimvalue_nested (
+        point STRUCT(a BIGINT, b VARCHAR),
+        attrs MAP(VARCHAR, BIGINT)
+      );
+    """)
+    let point = NimValue(kind: nvStruct, fields: @[
+      ("a", NimValue(kind: nvInt, intVal: 42)),
+      ("b", NimValue(kind: nvString, strVal: "answer")),
+    ])
+    let attrs = NimValue(kind: nvMap, mapVal: @[
+      (NimValue(kind: nvString, strVal: "x"),
+       NimValue(kind: nvInt, intVal: 1)),
+      (NimValue(kind: nvString, strVal: "y"),
+       NimValue(kind: nvInt, intVal: 2)),
+    ])
+    conn.appendRows("nimvalue_nested", @[@[point, attrs]])
+    let r = conn.execute("SELECT * FROM nimvalue_nested")
+    for chunk in r:
+      check chunk.vector(0).toNimValue(0) == point
+      check chunk.vector(1).toNimValue(0) == attrs
+
+  test "appendRows NimValue checks row width before append":
+    conn.execute("CREATE TABLE nimvalue_width (x BIGINT, y BIGINT);")
+    expect ValueError:
+      conn.appendRows("nimvalue_width", @[
+        @[NimValue(kind: nvInt, intVal: 1)],
+      ])
+
+  test "appendRows NimValue rolls back conversion failures":
+    conn.execute("CREATE TABLE nimvalue_atomic (point STRUCT(a BIGINT));")
+    let valid = NimValue(kind: nvStruct, fields: @[
+      ("a", NimValue(kind: nvInt, intVal: 1)),
+    ])
+    let invalid = NimValue(kind: nvStruct, fields: @[
+      ("wrong", NimValue(kind: nvInt, intVal: 2)),
+    ])
+    expect ValueError:
+      conn.appendRows("nimvalue_atomic", @[@[valid], @[invalid]])
+    check conn.execute("SELECT count(*)::BIGINT FROM nimvalue_atomic").scalar().intVal == 0
+
+  test "appendRows NimValue rejects wrong scalar kinds atomically":
+    conn.execute("CREATE TABLE nimvalue_scalar_kind (value BIGINT);")
+    expect ValueError:
+      conn.appendRows("nimvalue_scalar_kind", @[
+        @[NimValue(kind: nvString, strVal: "not an integer")],
+      ])
+    check conn.execute("SELECT count(*)::BIGINT FROM nimvalue_scalar_kind").scalar().intVal == 0
+
+  test "schema-driven binding rejects wrong kinds and permits reuse":
+    conn.execute("CREATE TABLE nimvalue_bind_recovery (value BIGINT);")
+    var stmt = conn.newStatement("INSERT INTO nimvalue_bind_recovery VALUES (?)")
+    expect ValueError:
+      discard stmt.bindVal(1, NimValue(kind: nvString, strVal: "wrong"))
+    check stmt.bindVal(1, NimValue(kind: nvInt, intVal: 7)) == enumDuckDbState.Duckdbsuccess
+    discard conn.executeMaterialized(stmt)
+    check conn.execute("SELECT value FROM nimvalue_bind_recovery").scalar().intVal == 7
+
+  test "schema-driven binding rejects invalid enum values":
+    conn.execute("CREATE TYPE nimvalue_bound_mood AS ENUM ('sad', 'happy');")
+    conn.execute("CREATE TABLE nimvalue_bound_enum (value nimvalue_bound_mood);")
+    var appender = newAppender(conn, "nimvalue_bound_enum")
+    let target = newLogicalType(duckdb_appender_column_type(appender, 0))
+    expect ValueError:
+      appender.append(NimValue(kind: nvEnum, enumVal: 2), target)
+
+  test "prepared binding rejects wrong parameter counts":
+    conn.execute("CREATE TABLE parameter_count (value BIGINT);")
+    var stmt = conn.newStatement("INSERT INTO parameter_count VALUES (?)")
+    expect OperationError:
+      discard conn.executeMaterialized(stmt)
+    var tooMany = conn.newStatement("INSERT INTO parameter_count VALUES (?)")
+    expect OperationError:
+      discard conn.executeMaterialized(tooMany, (1'i64, 2'i64))
+
+  test "appendRows NimValue rolls back a producer failure":
+    conn.execute("CREATE TABLE nimvalue_producer_failure (value BIGINT);")
+    let produce: proc(emit: proc(row: seq[NimValue]) {.closure.}) {.closure.} =
+      proc(emit: proc(row: seq[NimValue]) {.closure.}) {.closure.} =
+        emit(@[NimValue(kind: nvInt, intVal: 1)])
+        raise newException(ValueError, "producer failed")
+    expect ValueError:
+      conn.appendRows("nimvalue_producer_failure", produce)
+    check conn.execute("SELECT count(*)::BIGINT FROM nimvalue_producer_failure").scalar().intVal == 0
+    conn.appendRows("nimvalue_producer_failure", @[
+      @[NimValue(kind: nvInt, intVal: 2)],
+    ])
+    check conn.execute("SELECT value FROM nimvalue_producer_failure").scalar().intVal == 2
+
+  test "homogeneous appendRows validates target row width":
+    conn.execute("CREATE TABLE homogeneous_width (a INTEGER, b INTEGER);")
+    expect ValueError:
+      conn.appendRows("homogeneous_width", @[@[1'i32]])
+    expect ValueError:
+      conn.appendRows("homogeneous_width", @[@[1'i32, 2, 3]])
+    check conn.execute("SELECT count(*)::BIGINT FROM homogeneous_width").scalar().intVal == 0
+
+  test "schema-driven appender recovers after conversion failure":
+    conn.execute("CREATE TABLE appender_recovery (value STRUCT(a BIGINT));")
+    var appender = newAppender(conn, "appender_recovery")
+    let target = newLogicalType(duckdb_appender_column_type(appender, 0))
+    expect ValueError:
+      appender.append(NimValue(kind: nvStruct, fields: @[
+        ("wrong", NimValue(kind: nvInt, intVal: 1))]), target)
+    appender.append(NimValue(kind: nvStruct, fields: @[
+      ("a", NimValue(kind: nvInt, intVal: 2))]), target)
+    appender.endRow()
+    appender.flush()
+    check conn.execute("SELECT count(*)::BIGINT FROM appender_recovery").scalar().intVal == 1
+
+  test "appender destruction delegates pending rows to DuckDB":
+    conn.execute("CREATE TABLE appender_no_flush (value BIGINT);")
+    block:
+      var appender = newAppender(conn, "appender_no_flush")
+      appender.append(1'i64)
+      appender.endRow()
+    check conn.execute("SELECT count(*)::BIGINT FROM appender_no_flush").scalar().intVal == 1
+
+  test "appender move preserves one native handle":
+    conn.execute("CREATE TABLE appender_move (value BIGINT);")
+    var original = newAppender(conn, "appender_move")
+    var moved = move(original)
+    moved.append(9'i64)
+    moved.endRow()
+    moved.flush()
+    check conn.execute("SELECT value FROM appender_move").scalar().intVal == 9
+
+  test "appendRows NimValue supports schema-driven enum and union":
+    conn.execute("CREATE TYPE nimvalue_mood AS ENUM ('sad', 'ok', 'happy');")
+    conn.execute("""
+      CREATE TABLE nimvalue_tagged (
+        mood nimvalue_mood,
+        choice UNION(num BIGINT, label VARCHAR)
+      );
+    """)
+    var member = new(NimValue)
+    member[] = NimValue(kind: nvInt, intVal: 99)
+    let mood = NimValue(kind: nvEnum, enumVal: 2)
+    let choice = NimValue(kind: nvUnion, memberName: "num", memberVal: member)
+    conn.appendRows("nimvalue_tagged", @[@[mood, choice]])
+    let r = conn.execute("SELECT * FROM nimvalue_tagged")
+    for chunk in r:
+      let enumBack = chunk.vector(0).toNimValue(0)
+      let unionBack = chunk.vector(1).toNimValue(0)
+      check enumBack.kind == nvEnum
+      check enumBack.enumVal == 2
+      check unionBack.kind == nvUnion
+      check unionBack.memberName == "num"
+      check unionBack.memberVal[].intVal == 99
 
   test "Append bool val":
     conn.transient:

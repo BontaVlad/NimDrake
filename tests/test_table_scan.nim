@@ -259,6 +259,17 @@ test "custom table supports SQL filter and projection":
     labels.add chunk.bindAs(0, DuckType.Varchar).toSeq
   check labels == @["mid", "high"]
 
+test "materialized QResult registration supports reordered projection":
+  let conn = newDatabase().connect()
+  let source = conn.execute("SELECT i::BIGINT AS a, (i * 10)::BIGINT AS b, " &
+    "(i * 100)::BIGINT AS c FROM range(5) t(i)")
+  conn.register(source, name = "projected_result")
+  let r = conn.execute("SELECT c, a FROM projected_result ORDER BY c")
+  var values: seq[int64] = @[]
+  for chunk in r:
+    values.add chunk.bindAs(0, DuckType.BigInt).toSeq
+  check values == @[0'i64, 100, 200, 300, 400]
+
 test "custom tables on two independent databases do not cross-contaminate":
   let tA = newCustomTable(("x", DuckType.BigInt))
   tA.addRow(cell("100"))

@@ -96,6 +96,22 @@ const
     DuckType.Map, DuckType.Union}
 
 type
+  DuckCapability* {.pure.} = enum
+    ## Operations that a logical type can support in NimDrake's public paths.
+    dcRead
+    dcWrite
+    dcBind
+    dcAppend
+    dcBorrow
+
+  TypeDescriptor* = object
+    ## Compile-time base type metadata. Parameterized details remain in
+    ## `LogicalType` and `Column` because they are runtime schema values.
+    kind*: DuckType
+    parameterized*: bool
+    nullable*: bool
+    capabilities*: set[DuckCapability]
+
   LogicalTypeObj = object
     handle*: duckdbLogicalType
     childNames*: ref seq[string] ## Lazily-populated cache of struct/union
@@ -256,6 +272,27 @@ proc toDuckType*[T](t: typedesc[T]): DuckType =
     DuckType.List
   else:
     DuckType.Invalid
+
+proc describeDuckType*(kind: DuckType): TypeDescriptor =
+  ## Describes the static capabilities of a DuckDB logical type category.
+  result.kind = kind
+  result.nullable = kind != DuckType.Invalid
+  result.parameterized = kind in {
+    DuckType.Decimal, DuckType.Enum, DuckType.List, DuckType.Array,
+    DuckType.Struct, DuckType.Map, DuckType.Union}
+  if kind == DuckType.Invalid:
+    return
+  if kind notin DuckComplexKind:
+    result.capabilities.incl dcRead
+    result.capabilities.incl dcWrite
+  result.capabilities.incl dcBind
+  result.capabilities.incl dcAppend
+  if kind in DuckStringKind or kind in DuckBlobKind:
+    result.capabilities.incl dcBorrow
+
+proc describeType*[T](_: typedesc[T]): TypeDescriptor =
+  ## Describes the canonical base mapping for a Nim type.
+  describeDuckType(toDuckType(T))
 
 proc newLogicalType*(i: duckdb_logical_type): LogicalType =
   ## Wraps a raw DuckDB logical-type handle. Struct/union child and member

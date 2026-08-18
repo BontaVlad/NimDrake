@@ -817,6 +817,24 @@ suite "QResult — bound container views: Map":
       check row.getOrDefault("z", -1'i32) == -1
       check row.getOrDefault("z") == 0  # default fill
 
+  test "borrowed string MAP access preserves NULL and empty values":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT MAP(['a', 'b'], ['', NULL])")
+    for chunk in r:
+      let mv = chunk.bindAs(0, OrderedTable[string, string])
+      let row = mv.borrowMap(0)
+      var keys: seq[DuckStringRef] = @[]
+      var values: seq[DuckStringRef] = @[]
+      for key in row.borrowKeys: keys.add key
+      for value in row.borrowValues: values.add value
+      check keys.len == 2
+      check keys[0].valid and keys[0].len == 1
+      check values[0].valid and values[0].len == 0
+      check not values[1].valid
+      let (value, found) = row.borrowLookup(keys[0])
+      check found
+      check value.valid and value.len == 0
+
   test "MapRowView [] raises KeyError on missing":
     let duck = newDatabase().connect()
     let r = duck.execute("SELECT MAP(['a'], [1])")

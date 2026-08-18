@@ -2,7 +2,9 @@ import std/[times]
 import unittest2
 import nint128
 import uuid4
-import ../src/[types, qresult, codec]
+import ../src/[ffi, types, qresult, codec]
+
+type UnsupportedType = object
 
 static:
   doAssert colDuckTypeOf(bool) == DuckType.Boolean
@@ -28,6 +30,23 @@ static:
   doAssert colDuckTypeOf(Int128) == DuckType.HugeInt
   doAssert colDuckTypeOf(UInt128) == DuckType.UHugeInt
   doAssert colDuckTypeOf(Uuid) == DuckType.UUID
+  doAssert describeType(string).kind == DuckType.Varchar
+  doAssert describeType(string).capabilities == {
+    dcRead, dcWrite, dcBind, dcAppend, dcBorrow}
+  doAssert describeType(seq[byte]).kind == DuckType.Blob
+  doAssert describeDuckType(DuckType.List).parameterized
+  doAssert describeDuckType(DuckType.Struct).parameterized
+  doAssert describeDuckType(DuckType.BigInt).capabilities == {
+    dcRead, dcWrite, dcBind, dcAppend}
+  doAssert rawVectorTypeOf(DuckType.Boolean) is uint8
+  doAssert rawVectorTypeOf(DuckType.BigInt) is int64
+  doAssert rawVectorTypeOf(DuckType.Varchar) is duckdb_string_t
+  doAssert rawVectorTypeOf(DuckType.Timestamp) is int64
+  doAssert rawVectorTypeOf(DuckType.Decimal) is void
 
 suite "type mapping":
   test "static asserts hold": check true
+
+  test "descriptors classify unsupported types":
+    check describeType(UnsupportedType).kind == DuckType.Invalid
+    check describeDuckType(DuckType.Invalid).capabilities == {}

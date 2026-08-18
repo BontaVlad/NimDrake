@@ -4,7 +4,7 @@
 ##
 ##   RecordBatch
 ##     --(1) narrow `slice` (offset/length window, buffers shared)-->
-##     --(2) exportRecordBatch -> ArrowArray/ArrowSchema C structs-->
+##     --(2) exportRecordBatchArray -> ArrowArray C struct-->
 ##     --(3) duckdb_data_chunk_from_arrow (ownership of the Arrow buffers is
 ##           transferred to the DuckDB DataChunk — no copy is made) -->
 ##     --(4) duckdb_vector_reference_vector per column at scan time
@@ -28,9 +28,9 @@
 ##     `duckdb_schema_from_arrow` to build the converted schema and is not the
 ##     buffer owner, so it is safe (and correct) to release it once
 ##     `convertSchema` returns.
-##   * The small struct wrappers heap-allocated by GLib for the export are
-##     leaked for simplicity (~50 bytes each); this is benign and the ArrowArray
-##     one is intentionally left for DuckDB to clean up via its own release.
+##   * The ArrowArray struct wrapper is freed after DuckDB copies the C Data
+##     Interface struct. The underlying Arrow buffers remain owned by DuckDB's
+##     converted chunk and are released through DuckDB's retained callback.
 
 when not defined(features.nimdrake.arrow):
   {.error: "narrow_table_scan.nim requires -d:features.nimdrake.arrow".}
@@ -105,21 +105,37 @@ proc releaseSchema(cAbiSchema: pointer) =
   if not s.release.isNil:
     s.release(s.addr)
 
+proc exportArrayForScan(batch: RecordBatch): pointer =
+  ## Prefer Narrow's array-only export. Older Narrow 0.0.1 releases only
+  ## provide the paired export, so release that unused schema immediately.
+  when compiles(exportRecordBatchArray(batch)):
+    exportRecordBatchArray(batch)
+  else:
+    let exported = exportRecordBatch(batch)
+    releaseSchema(exported[1])
+    exported[0]
+
 proc convertWindow(
     conn: duckdb_connection, batch: RecordBatch,
     convSchema: duckdb_arrow_converted_schema
 ): duckdb_data_chunk =
-  ## Exports one (window of a) RecordBatch and converts it.  Per DuckDB's
-  ## contract the resulting DataChunk takes ownership of the Arrow buffers, so
-  ## the exported ArrowArray must NOT be released here — DuckDB owns it now.
-  let (cAbiArray, cAbiSchema) = exportRecordBatch(batch)
-
-  # The exported ArrowSchema is consumed by convertSchema (already done by the
-  # caller) and is not the buffer owner, so it is safe to release.  The array
-  # is intentionally left for DuckDB to clean up.
-  releaseSchema(cAbiSchema)
-
-  result = convertChunk(conn, cAbiArray, convSchema)
+  ## Exports one (window of a) RecordBatch and converts it. The converted schema
+  ## is supplied by the caller and reused across all windows.
+  let cAbiArray = exportArrayForScan(batch)
+  try:
+    result = convertChunk(conn, cAbiArray, convSchema)
+  except:
+    # DuckDB nulls the input release callback once it copies ownership into the
+    # output chunk. If conversion fails before that transfer, release the
+    # original Arrow buffers before freeing the outer GLib wrapper.
+    let array = cast[ptr ArrowArray](cAbiArray)
+    if array != nil and array.release != nil:
+      array.release(array)
+    raise
+  finally:
+    # DuckDB copies the ArrowArray struct during conversion; only the wrapper
+    # remains ours after the call. The buffers are owned by DuckDB thereafter.
+    g_free(cAbiArray)
 
 proc convertBatchInto(
     q: var QResult[Materialized], conn: duckdb_connection,
@@ -197,4 +213,3 @@ proc newMaterialized*(table: ArrowTable, conn: Connection): QResult[Materialized
   if result.meta == nil:
     result.meta = newChunkMeta(newSeq[Column]())
   result.rlen = totalRows
-

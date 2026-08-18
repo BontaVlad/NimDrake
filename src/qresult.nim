@@ -84,6 +84,9 @@ type
     ## rows into a DuckDB chunk and returns how many were written; 0 ends the
     ## scan.
 
+  ProjectedFillFactory* = proc(projectedIds: seq[int]): FillFn {.
+      closure, gcsafe.} ## Builds a filler for the requested source columns.
+
 proc knownCardinality*(count: int, isExact = true): Cardinality {.inline.} =
   ## A `Cardinality` stating the scan yields exactly (or approximately, with
   ## `isExact = false`) `count` rows.
@@ -572,35 +575,51 @@ template nimOf*(kt: static DuckType): typedesc =
   elif kt in DuckComplexKind:
     void
 
+template valueTypeOf*(kt: static DuckType): typedesc =
+  ## Public name for the decoded scalar type used by `Vector[kt]`.
+  nimOf(kt)
+
+template rawVectorTypeOf*(kt: static DuckType): typedesc =
+  ## Raw DuckDB storage type used by the vector read/write paths.
+  when kt == DuckType.Boolean:
+    uint8
+  elif kt in DuckPrimitiveKind:
+    nimOf(kt)
+  elif kt in DuckStringKind or kt in DuckBlobKind:
+    duckdb_string_t
+  elif kt in {DuckType.Timestamp, DuckType.TimestampS, DuckType.TimestampMs,
+              DuckType.TimestampNs, DuckType.Time, DuckType.TimeTz,
+              DuckType.TimestampTz}:
+    int64
+  elif kt == DuckType.Date:
+    int32
+  elif kt == DuckType.HugeInt or kt == DuckType.UUID:
+    duckdb_hugeint
+  elif kt == DuckType.UHugeInt:
+    duckdb_uhugeint
+  elif kt == DuckType.Interval:
+    duckdb_interval
+  elif kt == DuckType.TimeNs:
+    int64
+  else:
+    void
+
 template colDuckTypeOf*(T: typedesc): static DuckType =
   ## The inverse of `nimOf`: the `DuckType` a Nim element type logically maps
   ## to (`colDuckTypeOf(int) is DuckType.BigInt`). Raises a compile-time error
   ## for types with no unambiguous mapping (decimal, `ZonedTime`).
-  when T is bool: DuckType.Boolean
-  elif T is int8: DuckType.TinyInt
-  elif T is int16: DuckType.SmallInt
-  elif T is int32: DuckType.Integer
-  elif T is int64 or T is int: DuckType.BigInt
-  elif T is uint8 or T is byte: DuckType.UTinyInt
-  elif T is uint16: DuckType.USmallInt
-  elif T is uint32: DuckType.UInteger
-  elif T is uint64 or T is uint: DuckType.UBigInt
-  elif T is float32: DuckType.Float
-  elif T is float64: DuckType.Double
-  elif T is string: DuckType.Varchar
-  elif T is seq[byte]: DuckType.Blob
-  elif T is Timestamp or T is DateTime: DuckType.Timestamp
-  elif T is Time: DuckType.Time
-  elif T is TimeInterval: DuckType.Interval
-  elif T is Int128: DuckType.HugeInt
-  elif T is UInt128: DuckType.UHugeInt
-  elif T is Uuid: DuckType.UUID
-  elif T is DecimalType:
+  when T is DecimalType:
     {.error: "Decimal columns need explicit width/scale; use newLogicalType(duckdb_create_decimal_type(w, s)) + ChunkBuilder".}
   elif T is ZonedTime:
     {.error: "ZonedTime is ambiguous (TimeTz vs TimestampTz); use an explicit LogicalType".}
   else:
-    {.error: "colDuckTypeOf: unsupported element type".}
+    const mapped = toDuckType(T)
+    when mapped == DuckType.Invalid:
+      {.error: "colDuckTypeOf: unsupported element type".}
+    elif mapped in DuckComplexKind:
+      {.error: "colDuckTypeOf: complex columns need an explicit nested view".}
+    else:
+      mapped
 
 # ---------------------------------------------------------------------------
 # duckdb_string_t decoding — shared helpers
@@ -642,6 +661,7 @@ type
     ## lifetime of the chunk.
     data: pointer
     length: int
+    valid*: bool
 
 proc len*(r: DuckStringRef): int {.inline.} =
   ## Bytes in the referenced buffer.
@@ -649,6 +669,10 @@ proc len*(r: DuckStringRef): int {.inline.} =
 proc data*(r: DuckStringRef): pointer {.inline.} =
   ## Pointer to the referenced buffer.
   r.data
+
+proc isNull*(r: DuckStringRef): bool {.inline.} =
+  ## Whether the referenced cell is NULL. Empty non-NULL values remain valid.
+  not r.valid
 
 proc toString*(r: DuckStringRef): string =
   ## Copies the referenced buffer into a Nim `string` (does allocate).
@@ -668,7 +692,15 @@ proc borrow*(s: ptr duckdb_string_t): DuckStringRef {.inline.} =
   ## Zero-copy `DuckStringRef` over a raw DuckDB string slot; valid for the
   ## lifetime of the underlying chunk.
   let (src, ln) = rawStringView(s)
-  result = DuckStringRef(data: src, length: ln)
+  result = DuckStringRef(data: src, length: ln, valid: true)
+
+proc `==`*(a, b: DuckStringRef): bool {.inline.} =
+  ## Length-aware byte equality without creating either payload as a string.
+  if a.valid != b.valid or a.length != b.length:
+    return false
+  if not a.valid or a.length == 0:
+    return true
+  equalMem(a.data, b.data, a.length)
 
 # ---------------------------------------------------------------------------
 # Vector[kt] indexing — compile-time dispatch
@@ -1042,7 +1074,7 @@ iterator borrowItems*[kt: static DuckType](v: Vector[kt]): DuckStringRef =
       if v.valid(i):
         yield borrow(addr cast[ptr UncheckedArray[duckdb_string_t]](v.data)[i])
       else:
-        yield DuckStringRef(data: nil, length: 0)
+        yield DuckStringRef(data: nil, length: 0, valid: false)
   else:
     {.error: "borrowItems() only defined for string/blob kinds; got " & $kt.}
 
@@ -1422,6 +1454,53 @@ iterator pairs*[ktKey, ktVal: static DuckType](
               rv.vals[idx] else: default(nimOf(ktVal))
     yield (k, v)
 
+iterator borrowPairs*[ktKey, ktVal: static DuckType](
+    rv: MapRowView[ktKey, ktVal]): (DuckStringRef, DuckStringRef) =
+  ## Yields borrowed string/blob pairs without materializing payloads.
+  when (ktKey in DuckStringKind or ktKey in DuckBlobKind) and
+       (ktVal in DuckStringKind or ktVal in DuckBlobKind):
+    let off = rv.offset
+    for j in 0 ..< rv.length:
+      let idx = off + j
+      yield (rv.keys.borrow(idx), rv.vals.borrow(idx))
+  else:
+    {.error: "borrowPairs() requires string/blob key and value kinds".}
+
+iterator borrowKeys*[ktKey, ktVal: static DuckType](
+    rv: MapRowView[ktKey, ktVal]): DuckStringRef =
+  ## Yields borrowed string/blob keys without materializing payloads.
+  when ktKey in DuckStringKind or ktKey in DuckBlobKind:
+    let off = rv.offset
+    for j in 0 ..< rv.length:
+      yield rv.keys.borrow(off + j)
+  else:
+    {.error: "borrowKeys() requires a string/blob key kind".}
+
+iterator borrowValues*[ktKey, ktVal: static DuckType](
+    rv: MapRowView[ktKey, ktVal]): DuckStringRef =
+  ## Yields borrowed string/blob values without materializing payloads.
+  when ktVal in DuckStringKind or ktVal in DuckBlobKind:
+    let off = rv.offset
+    for j in 0 ..< rv.length:
+      yield rv.vals.borrow(off + j)
+  else:
+    {.error: "borrowValues() requires a string/blob value kind".}
+
+proc borrowLookup*[ktKey, ktVal: static DuckType](
+    rv: MapRowView[ktKey, ktVal], key: DuckStringRef):
+    tuple[value: DuckStringRef, found: bool] {.inline.} =
+  ## Looks up a string/blob key without allocating a candidate key string.
+  when (ktKey in DuckStringKind or ktKey in DuckBlobKind) and
+       (ktVal in DuckStringKind or ktVal in DuckBlobKind):
+    if not key.valid:
+      return (DuckStringRef(data: nil, length: 0, valid: false), false)
+    for candidateKey, candidateValue in rv.borrowPairs:
+      if candidateKey.valid and candidateKey == key:
+        return (candidateValue, true)
+    return (DuckStringRef(data: nil, length: 0, valid: false), false)
+  else:
+    {.error: "borrowLookup() requires string/blob key and value kinds".}
+
 iterator keys*[ktKey, ktVal: static DuckType](
     rv: MapRowView[ktKey, ktVal]): nimOf(ktKey) =
   ## Yields the keys of a MAP row; NULL keys yield `default(nimOf(ktKey))`.
@@ -1795,3 +1874,31 @@ proc newFiller*(q: QResult[Materialized]): FillFn =
         duckdb_data_chunk_get_vector(chunk, ci.idx_t),
         vectors[ci])
     return n
+
+proc newProjectedFiller*(q: QResult[Materialized], projectedIds: seq[int]): FillFn =
+  ## Replays only the source vectors requested by a projected table scan.
+  ## Output positions follow `projectedIds`, while source positions remain in
+  ## the materialized result. A zero-column projection still returns rows.
+  let chunks = q.chunks
+  for sourceIndex in projectedIds:
+    doAssert sourceIndex >= 0 and sourceIndex < q.meta.columns.len,
+      "projected source column out of range"
+  var sourceVectors = newSeq[seq[duckdb_vector]](chunks.len)
+  var sourceLengths = newSeq[int](chunks.len)
+  for si, src in chunks:
+    sourceVectors[si] = newSeq[duckdb_vector](projectedIds.len)
+    sourceLengths[si] = src.len
+    for pi, sourceIndex in projectedIds:
+      sourceVectors[si][pi] = duckdb_data_chunk_get_vector(
+        src.rawHandle, sourceIndex.idx_t)
+  var idx = 0
+  result = proc(chunk: duckdb_data_chunk): int {.closure, gcsafe.} =
+    if idx >= chunks.len:
+      return 0
+    let vectors = sourceVectors[idx]
+    let n = sourceLengths[idx]
+    inc idx
+    for pi in 0 ..< projectedIds.len:
+      duckdb_vector_reference_vector(
+        duckdb_data_chunk_get_vector(chunk, pi.idx_t), vectors[pi])
+    n

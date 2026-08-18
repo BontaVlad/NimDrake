@@ -501,6 +501,10 @@ when defined(i386) or defined(amd64):
       check raw1 == toDuckDecimal(newDecimal("-6.789"), 6'i8, 3'i8)
       check raw2 == toDuckDecimal(newDecimal("0.001"), 6'i8, 3'i8)
 
+    test "raw decimal formatter preserves negative sub-unit values":
+      check formatDuckDecimal(toDuckDecimal(newDecimal("-0.42"), 6'i8, 2'i8), 2'i8) == "-0.42"
+      check formatDuckDecimal(toDuckDecimal(newDecimal("12"), 6'i8, 0'i8), 0'i8) == "12"
+
     test "decimal appendValues round-trip":
       let conn = newDatabase().connect()
       conn.execute("CREATE TABLE dec_app (d DECIMAL(6, 3))")
