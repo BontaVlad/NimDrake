@@ -75,7 +75,7 @@ jobs:
 
       - name: Test
         if: runner.os != 'Windows'
-        run: just test
+        run: just test 4 --durations=all
 
       - name: Diagnose (Windows)
         if: runner.os == 'Windows'
@@ -107,4 +107,4 @@ jobs:
       - name: Test (Windows)
         if: runner.os == 'Windows'
         shell: msys2 {0}
-        run: just --set asan 0 --set leaks false test
+        run: just --set asan 0 --set leaks false test 4 --durations=all

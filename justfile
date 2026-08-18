@@ -7,18 +7,28 @@ profile_out := "profiles"
 
 # Run all tests. Sequential by default, parallel with `just test 8`.
 # Pass --features=arrow to also run narrow/Arrow tests.
+# Pass --durations=N to print the N slowest tests (compile+run), slowest first.
+# --durations=all prints every test. Example: `just test --durations=10`.
 [arg('features', long='features', help='Pass arrow to also run narrow/Arrow tests')]
-test cores="1" features="":
+[arg('durations', long='durations', help='Print the N slowest tests (slowest first), or all')]
+test cores="1" features="" durations="":
     #!/usr/bin/env bash
     set -euo pipefail
 
     if [[ ! "{{cores}}" =~ ^[0-9]+$ ]]; then
         echo "error: cores must be a positive integer, got '{{cores}}'" >&2
-        echo "hint: just test 8 --features=arrow" >&2
+        echo "hint: just test 8 --features=arrow --durations=10" >&2
+        exit 2
+    fi
+
+    DUR="{{durations}}"
+    if [[ -n "$DUR" && "$DUR" != "all" && ! "$DUR" =~ ^[0-9]+$ ]]; then
+        echo "error: --durations must be a non-negative integer or 'all', got '$DUR'" >&2
         exit 2
     fi
 
     OUT="nimcache/tests"; mkdir -p "$OUT"
+    rm -f "$OUT"/*.duration "$OUT/durations.sorted"
     FLAG=""
     if [[ "{{features}}" == "arrow" ]]; then
         FLAG="-d:features.nimdrake.arrow"
@@ -41,6 +51,8 @@ test cores="1" features="":
         if [[ "{{asan}}" == "1" || "{{asan}}" == "true" ]]; then
             SAN="--passC:-fsanitize=address --passL:-fsanitize=address"
         fi
+        local start end
+        start=$(date +%s.%N)
         ASAN_OPTIONS="$ASAN" LSAN_OPTIONS="$LSAN" \
             nim c -r --verbosity:0 --hints:off --mm:orc --excessiveStackTrace:on \
             -d:debug -d:nimDebugDlOpen --opt:none --debuginfo:on --debugger:native \
@@ -48,14 +60,29 @@ test cores="1" features="":
             --passC:-O0 --passC:-g3 \
             $SAN \
             -o:"$OUT/$n/$n$EXEEXT" "$f"
+        end=$(date +%s.%N)
+        awk -v s="$start" -v e="$end" -v n="$n" 'BEGIN{printf "%.3f\t%s\n", e-s, n}' > "$OUT/$n.duration"
     }
     export -f run
-    export OUT ASAN LSAN EXEEXT
+    export OUT ASAN LSAN EXEEXT FLAG
 
     if [[ "{{cores}}" == "1" ]]; then
         for f in "${FILES[@]}"; do run "$f"; done
     else
         printf '%s\n' "${FILES[@]}" | xargs -P "{{cores}}" -I {} bash -c 'run "$1"' _ {}
+    fi
+
+    if [[ -n "$DUR" ]]; then
+        echo
+        echo "Slowest tests (compile + run, seconds):"
+        {
+            for f in "$OUT"/*.duration; do [[ -f "$f" ]] && cat "$f"; done
+        } | sort -t$'\t' -k1,1 -rn -o "$OUT/durations.sorted"
+        if [[ "$DUR" == "all" ]]; then
+            cat "$OUT/durations.sorted"
+        else
+            head -n "$DUR" "$OUT/durations.sorted"
+        fi
     fi
 
 # Run release Criterion benchmarks. Set `output` to a result directory.
