@@ -5,53 +5,52 @@
     <img alt="NimDrake logo" src="drake-svg-light-theme.svg" height="200">
   </picture>
   <br>
-  <img src="https://github.com/BontaVlad/NimDrake/actions/workflows/tests.yml/badge.svg" alt="MainBranch">
-  <img src="https://img.shields.io/badge/unstable-pre_alpha-blue" alt="Status">
+  <a href="https://github.com/BontaVlad/NimDrake/actions/workflows/tests.yml">
+    <img src="https://github.com/BontaVlad/NimDrake/actions/workflows/tests.yml/badge.svg" alt="Tests">
+  </a>
+  <img src="https://img.shields.io/badge/status-pre--alpha-blue" alt="Status: pre-alpha">
 </div>
-<br>
+
+# NimDrake
 
 NimDrake is a [Nim](https://nim-lang.org/) binding for
-[DuckDB](https://duckdb.org/) — the in-process analytical SQL OLAP DBMS.
+[DuckDB](https://duckdb.org/), an in-process analytical SQL database.
+
+It provides high-level SQL execution and low-level typed access to DuckDB
+result chunks. Primitive columns can be read through zero-copy views over
+DuckDB's columnar buffers.
+
+- **Target versions:** DuckDB v1.5.4 and Nim `>= 2.0.0`
+- **License:** MIT
+- **Status:** pre-alpha; APIs and behavior can change
+
+**Documentation:** [API reference](https://bontavlad.github.io/NimDrake/theindex.html) | [Cookbook](https://bontavlad.github.io/NimDrake/cookbook/cookbook.html) | [Docs home](https://bontavlad.github.io/NimDrake/)
 
 ## Features
 
-- **Zero-copy reads** — results are exposed as typed views over DuckDB's own
-  columnar buffers. Primitives (`int64`, `float64`, …) are zero-copy;
-- **Layered API** — high-level `execute`, pretty-printing, tuple-bound
-  prepared statements, appender, cross-chunk `Table` views; low-level
-  `Vector[kt]`, streaming chunks, raw FFI handles.
-- **UDFs** — register Nim procs and `{.closure.}` iterators as DuckDB scalar,
-  aggregate, and table functions. Per-row work stays inside the engine.
-- **Arrow export** — optional `narrow` integration streams results as Arrow
-  record batches or tables.
-- **Full type system** — all 42 DuckDB types mapped, including List, Array,
-  Struct, Map, Union, Decimal, UUID, and 128-bit integers. Complex kinds are
-  exposed via zero-copytyped container views: `bindAs Table[K,V]`,
-  `bindAs seq[T]`, `bindAsArray(kt)`.
-
-**Target versions:** DuckDB v1.5.4, Nim `>= 2.0.0`.
-
-> NimDrake is pre-alpha. APIs and behavior may change.
-
-**[API documentation](https://bontavlad.github.io/NimDrake/theindex.html)** —
-reference for every exported symbol, generated from the source doc comments with
-links back to the code.
-**[Cookbook](https://bontavlad.github.io/NimDrake/cookbook/cookbook.html)** — recipes for common tasks.
-**[Docs home](https://bontavlad.github.io/NimDrake/)** — landing page with code samples.
-
----
+- **High-level SQL API** for database connections, query execution, prepared
+  statements, transactions, and bulk inserts.
+- **Streaming results** that consume one DuckDB data chunk at a time.
+- **Typed column views** through `Vector[kt]`, with zero-copy reads for
+  primitive columns.
+- **Nested type support** for List, Array, Map, Struct, Union, Decimal, UUID,
+  and 128-bit integers.
+- **User-defined functions** that register Nim procs, closure iterators, and
+  aggregate callbacks with DuckDB.
+- **Compile-time query DSL** for generating prepared SQL from Nim syntax.
+- **Optional Arrow and Arraymancer integrations** for exporting results and
+  scanning Nim tensors as DuckDB views.
 
 ## Installation
+
+Install the package with Nimble:
 
 ```bash
 nimble install nimdrake
 ```
 
-Installation downloads and verifies the pinned DuckDB v1.5.4 native library
-for Linux amd64/arm64, macOS, or Windows amd64/arm64. A system DuckDB install
-is still supported as a fallback when the package is built from source.
-
-With dev dependencies (tests, benchmarks, FFI regeneration):
+Install the development dependencies when you need to run tests or build the
+cookbook:
 
 ```bash
 nimble install nimdrake --parser:declarative --features:dev
@@ -59,106 +58,130 @@ nimble install nimdrake --parser:declarative --features:dev
 
 ### DuckDB native library
 
-NimDrake needs `libduckdb.so` / `libduckdb.dylib` / `duckdb.dll`. The build
-looks in two places, in order:
+NimDrake needs the DuckDB native library and C header. The package installation
+task downloads the matching DuckDB release archive and verifies its SHA-256
+checksum for supported platforms:
 
-1. **Vendored** — `src/include/`, populated automatically by `nimble install`
-   or manually with `just fetch-lib`
-2. **System** — `pkg-config duckdb` or `ldconfig`
+- Linux amd64 and arm64
+- macOS universal builds
+- Windows amd64 and arm64
 
----
+When building from source, NimDrake first uses the library under
+`src/include/`. If it is not present, it searches for a system installation
+through `pkg-config` and platform-specific library paths.
+
+To vendor the library manually, run:
+
+```bash
+just fetch-lib
+```
+
+### Optional Arrow support
+
+Install the Arrow feature with:
+
+```bash
+nimble install nimdrake --parser:declarative --features:arrow
+```
+
+Arrow support uses [`narrow`](https://github.com/BontaVlad/narrow). Install the
+Arrow GLib development libraries before compiling a project with this feature:
+
+- `arrow-glib`
+- `arrow-dataset-glib`
+- `parquet-glib`
+
+The libraries must be discoverable through `pkg-config`.
+
+### Optional Arraymancer support
+
+The `tensor` feature adds `registerTensor`, which exposes an Arraymancer tensor
+as a scanable DuckDB view:
+
+```bash
+nimble install nimdrake --parser:declarative --features:tensor
+```
+
+This feature requires the `arraymancer` package.
 
 ## Quick start
 
 ```nim
 import nimdrake
 
-let db = newDatabase()       # in-memory
+let db = newDatabase()       # in-memory database
 let con = db.connect()
 
-let r = con.execute("""
-  SELECT i, i * i AS sq
+let result = con.execute("""
+  SELECT i, i * i AS square
   FROM generate_series(1, 5) AS t(i)
 """)
-echo r
-# ┌─────────────┬─────────────┐
-# │      i      │     sq      │
-# ├─────────────┼─────────────┤
-# │     1       │     1       │
-# │     2       │     4       │
-# │     3       │     9       │
-# │     4       │     16      │
-# │     5       │     25      │
-# └─────────────┴─────────────┘
 
-# Or iterate chunks with zero-copy column access
-for chunk in r:
-  let sq = chunk.vector(1).bindAs DuckType.BigInt
-  echo sq[0]   # 1
+echo result
 ```
 
----
+The result can also be read as typed column views:
 
-## API
+```nim
+for chunk in result:
+  let square = chunk.vector(1).bindAs DuckType.BigInt
+  echo square[0]
+```
+
+## Core usage
 
 ### Database and configuration
 
 ```nim
-# In-memory
-let db = newDatabase()
+# In-memory database
+let memoryDb = newDatabase()
 
-# Persistent file
-let db = newDatabase("mydb.duckdb")
+# Persistent database file
+let fileDb = newDatabase("mydb.duckdb")
 
-# With config
+# Database configuration
 let cfg = newConfig({"threads": "4", "memory_limit": "2GB"}.toTable)
-let db = newDatabase(cfg)
-let con = db.connect()
+let configuredDb = newDatabase(cfg)
+let con = configuredDb.connect()
 ```
 
-### Query execution
+### Streaming results
+
+Use streaming execution for large result sets. DuckDB produces one chunk at a
+time instead of materializing the complete result in Nim.
 
 ```nim
-# Materialised — all rows in memory
-let r = con.execute("SELECT 1")
+let stmt = con.newStatement(
+  "SELECT i FROM generate_series(1, 1_000_000) AS t(i)")
 
-# Streaming — chunk by chunk (for large results)
-let stmt = con.newStatement("SELECT i FROM generate_series(1, 1_000_000) AS t(i)")
+var count = 0
 for chunk in con.executeStreaming(stmt):
-  let v = chunk.vector(0).bindAs DuckType.BigInt
-  for x in v:
-    discard
-```
+  let values = chunk.vector(0).bindAs DuckType.BigInt
+  count += values.len
 
-### Typed vector views
-
-`Vector[kt]` is a zero-copy view over a DuckDB column's raw buffer.
-
-```nim
-let r = con.execute("SELECT 42::BIGINT AS answer, 'hello'::VARCHAR AS greeting")
-for chunk in r:
-  let answer   = chunk.vector(0).bindAs DuckType.BigInt
-  let greeting = chunk.vector(1).bindAs DuckType.Varchar
-  # or by name:
-  # let answer = chunk["answer"].bindAs DuckType.BigInt
-  for i in 0 ..< answer.len:
-    echo answer[i], " — ", greeting[i]
+echo count
 ```
 
 ### Prepared statements
 
+Bind Nim tuples to prepared statement parameters:
+
 ```nim
 con.execute("CREATE TABLE people (id BIGINT, name VARCHAR, active BOOLEAN)")
 let stmt = con.newStatement("INSERT INTO people VALUES (?, ?, ?)")
+
 con.executeMaterialized(stmt, (int64(1), "Alice", true))
 con.executeMaterialized(stmt, (int64(2), "Bob", false))
+
 echo con.execute("SELECT * FROM people ORDER BY id")
 ```
 
-DML statements (`INSERT`, `UPDATE`, `DELETE`) don't produce streaming results.
-Use `executeMaterialized` for these.
+Use `executeMaterialized` for `INSERT`, `UPDATE`, and `DELETE` statements.
+DuckDB does not return streaming results for these statements.
 
-### Appender (bulk insert)
+### Bulk inserts
+
+Use an appender when inserting many rows:
 
 ```nim
 let appender = con.newAppender("people")
@@ -172,84 +195,40 @@ appender.close()
 
 ### Transactions
 
+The `transaction` template commits when the block finishes. If the block raises
+an exception, the transaction rolls back.
+
 ```nim
 con.transaction:
   con.execute("INSERT INTO people VALUES (999, 'inside', true)")
-  # auto-commits on success, rolls back on exception
 ```
 
-### Cross-chunk random access — Table API
+### Cross-chunk access
+
+`Table` combines a materialized result into one random-access view. Global row
+lookups search the result's chunk offsets with binary search.
 
 ```nim
-let r = con.execute("SELECT i FROM generate_series(1, 5000) AS t(i)")
-let tbl = initTable(r)
-let col = tbl.bindAs(0, DuckType.BigInt)
-echo col[4999]   # O(log n) binary search across chunks
+let result = con.execute(
+  "SELECT i FROM generate_series(1, 5000) AS t(i)")
+let table = initTable(result)
+let values = table.bindAs(0, DuckType.BigInt)
+
+echo values[4999]
 ```
-
-### Compile-time query DSL
-
-`nimdrake/dsl/queries` provides a `query(con):` macro that turns a
-Nim-looking block into prepared SQL at compile time. Clauses are written
-top-down (`select` → `join` → `where` → `groupby` → …); `?` binds a Nim
-value as a parameter, `!!"…"` splices raw SQL verbatim.
-
-```nim
-import nimdrake/dsl/queries
-
-# Multi-way join with grouped aggregate, having, and order
-let topNations = query(con):
-  select nation(n_name, sum(t4.l_extendedprice) as revenue)
-  join customer() on t1.n_nationkey == t2.c_nationkey
-  join orders()   on t2.c_custkey  == t3.o_custkey
-  join lineitem() on t3.o_orderkey == t4.l_orderkey
-  groupby(t1.n_name)
-  having sum(t4.l_extendedprice) > ?"0.0"
-  orderby desc(revenue)
-  limit 5
-
-# Window function over a CTE
-let cte = query(con):
-  with perSupplier(select lineitem(l_suppkey, sum(l_extendedprice) as tot) groupby(l_suppkey))
-  select perSupplier(l_suppkey,
-                     over(sum(tot), partitionby(l_suppkey)) as running)
-  groupby(l_suppkey, tot)
-  orderby l_suppkey
-```
-
-DSL gotchas:
-- The `select` table is alias `t1`, each `join` table `t2`, `t3`, ….
-  Columns from later tables must be qualified (`t2.n_name`); a bare
-  identifier is emitted against `t1`. Keep join projections empty for
-  grouped queries and qualify aggregates by the owning alias.
-- Window calls wrap the aggregate: `over(sum(x), partitionby(y) orderby(z))`.
-- SQL's `*` is spelled `_` (e.g. `count(_)`); `except` is a Nim keyword,
-  so the set op is written `` `except`(…) ``.
-
----
 
 ## User-defined functions
 
-UDFs run Nim code inside DuckDB over its own columnar buffers. Useful when
-per-row work is better expressed in Nim than SQL, without pulling every row
-into Nim.
-
-### Scalar (`registerScalar`)
+Register an ordinary Nim proc as a DuckDB scalar function:
 
 ```nim
 proc multiply(a, b: int64): int64 = a * b
 
 con.registerScalar(multiply)
-let r = con.execute("SELECT multiply(3::BIGINT, 7::BIGINT)")
-for chunk in r:
-  echo chunk.vector(0).bindAs DuckType.BigInt  # 21
+echo con.execute("SELECT multiply(3::BIGINT, 7::BIGINT)")
 ```
 
-NULL propagation is automatic. Supported types: `bool`, `int8`–`int64`,
-`uint8`–`uint64`, `float32`, `float64`, `string`, `seq[byte]`, `DateTime`,
-`Time`, `TimeInterval`, `Int128`, `UInt128`, `Uuid`, `ZonedTime`.
-
-### Table function (`registerTableFunction`)
+Register a closure iterator as a table function:
 
 ```nim
 iterator countToN(count: int): int {.closure.} =
@@ -260,229 +239,127 @@ con.registerTableFunction(countToN)
 echo con.execute("SELECT * FROM countToN(5)")
 ```
 
-Multi-column: yield named tuples. NULL: use `Option[T]` parameters/returns.
+Use named tuples for table functions with multiple output columns. Use
+`Option[T]` parameters or return values for nullable values. See the
+[user-defined functions cookbook](https://bontavlad.github.io/NimDrake/cookbook/user_defined_functions.html)
+for more examples.
+
+## Query DSL
+
+The `nimdrake/dsl/queries` module provides a `query(con):` macro that generates
+prepared SQL from a Nim-looking block:
 
 ```nim
-# Multi-column
-iterator namedCols(n: int): tuple[idx: int, label: string] {.closure.} =
-  for i in 0 ..< n:
-    yield (idx: i, label: "row " & $i)
+import nimdrake/dsl/queries
 
-# NULL handling
-iterator withNulls(n: int): Option[int] {.closure.} =
-  for i in 0 ..< n:
-    if i == 0: yield none(int)
-    else: yield some(i)
+con.execute("CREATE TABLE customer (id INTEGER, name VARCHAR)")
+con.execute("CREATE TABLE orders (id INTEGER, customer_id INTEGER, amount DOUBLE)")
+
+let result = query(con):
+  select customer(name, t2.amount)
+  join orders() on t1.id == t2.customer_id
+  where t1.id == ?(1)
 ```
 
-Advanced options:
+The [query execution cookbook](https://bontavlad.github.io/NimDrake/cookbook/query_execution.html)
+documents inserts, updates, deletes, grouping, joins, parameters, and raw SQL
+splices.
+
+## Complex types and type support
+
+`DuckType` mirrors DuckDB's type enum. NimDrake provides direct mappings for
+common scalar types, including booleans, signed and unsigned integers, floats,
+strings, blobs, timestamps, intervals, UUIDs, decimals, and 128-bit integers.
+
+Nested values use typed views:
 
 ```nim
-con.registerTableFunction(myIter, cardinality = 1000, exact = true)
-con.registerTableFunction(myIter, named = true)      # named params (a := 1)
-con.registerTableFunction(myIter, localInit = myInit) # per-thread init
+let result = con.execute("SELECT [1, 2, 3] AS values")
+
+for chunk in result:
+  let values = chunk.vector(0).bindAs seq[int32]
+  echo values[0]
+
+  let borrowed = values.borrowList(0)
+  for value in borrowed:
+    echo value
 ```
 
-### Aggregate (`registerAggregate`)
+`bindAs(seq[T])`, `bindAs(Table[K, V])`, and `bindAsArray(kt)` create typed
+views for List, Map, and Array columns. Struct and Union columns expose child
+vectors through `structChild` and `unionMemberChild`.
 
-```nim
-proc init(): int64 = 0
-proc update(state, val: int64): int64 = state + val
-proc finalize(state: int64): int64 = state
+The views keep access to DuckDB's result buffers. Reading a complete row into a
+Nim container allocates that container; `borrowList`, `borrowMap`, and
+`borrowArray` provide allocation-free row views.
 
-con.registerAggregate("sum_custom", init, update, finalize)
-echo con.execute("SELECT sum_custom(i) FROM generate_series(1, 100) AS t(i)")
-```
-
-Auto-detects per-row (Tier A) vs vectorized (Tier B) from the update proc's
-first parameter signature.
-
----
-
-## Complex types
-
-Complex columns (List, Array, Map, Struct, Union) are exposed via two
-complementary layers:
-
-### Typed container views — Nim-native, zero-copy construction
-
-Pass the expected Nim container type to `bindAs` and get a typed view that
-caches the bound child vector(s) once and dispatches row reads at compile
-time. No per-call `mapEntriesChild` / `structChild(0)` / `structChild(1)`
-chain.
-
-```nim
-let r = con.execute("""
-  SELECT [1, 2, 3] AS xs,
-         MAP(['a','b'], [10, 20]) AS mp,
-         ARRAY[1, 2, 3]::INT[3] AS arr,
-         {'a': 100, 'b': 'hello'} AS s,
-         union_value(num := 42) AS u
-""")
-
-for chunk in r:
-  # List
-  let lv = chunk.vector(0).bindAs seq[int32]
-  echo lv[0]                  # @[1, 2, 3]
-  let slice = lv.borrowList(0)  # zero-copy SliceView, no seq allocation
-  for x in slice: echo x
-
-  # Map
-  let mv = chunk.vector(1).bindAs OrderedTable[string, int32]
-  echo mv[0]                  # {"a": 10, "b": 20}
-  let row = mv.borrowMap(0)     # zero-copy MapRowView, no OrderedTable alloc
-  echo row["a"]               # 10
-  echo row.getOrDefault("z", -1)
-  for k, v in row.pairs: echo k, " -> ", v
-
-  # Array
-  let av = chunk.vector(2).bindAsArray(DuckType.Integer)
-  echo av[0]                  # @[1, 2, 3]
-  for x in av.borrowArray(0): echo x
-
-  # Struct — cached static-kind child overload (heterogeneous fields):
-  let sv = chunk.vector(3).bindAs DuckType.Struct
-  let a = sv.structChild(0, DuckType.Integer)
-  let b = sv.structChild(1, DuckType.Varchar)
-  echo a[0], " ", b[0]        # 100 hello
-
-  # Struct element access via NimValue pairs:
-  let pairs = sv[0]           # seq[(string, NimValue)]
-
-  # Union
-  let uv = chunk.vector(4).bindAs DuckType.Union
-  echo uv[0]                  # ("num", NimValue(kind: nvInt, intVal: 42))
-```
-
-View types: `MapView[ktKey, ktVal]`, `MapRowView[ktKey, ktVal]`,
-`ListView[kt]`, `ArrayView[kt]`, `SliceView[kt]`. Construction is zero-copy
-(buffer pointers + chunk back-ref); `mv[i]` / `lv[i]` / `av[i]` allocate a
-Nim container per row; the `borrow*` row views stay allocation-free by
-reading straight out of the DuckDB buffer. NULL rows yield an empty
-container.
-
-### Zero-copy descent procs — low-level, type-erased
-
-The lower-level descent procs (`listChild`, `arrayChild`, `structChild`,
-`unionMemberChild`, `mapEntriesChild`, `mapKeyType`, `mapValueType`, …)
-remain exported for type-erased introspection (e.g. via `complex.toNimValue`)
-and are what the typed container views build on.
-
-### Recursive materialisation via `NimValue`
-
-```nim
-let nv = r.scalar  # NimValue(kind: nvList, ...) — recursive, allocates per row
-```
-
----
+See the [complex types cookbook](https://bontavlad.github.io/NimDrake/cookbook/complex_types.html)
+and the [API reference](https://bontavlad.github.io/NimDrake/theindex.html) for
+the complete type and operation mapping.
 
 ## Arrow export
 
-Requires `features.nimdrake.arrow` and `narrow >= 0.0.1`:
+With the `arrow` feature enabled, stream results as Arrow record batches:
 
 ```nim
-let stmt = con.newStatement("SELECT * FROM generate_series(1, 100) AS t(i)")
-let r = con.executeStreaming(stmt)
-for batch in r.toArrowStream():
+let stmt = con.newStatement(
+  "SELECT * FROM generate_series(1, 100) AS t(i)")
+let result = con.executeStreaming(stmt)
+
+for batch in result.toArrowStream():
   echo batch.schema
-  echo batch[0, int64].toSeq
 ```
 
----
+See [Optional Arrow support](#optional-arrow-support) for installation
+requirements.
 
-## Type mapping
+## Documentation
 
-| DuckType | Nim type |
-|---|---|
-| `Boolean` | `bool` |
-| `TinyInt` | `int8` |
-| `SmallInt` | `int16` |
-| `Integer` | `int32` |
-| `BigInt` | `int64` / `int` |
-| `UTinyInt` | `uint8` / `byte` |
-| `USmallInt` | `uint16` |
-| `UInteger` | `uint32` |
-| `UBigInt` | `uint64` |
-| `Float` | `float32` |
-| `Double` | `float64` |
-| `Timestamp` / `TimestampS` / `TimestampMs` / `TimestampNs` / `Date` | `DateTime` |
-| `Time` | `Time` |
-| `TimeTz` / `TimestampTz` | `ZonedTime` |
-| `Interval` | `TimeInterval` |
-| `HugeInt` | `Int128` |
-| `UHugeInt` | `UInt128` |
-| `Varchar` / `Bit` | `string` |
-| `Blob` | `seq[byte]` |
-| `Decimal` | `DecimalType` |
-| `UUID` | `Uuid` |
-| `Enum` | `uint` |
-| `List` | `bindAs(seq[T])` → `ListView`; `lv[i]` returns `seq[T]` |
-| `Array` | `bindAsArray(kt)` → `ArrayView`; `av[i]` returns `seq[T]` |
-| `Map` | `bindAs(Table[K,V])` / `bindAs(OrderedTable[K,V])` → `MapView`; `mv[i]` returns `OrderedTable[K,V]` |
-| `Struct` | `structChild(j, kt)` / `structChild(name, kt)` → `Vector[kt]`; `sv[i]` returns `seq[(string, NimValue)]` |
-| `Union` | `unionMemberChild(j, kt)` → `Vector[kt]`; `uv[i]` returns `(string, NimValue)` |
-
----
-
-## Dependencies
-
-**Production:**
-
-```
-nim >= 2.0.0
-nint128
-decimal >= 0.0.2
-terminaltables >= 0.1.1
-uuid4 >= 0.9.3
-fusion >= 1.2
-threading >= 0.2.1
-```
-
-**Dev:**
-
-```
-unittest2 >= 0.2.3
-criterion >= 0.3.1
-```
-
-**Optional** (Arrow export):
-
-```
-narrow >= 0.0.1    # via feature "arrow"
-```
-
-**Native:** DuckDB C library v1.5.4 (vendored or system-installed).
-
----
+- [Docs home](https://bontavlad.github.io/NimDrake/) — overview and short examples
+- [Cookbook](https://bontavlad.github.io/NimDrake/cookbook/cookbook.html) — task-oriented recipes
+- [API reference](https://bontavlad.github.io/NimDrake/theindex.html) — generated documentation for exported symbols
 
 ## Development
 
-Uses [just](https://github.com/casey/just) for build orchestration.
+NimDrake uses [just](https://github.com/casey/just) for build commands.
 
 ```bash
-just test                     # all tests, debug + ASan
-just test cores=8             # parallel
-just test features="arrow"    # include Arrow tests
-just cookbook                 # build cookbook with nimibook; snippets must run
-just docs                     # alias for `just cookbook`
-just fetch-lib                # vendor libduckdb.so + duckdb.h into src/include/
-just generate                 # regenerate FFI from duckdb.h via Futhark
-just clean                    # remove build artifacts
+just test                         # debug tests with sanitizers where supported
+just test 8                       # run tests in parallel
+just test --features=arrow        # include Arrow tests
+just test --durations=10          # show the slowest tests
+just cookbook                     # build and execute every cookbook snippet
+just checkdocs                    # check exported doc-comment coverage
+just fetch-lib                    # vendor DuckDB into src/include/
+just generate                     # regenerate FFI bindings with Futhark
+just clean                        # remove build artifacts
 ```
 
-The cookbook is a [nimibook](https://github.com/pietroppeter/nimibook) book under
-`docs/cookbook/` (sources in `book/`, `nbook.nim` defines the table of contents).
-Every code snippet is compiled and executed during the build and its output is
-embedded in the rendered pages, so a broken recipe fails `just cookbook`.
-Build prerequisites: `nimble install -y nimibook`, and on Linux the PCRE1
-library (Ubuntu: `sudo apt install libpcre3`).
+`just generate` requires Futhark. Install it with:
 
----
+```bash
+nimble install -y futhark
+```
+
+The cookbook requires Nimibook and, on Linux, PCRE1. Install the cookbook
+dependency with `nimble install -y nimibook`. On Ubuntu, install PCRE1 with:
+
+```bash
+sudo apt install libpcre3
+```
+
+Every cookbook snippet is compiled and executed while the book is built. A
+broken recipe therefore fails `just cookbook`.
+
+## License
+
+NimDrake is released under the [MIT License](LICENSE).
 
 ## Acknowledgements
 
 - [DuckDB Julia](https://duckdb.org/docs/api/julia.html) — partial inspiration
 - [Futhark](https://github.com/arnetheduck/nim-futhark) — FFI generation
-- [nint128](https://github.com/cheatfate/nim-nint128), [decimal](https://github.com/ba0f3/decimal) — 128-bit and decimal types
-- [terminaltables](https://github.com/ThomasTJdev/nim-terminaltables) — pretty-printing
+- [nint128](https://github.com/cheatfate/nim-nint128) and
+  [decimal](https://github.com/ba0f3/decimal) — integer and decimal types
+- [terminaltables](https://github.com/ThomasTJdev/nim-terminaltables) — table display
 - [uuid4](https://github.com/krux02/uuid4) — UUID support
