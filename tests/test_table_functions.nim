@@ -414,8 +414,8 @@ test "T27: registerTableFunction accepts ZonedTime return type":
 when false:
   # Disabled (known limitation): raising a Nim exception inside an `initProc`
   # C callback propagates the raw exception instead of converting to
-  # OperationError. Tracked in WORKBOARD "Known Limitations". Re-enable when
-  # the callback trampoline wraps init-callback exceptions.
+  # OperationError. Re-enable when the callback trampoline wraps
+  # init-callback exceptions.
   test "T28: Exception in init callback → OperationError":
     type CrashInit = ref object
     proc crashInit(info: InitInfo) {.cdecl.} =

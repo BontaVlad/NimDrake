@@ -625,8 +625,7 @@ macro registerTableFunction*(con: typed, iterSym: typed,
   # env here and decRef it at scope end. The non-last decrement calls
   # registerCycle(), writing rootIdx into the worker's thread-local ORC roots.
   # destroyInit later runs on the Nim thread and calls unregisterCycle() with
-  # that rootIdx against a different roots array -> SIGSEGV. See
-  # notes/orc-cross-thread-table-functions.md for the full investigation.
+  # that rootIdx against a different roots array -> SIGSEGV.
   mainBody.add(newVarStmt(
     nnkPragmaExpr.newTree(itSym, nnkPragma.newTree(ident"cursor")),
     newDotExpr(ident"initData", ident"iter")))

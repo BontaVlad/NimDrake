@@ -472,8 +472,6 @@ embedded in the rendered pages, so a broken recipe fails `just cookbook`.
 Build prerequisites: `nimble install -y nimibook`, and on Linux the PCRE1
 library (Ubuntu: `sudo apt install libpcre3`).
 
-See [WORKBOARD.md](WORKBOARD.md) for project status and TODO list.
-
 ---
 
 ## Acknowledgements
