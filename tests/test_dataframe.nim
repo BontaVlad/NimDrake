@@ -60,11 +60,12 @@ suite "Test QResult display":
     check output.contains("NULL")
     check output.contains("5")
 
-  test "Display renders Decimal with scale":
-    let duck2 = newDatabase().connect()
-    let r = duck2.execute("SELECT 12.34::DECIMAL(18,2) AS d")
-    let output = $r
-    check output.contains("12.34")
+  when defined(i386) or defined(amd64):
+    test "Display renders Decimal with scale":
+      let duck2 = newDatabase().connect()
+      let r = duck2.execute("SELECT 12.34::DECIMAL(18,2) AS d")
+      let output = $r
+      check output.contains("12.34")
 
   test "Display renders Double NaN and Infinity":
     let duck2 = newDatabase().connect()

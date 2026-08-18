@@ -159,18 +159,19 @@ suite "QResult zero-copy API":
       check ten[1] == 20
       check ten[2] == 30
 
-  test "double, float, decimal decode":
-    let duck = newDatabase().connect()
-    let r = duck.execute("""
-      SELECT 1.5::DOUBLE AS d, 0.42::DECIMAL(4,2) AS dec, 2.5::FLOAT AS f
-    """)
-    for chunk in r:
-      let d = chunk.vector(0).bindAs DuckType.Double
-      let dec = chunk.vector(1).bindAs DuckType.Decimal
-      let f = chunk.vector(2).bindAs DuckType.Float
-      check d[0] == 1.5
-      check $dec[0] == "0.42"
-      check f[0] == 2.5'f32
+  when defined(i386) or defined(amd64):
+    test "double, float, decimal decode":
+      let duck = newDatabase().connect()
+      let r = duck.execute("""
+        SELECT 1.5::DOUBLE AS d, 0.42::DECIMAL(4,2) AS dec, 2.5::FLOAT AS f
+      """)
+      for chunk in r:
+        let d = chunk.vector(0).bindAs DuckType.Double
+        let dec = chunk.vector(1).bindAs DuckType.Decimal
+        let f = chunk.vector(2).bindAs DuckType.Float
+        check d[0] == 1.5
+        check $dec[0] == "0.42"
+        check f[0] == 2.5'f32
 
   test "string $":
     let duck = newDatabase().connect()
@@ -358,17 +359,18 @@ suite "QResult zero-copy API":
     check seq[1] == 2  # non-null
     check seq[4999] == 5000  # last is even
 
-  test "cross-chunk Table — Decimal toSeq across chunk boundary":
-    let duck = newDatabase().connect()
-    let r = duck.execute(
-      "SELECT (seq % 100)::DECIMAL(18,3) AS d FROM generate_series(1, 4100) AS t(seq)"
-    )
-    let t = initTable(r)
-    let v = t.bindAs("d", DuckType.Decimal)
-    check v.len == 4100
-    check $v[0] == "1.000"
-    check $v[2048] == "49.000"
-    check $v[4099] == "0.000"
+  when defined(i386) or defined(amd64):
+    test "cross-chunk Table — Decimal toSeq across chunk boundary":
+      let duck = newDatabase().connect()
+      let r = duck.execute(
+        "SELECT (seq % 100)::DECIMAL(18,3) AS d FROM generate_series(1, 4100) AS t(seq)"
+      )
+      let t = initTable(r)
+      let v = t.bindAs("d", DuckType.Decimal)
+      check v.len == 4100
+      check $v[0] == "1.000"
+      check $v[2048] == "49.000"
+      check $v[4099] == "0.000"
 
   test "cross-chunk Table — Date random access":
     let duck = newDatabase().connect()

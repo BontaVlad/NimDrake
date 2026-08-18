@@ -96,17 +96,17 @@ const
     DuckType.Map, DuckType.Union}
 
 type
-  DuckCapability* {.pure.} = enum
-    ## Operations that a logical type can support in NimDrake's public paths.
+  DuckCapability* {.pure.} = enum ## Operations that a logical type can support
+                                   ## in NimDrake's public paths.
     dcRead
     dcWrite
     dcBind
     dcAppend
     dcBorrow
 
-  TypeDescriptor* = object
-    ## Compile-time base type metadata. Parameterized details remain in
-    ## `LogicalType` and `Column` because they are runtime schema values.
+  TypeDescriptor* = object ## Compile-time base type metadata. Parameterized
+                           ## details remain in `LogicalType` and `Column`
+                           ## because they are runtime schema values.
     kind*: DuckType
     parameterized*: bool
     nullable*: bool

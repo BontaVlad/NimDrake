@@ -40,11 +40,15 @@ var problems: seq[Problem]
 proc sigEndOf(lines: seq[string], start: int): int =
   ## Index of the last line of a routine signature starting at `start`.
   ## A signature ends on the line that opens the body: `=` or a closing `}`
-  ## (for `{.borrow.}` / `{.error.}` bodies).
+  ## (for `{.borrow.}` / `{.error.}` bodies). A `}` inside an open paren — a
+  ## proc-typed parameter like `proc(emit: proc(row: seq[NimValue]) {.closure.})`
+  ## — does not end the signature.
   var i = start
+  var depth = 0
   while i < lines.len:
     let s = lines[i].strip
-    if s.endsWith("=") or s.endsWith("}"):
+    depth += s.count('(') - s.count(')')
+    if depth == 0 and (s.endsWith("=") or s.endsWith("}")):
       return i
     inc i
   return start

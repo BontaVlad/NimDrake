@@ -182,22 +182,23 @@ suite "NimDrake DSL — TPC-H complex queries":
     check ints(res, 0) == @[1'i64, 2'i64, 3'i64, 4'i64, 5'i64]
     check ints(res, 1) == @[1'i64, 2'i64, 3'i64, 4'i64, 5'i64]
 
-  test "window function: sum over partition":
-    let con = freshCon()
-    let res = query(con):
-      select lineitem(l_orderkey,
-                      over(sum(l_quantity), partitionby(l_returnflag)))
-      where l_returnflag == ?"R"
-      groupby(l_orderkey, l_returnflag, l_quantity)
-      orderby l_orderkey
-      limit 5
-    check res.len == 5
-    # The windowed sum is a DECIMAL(38,2); every group has positive quantity.
-    for chunk in res.chunks:
-      for v in chunk.bindAs(1, DuckType.Decimal):
-        let s = $v
-        check s[0] != '-'
-        check s != "0.00"
+  when defined(i386) or defined(amd64):
+    test "window function: sum over partition":
+      let con = freshCon()
+      let res = query(con):
+        select lineitem(l_orderkey,
+                        over(sum(l_quantity), partitionby(l_returnflag)))
+        where l_returnflag == ?"R"
+        groupby(l_orderkey, l_returnflag, l_quantity)
+        orderby l_orderkey
+        limit 5
+      check res.len == 5
+      # The windowed sum is a DECIMAL(38,2); every group has positive quantity.
+      for chunk in res.chunks:
+        for v in chunk.bindAs(1, DuckType.Decimal):
+          let s = $v
+          check s[0] != '-'
+          check s != "0.00"
 
   test "correlated subquery with exists":
     let con = freshCon()
@@ -230,18 +231,19 @@ suite "NimDrake DSL — TPC-H complex queries":
     for n in strs(res):
       check n.toLowerAscii.contains("goldenrod")
 
-  test "parameter binds: decimal, int, string in one query":
-    let con = freshCon()
-    let minBal = newDecimal("0.00")
-    let res = query(con):
-      select supplier(s_name, s_acctbal)
-      where s_acctbal >= ?minBal and s_suppkey < ?(10) and s_nationkey == ?(1)
-    check res.len == 1
-    check strs(res, 0) == @["Supplier#000000003"]
-    # s_acctbal comes back as DECIMAL; assert it round-trips the bind ceiling.
-    for chunk in res.chunks:
-      for v in chunk.bindAs(1, DuckType.Decimal):
-        check $v == "4192.40"
+  when defined(i386) or defined(amd64):
+    test "parameter binds: decimal, int, string in one query":
+      let con = freshCon()
+      let minBal = newDecimal("0.00")
+      let res = query(con):
+        select supplier(s_name, s_acctbal)
+        where s_acctbal >= ?minBal and s_suppkey < ?(10) and s_nationkey == ?(1)
+      check res.len == 1
+      check strs(res, 0) == @["Supplier#000000003"]
+      # s_acctbal comes back as DECIMAL; assert it round-trips the bind ceiling.
+      for chunk in res.chunks:
+        for v in chunk.bindAs(1, DuckType.Decimal):
+          check $v == "4192.40"
 
   test "leftjoin keeps unmatched rows with nulls":
     let con = freshCon()

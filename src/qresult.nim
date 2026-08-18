@@ -84,8 +84,7 @@ type
     ## rows into a DuckDB chunk and returns how many were written; 0 ends the
     ## scan.
 
-  ProjectedFillFactory* = proc(projectedIds: seq[int]): FillFn {.
-      closure, gcsafe.} ## Builds a filler for the requested source columns.
+  ProjectedFillFactory* = proc(projectedIds: seq[int]): FillFn {.closure, gcsafe.} ## Builds a filler for the requested source columns.
 
 proc knownCardinality*(count: int, isExact = true): Cardinality {.inline.} =
   ## A `Cardinality` stating the scan yields exactly (or approximately, with

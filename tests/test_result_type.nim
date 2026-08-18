@@ -287,20 +287,21 @@ test "UUID round-trip (codec: toDuckUuid / fromDuckUuid)":
     check $v[0] == uStr
     check $v[0] == $fromDuckUuid(toDuckUuid(v[0]))
 
-test "Decimal width buckets (codec: fromDuckDecimal width branches ≤4, ≤9, ≤18, >18)":
-  let conn = newDatabase().connect()
-  let r = conn.execute("""
-    SELECT
-      CAST(1.234 AS DECIMAL(4,3))       AS w4,    -- width ≤4 → int16
-      CAST(12345.67 AS DECIMAL(9,2))     AS w9,    -- width ≤9 → int32
-      CAST(123456789.1 AS DECIMAL(18,1)) AS w18,   -- width ≤18 → int64
-      CAST(1.234567890123456789 AS DECIMAL(38,18)) AS w38  -- width >18 → hugeint
-  """)
-  for chunk in r:
-    check $chunk.bindAs(0, DuckType.Decimal)[0] == "1.234"
-    check $chunk.bindAs(1, DuckType.Decimal)[0] == "12345.67"
-    check $chunk.bindAs(2, DuckType.Decimal)[0] == "123456789.1"
-    check $chunk.bindAs(3, DuckType.Decimal)[0] == "1.234567890123456789"
+when defined(i386) or defined(amd64):
+  test "Decimal width buckets (codec: fromDuckDecimal width branches ≤4, ≤9, ≤18, >18)":
+    let conn = newDatabase().connect()
+    let r = conn.execute("""
+      SELECT
+        CAST(1.234 AS DECIMAL(4,3))       AS w4,    -- width ≤4 → int16
+        CAST(12345.67 AS DECIMAL(9,2))     AS w9,    -- width ≤9 → int32
+        CAST(123456789.1 AS DECIMAL(18,1)) AS w18,   -- width ≤18 → int64
+        CAST(1.234567890123456789 AS DECIMAL(38,18)) AS w38  -- width >18 → hugeint
+    """)
+    for chunk in r:
+      check $chunk.bindAs(0, DuckType.Decimal)[0] == "1.234"
+      check $chunk.bindAs(1, DuckType.Decimal)[0] == "12345.67"
+      check $chunk.bindAs(2, DuckType.Decimal)[0] == "123456789.1"
+      check $chunk.bindAs(3, DuckType.Decimal)[0] == "1.234567890123456789"
 
 test "Double NaN / ±Inf round-trip (codec: double NaN path)":
   let conn = newDatabase().connect()

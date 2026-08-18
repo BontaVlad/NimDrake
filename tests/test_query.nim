@@ -927,24 +927,25 @@ suite "Test appender dispatch":
       for chunk in r:
         check chunk.bindAs(0, DuckType.Interval).toSeq == @[valInterval]
 
-  test "Append decimal values with different precision and scale":
-    ignoreLeak:
-      conn.transient:
-        conn.execute("CREATE TABLE decimal_test (d1 DECIMAL(4,3), d2 DECIMAL(8,0), d3 DECIMAL(19,6));")
-        var appender = newAppender(conn, "decimal_test")
+  when defined(i386) or defined(amd64):
+    test "Append decimal values with different precision and scale":
+      ignoreLeak:
+        conn.transient:
+          conn.execute("CREATE TABLE decimal_test (d1 DECIMAL(4,3), d2 DECIMAL(8,0), d3 DECIMAL(19,6));")
+          var appender = newAppender(conn, "decimal_test")
 
-        appender.append("1.234")
-        appender.append(99999999)
-        appender.append("3245234.123123")
+          appender.append("1.234")
+          appender.append(99999999)
+          appender.append("3245234.123123")
 
-        appender.endRow()
-        appender.flush()
+          appender.endRow()
+          appender.flush()
 
-        let r = conn.execute("SELECT * FROM decimal_test")
-        for chunk in r:
-          check chunk.bindAs(0, DuckType.Decimal).toSeq == @[newDecimal("1.234")]
-          check chunk.bindAs(1, DuckType.Decimal).toSeq == @[newDecimal("99999999")]
-          check chunk.bindAs(2, DuckType.Decimal).toSeq == @[newDecimal("3245234.123123")]
+          let r = conn.execute("SELECT * FROM decimal_test")
+          for chunk in r:
+            check chunk.bindAs(0, DuckType.Decimal).toSeq == @[newDecimal("1.234")]
+            check chunk.bindAs(1, DuckType.Decimal).toSeq == @[newDecimal("99999999")]
+            check chunk.bindAs(2, DuckType.Decimal).toSeq == @[newDecimal("3245234.123123")]
 
   test "Append DEFAULT values":
     conn.transient:

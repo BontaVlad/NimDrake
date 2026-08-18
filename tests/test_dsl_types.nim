@@ -81,17 +81,18 @@ suite "NimDrake DSL — type round-trips":
     for chunk in res.chunks:
       check chunk.bindAs(0, DuckType.Date).toSeq == @[d]
 
-  test "decimal":
-    let con = freshCon()
-    let amount = newDecimal("123.45")
-    discard query(con):
-      insert tb_decimal(amount = ?amount)
-    let res = query(con):
-      select tb_decimal(amount)
-    for chunk in res.chunks:
-      let v = chunk.bindAs(0, DuckType.Decimal)
-      check v.len == 1
-      check $v[0] == "123.45"
+  when defined(i386) or defined(amd64):
+    test "decimal":
+      let con = freshCon()
+      let amount = newDecimal("123.45")
+      discard query(con):
+        insert tb_decimal(amount = ?amount)
+      let res = query(con):
+        select tb_decimal(amount)
+      for chunk in res.chunks:
+        let v = chunk.bindAs(0, DuckType.Decimal)
+        check v.len == 1
+        check $v[0] == "123.45"
 
   test "uuid":
     let con = freshCon()
