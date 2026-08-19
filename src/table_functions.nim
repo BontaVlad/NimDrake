@@ -449,7 +449,7 @@ macro registerTableFunction*(con: typed, iterSym: typed,
 
   # --- Bind proc ---
   var bindBody = newStmtList()
-  bindBody.add(newLetStmt(ident"data",
+  bindBody.add(newVarStmt(ident"data",
     nnkCall.newTree(newDotExpr(bindDataName, ident"new"))))
 
   # Read each parameter
@@ -508,11 +508,13 @@ macro registerTableFunction*(con: typed, iterSym: typed,
       nnkCall.newTree(ident"idx_t", cardinalityExpr),
       if cardinalityExact: ident"true" else: ident"false"))
 
-  bindBody.add(newCall(bindSym"GC_ref", ident"data"))
   bindBody.add(newCall(bindSym"duckdb_bind_set_bind_data",
     ident"info",
     nnkCast.newTree(bindSym"pointer", ident"data"),
     destroyBindName))
+  # Transfer the sole owning reference to DuckDB; the moved-from local must
+  # not release the bind data after the callback takes ownership.
+  bindBody.add(newCall(bindSym"wasMoved", ident"data"))
 
   result.add(newProc(
     name = bindProcName,
@@ -530,13 +532,13 @@ macro registerTableFunction*(con: typed, iterSym: typed,
     nnkTypeDef.newTree(
       initDataName,
       newEmptyNode(),
-      nnkRefTy.newTree(nnkObjectTy.newTree(
-        newEmptyNode(),
-        newEmptyNode(),
-        nnkRecList.newTree(
-          newIdentDefs(ident"iter", iterTy),
-          newIdentDefs(ident"projectedIds",
-            nnkBracketExpr.newTree(ident"seq", ident"int"))))))))
+       nnkRefTy.newTree(nnkObjectTy.newTree(
+         newEmptyNode(),
+         newEmptyNode(),
+         nnkRecList.newTree(
+           newIdentDefs(ident"iter", iterTy),
+           newIdentDefs(ident"projectionPositions",
+             nnkBracketExpr.newTree(ident"seq", ident"int"))))))))
 
   # --- destroyInit ---
   result.add(newProc(
@@ -551,14 +553,23 @@ macro registerTableFunction*(con: typed, iterSym: typed,
   # --- Init proc ---
   var initBody = newStmtList()
 
-  initBody.add(newLetStmt(ident"bindData",
+  initBody.add(newLetStmt(
+    nnkPragmaExpr.newTree(
+      ident"bindData", nnkPragma.newTree(ident"cursor")),
     nnkCast.newTree(bindDataName,
       newCall(bindSym"duckdb_init_get_bind_data", ident"info"))))
+
+  # The iterator is shared by every main callback for this execution.
+  initBody.add(newCall(bindSym"duckdb_init_set_max_threads", ident"info",
+    nnkCall.newTree(ident"idx_t", newLit 1)))
 
   var iterCallArgs = newSeq[NimNode]()
   for p in params:
     iterCallArgs.add(newDotExpr(ident"bindData", ident p.sym.strVal))
 
+  # A closure iterator call is not itself a first-class expression in Nim.
+  # Keep one small adapter that captures the bind parameters and re-yields the
+  # values into the stored closure iterator.
   let wrapperSym = genSym(nskIterator, "wrapper")
   let forBody = newStmtList(nnkYieldStmt.newTree(ident"val"))
   let forStmt = nnkForStmt.newTree(
@@ -575,32 +586,41 @@ macro registerTableFunction*(con: typed, iterSym: typed,
     forStmt)
   initBody.add(wrapperIter)
 
-  initBody.add(newVarStmt(ident"pids",
+  let projectionCountSym = genSym(nskLet, "projectionCount")
+  initBody.add(newLetStmt(projectionCountSym,
+    newCall(bindSym"int",
+      newCall(bindSym"duckdb_init_get_column_count", ident"info"))))
+  initBody.add(newVarStmt(ident"positions",
     nnkCall.newTree(
       nnkBracketExpr.newTree(ident"newSeq", ident"int"),
-      newCall(bindSym"int",
-        newCall(bindSym"duckdb_init_get_column_count", ident"info")))))
+      newLit outCols.len)))
   initBody.add(nnkForStmt.newTree(
     ident"p",
     nnkInfix.newTree(ident"..<", newLit 0,
-      newDotExpr(ident"pids", ident"len")),
+      newDotExpr(ident"positions", ident"len")),
     nnkAsgn.newTree(
-      nnkBracketExpr.newTree(ident"pids", ident"p"),
-      newCall(bindSym"int",
-        newCall(bindSym"duckdb_init_get_column_index",
-          ident"info", nnkCall.newTree(ident"idx_t", ident"p"))))))
+      nnkBracketExpr.newTree(ident"positions", ident"p"), newLit(-1))))
+  initBody.add(nnkForStmt.newTree(
+    ident"p",
+    nnkInfix.newTree(ident"..<", newLit 0, projectionCountSym),
+    nnkAsgn.newTree(
+      nnkBracketExpr.newTree(ident"positions",
+        newCall(bindSym"int",
+          newCall(bindSym"duckdb_init_get_column_index", ident"info",
+            nnkCall.newTree(ident"idx_t", ident"p")))),
+      ident"p")))
 
-  initBody.add(newLetStmt(ident"data",
+  initBody.add(newVarStmt(ident"data",
     nnkObjConstr.newTree(
-      initDataName,
-      nnkExprColonExpr.newTree(ident"iter", wrapperSym),
-      nnkExprColonExpr.newTree(ident"projectedIds", ident"pids"))))
+       initDataName,
+       nnkExprColonExpr.newTree(ident"iter", wrapperSym),
+       nnkExprColonExpr.newTree(ident"projectionPositions", ident"positions"))))
 
-  initBody.add(newCall(bindSym"GC_ref", ident"data"))
   initBody.add(newCall(bindSym"duckdb_init_set_init_data",
     ident"info",
     nnkCast.newTree(bindSym"pointer", ident"data"),
     destroyInitName))
+  initBody.add(newCall(bindSym"wasMoved", ident"data"))
 
   result.add(newProc(
     name = initProcName,
@@ -616,7 +636,12 @@ macro registerTableFunction*(con: typed, iterSym: typed,
 
   var mainBody = newStmtList()
 
-  mainBody.add(newLetStmt(ident"initData",
+  # The InitData ref contains the closure iterator, so ORC treats it as cyclic.
+  # Borrow the ref on DuckDB threads; an owning local can register its rootIdx
+  # in one thread's cycle-root array before destroyInit runs on another thread.
+  mainBody.add(newLetStmt(
+    nnkPragmaExpr.newTree(
+      ident"initData", nnkPragma.newTree(ident"cursor")),
     nnkCast.newTree(initDataName,
       newCall(bindSym"duckdb_function_get_init_data", ident"info"))))
 
@@ -689,42 +714,34 @@ macro registerTableFunction*(con: typed, iterSym: typed,
 
   else:
     # ── Multi-column direct-write path ──
-    # Resolve projection positions once, then bind each source column to its
-    # projected output vector before consuming the iterator. This avoids the
-    # old chunk-sized tuple buffer and its second traversal.
-    let pidsSym = genSym(nskLet, "pids")
-    mainBody.add(newLetStmt(pidsSym,
-      newDotExpr(ident"initData", ident"projectedIds")))
-    let posSym = genSym(nskVar, "positions")
-    mainBody.add(newVarStmt(posSym,
-      newCall(nnkBracketExpr.newTree(ident"newSeq", ident"int"),
-        newLit outCols.len)))
-    let posInit = newStmtList()
-    let pIdent = ident"p"
-    posInit.add(nnkForStmt.newTree(
-      pIdent,
-      nnkInfix.newTree(ident"..<", newLit 0,
-        newDotExpr(posSym, ident"len")),
-      nnkAsgn.newTree(nnkBracketExpr.newTree(posSym, pIdent), newLit(-1))))
-    posInit.add(nnkForStmt.newTree(
-      pIdent,
-      nnkInfix.newTree(ident"..<", newLit 0,
-        newDotExpr(pidsSym, ident"len")),
-      nnkAsgn.newTree(
-        nnkBracketExpr.newTree(posSym,
-          nnkBracketExpr.newTree(pidsSym, pIdent)), pIdent)))
-    mainBody.add(posInit)
-
+    # Projection positions are resolved once in init and retained in InitData.
+    # Bind only vectors requested by DuckDB before consuming the iterator. This
+    # avoids the old chunk-sized tuple buffer and its second traversal.
+    # The iterator still constructs the full tuple for each row. Profiling of
+    # bench_callbacks/table_projected attributes this dispatch to wrapper.
+    var posSyms: seq[NimNode]
     var vecSyms: seq[NimNode]
     for i, col in outCols:
+      let posSym = genSym(nskLet, "pos" & $i)
+      posSyms.add(posSym)
+      mainBody.add(newLetStmt(posSym,
+        nnkBracketExpr.newTree(
+          newDotExpr(ident"initData", ident"projectionPositions"),
+          newLit i)))
+
       let vecSym = genSym(nskVar, "v" & $i)
       vecSyms.add(vecSym)
-      let posExpr = nnkBracketExpr.newTree(posSym, newLit i)
-      let vecPos = newCall(bindSym"max", posExpr, newLit 0)
-      mainBody.add(newVarStmt(vecSym,
-        newCall(nnkBracketExpr.newTree(bindSym"initVector", col.ktNode),
-          newCall(bindSym"duckdb_data_chunk_get_vector", rawSym,
-            newCall(bindSym"idx_t", vecPos)), sizeSym)))
+      mainBody.add(nnkVarSection.newTree(
+        newIdentDefs(vecSym,
+          nnkBracketExpr.newTree(bindSym"Vector", col.ktNode),
+          newEmptyNode())))
+      mainBody.add(nnkIfStmt.newTree(
+        nnkElifBranch.newTree(
+          nnkInfix.newTree(ident">=", posSym, newLit 0),
+          newStmtList(nnkAsgn.newTree(vecSym,
+            newCall(nnkBracketExpr.newTree(bindSym"initVector", col.ktNode),
+              newCall(bindSym"duckdb_data_chunk_get_vector", rawSym,
+                newCall(bindSym"idx_t", posSym)), sizeSym))))))
 
     mainBody.add(newVarStmt(countSym, newLit 0))
     let whleDirect = nnkWhileStmt.newTree(
@@ -753,8 +770,7 @@ macro registerTableFunction*(con: typed, iterSym: typed,
           nnkBracketExpr.newTree(vecSyms[i], countSym), colVal))
       directBody.add(nnkIfStmt.newTree(
         nnkElifBranch.newTree(
-          nnkInfix.newTree(ident">=",
-            nnkBracketExpr.newTree(posSym, newLit i), newLit 0), write)))
+          nnkInfix.newTree(ident">=", posSyms[i], newLit 0), write)))
     directBody.add(newCall(ident"inc", countSym))
     mainBody.add(nnkTryStmt.newTree(whleDirect,
       nnkExceptBranch.newTree(newStmtList(

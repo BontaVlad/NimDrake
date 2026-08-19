@@ -1,5 +1,5 @@
 import unittest2
-import std/[strutils, tables, math, times]
+import std/[strutils, tables, math, times, options]
 import ../src/[database, query, qresult, codec, table, types, complex, display]
 
 suite "QResult zero-copy API":
@@ -137,6 +137,42 @@ suite "QResult zero-copy API":
       let s = v.toSeq
       check s == expected
 
+  test "toSeqOptInto reuses the destination contract":
+    let duck = newDatabase().connect()
+    let r = duck.execute("""
+      SELECT CASE WHEN seq % 2 = 0 THEN seq ELSE NULL END
+      FROM generate_series(0, 5) AS t(seq)
+    """)
+    for chunk in r:
+      let v = chunk.bindAs(0, DuckType.BigInt)
+      var values = newSeq[Option[int64]](32)
+      v.toSeqOptInto(values)
+      check values == @[some(0'i64), none(int64), some(2'i64), none(int64),
+                        some(4'i64), none(int64)]
+
+  test "itemsOpt and toSeqOpt preserve primitive and Boolean parity":
+    let duck = newDatabase().connect()
+    let r = duck.execute("""
+      SELECT
+        CASE WHEN seq % 2 = 0 THEN seq ELSE NULL END AS maybe_int,
+        CASE WHEN seq % 2 = 0 THEN TRUE ELSE NULL END AS maybe_bool
+      FROM generate_series(0, 3) AS t(seq)
+    """)
+    for chunk in r:
+      let ints = chunk.bindAs(0, DuckType.BigInt)
+      var intItems: seq[Option[int64]] = @[]
+      for value in ints.itemsOpt:
+        intItems.add(value)
+      check intItems == ints.toSeqOpt
+      check intItems == @[some(0'i64), none(int64), some(2'i64), none(int64)]
+
+      let bools = chunk.bindAs(1, DuckType.Boolean)
+      var boolItems: seq[Option[bool]] = @[]
+      for value in bools.itemsOpt:
+        boolItems.add(value)
+      check boolItems == bools.toSeqOpt
+      check boolItems == @[some(true), none(bool), some(true), none(bool)]
+
   test "bindAs raises on kind mismatch":
     let duck = newDatabase().connect()
     let r = duck.execute("SELECT 1 AS i")
@@ -213,6 +249,65 @@ suite "QResult zero-copy API":
     check v[2048] == 2049
     check v[2049] == 2050
     check v[4099] == 4100
+
+  test "Table random access default-fills NULL primitive cells":
+    let duck = newDatabase().connect()
+    let r = duck.execute("""
+      SELECT CASE WHEN seq % 2 = 0 THEN seq ELSE NULL END AS maybe
+      FROM generate_series(0, 4099) AS t(seq)
+    """)
+    let v = initTable(r).bindAs("maybe", DuckType.BigInt)
+    check not v.valid(1)
+    check not v.valid(2049)
+    check v[1] == 0
+    check v[2049] == 0
+    check v[2048] == 2048
+
+  test "Table regular chunks handle final partial chunk boundaries":
+    let duck = newDatabase().connect()
+    var q = duck.execute("SELECT 1::BIGINT AS x WHERE FALSE")
+    q.chunks = @[
+      newDataChunk("x", @[10'i64, 11]),
+      newDataChunk("x", @[20'i64, 21]),
+      newDataChunk("x", @[30'i64])]
+    q.rlen = 5
+    let v = initTable(q).bindAs("x", DuckType.BigInt)
+    check v.len == 5
+    check v[0] == 10
+    check v[1] == 11
+    check v[2] == 20
+    check v[3] == 21
+    check v[4] == 30
+    expect(IndexDefect):
+      discard v[5]
+    expect(IndexDefect):
+      discard v[-1]
+
+  test "Table empty result remains empty and bounds checked":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT 1::BIGINT AS x WHERE FALSE")
+    let v = initTable(r).bindAs("x", DuckType.BigInt)
+    check v.len == 0
+    check v.toSeq == newSeq[int64]()
+    expect(IndexDefect):
+      discard v[0]
+
+  test "Table irregular chunks use correct global positions":
+    let duck = newDatabase().connect()
+    var q = duck.execute("SELECT 1::BIGINT AS x WHERE FALSE")
+    q.chunks = @[
+      newDataChunk("x", @[10'i64, 11]),
+      newDataChunk("x", @[20'i64, 21, 22]),
+      newDataChunk("x", @[30'i64])]
+    q.rlen = 6
+    let v = initTable(q).bindAs("x", DuckType.BigInt)
+    check v.len == 6
+    check v[0] == 10
+    check v[1] == 11
+    check v[2] == 20
+    check v[3] == 21
+    check v[4] == 22
+    check v[5] == 30
 
   test "cross-chunk Table toSeq — BigInt":
     let duck = newDatabase().connect()
@@ -819,6 +914,16 @@ suite "QResult — bound container views: Map":
       check row.getOrDefault("z", -1'i32) == -1
       check row.getOrDefault("z") == 0  # default fill
 
+  test "MapRowView owned lookup handles external string keys":
+    let duck = newDatabase().connect()
+    let r = duck.execute("SELECT MAP([repeat('key', 8)], [42])")
+    for chunk in r:
+      let row = chunk.bindAs(0, OrderedTable[string, int32]).borrowMap(0)
+      let key = repeat("key", 8)
+      check row.contains(key)
+      check row[key] == 42
+      check row.getOrDefault("missing", -1'i32) == -1
+
   test "borrowed string MAP access preserves NULL and empty values":
     let duck = newDatabase().connect()
     let r = duck.execute("SELECT MAP(['a', 'b'], ['', NULL])")
@@ -922,6 +1027,9 @@ suite "QResult — bound container views: List":
       for x in lv.borrowList(0): collected.add(x)
       check collected == @[1'i32, 2, 3]
       check lv.borrowList(0).toSeq == @[1'i32, 2, 3]
+      var reused = newSeq[int32](16)
+      lv.borrowList(0).toSeqInto(reused)
+      check reused == @[1'i32, 2, 3]
 
   test "ListView multi-row column":
     let duck = newDatabase().connect()

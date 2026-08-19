@@ -144,6 +144,9 @@ macro registerScalar*(con: typed, procSym: typed): untyped =
       nullCheck = nnkInfix.newTree(ident"or", nullCheck, term)
 
   # callArgs: p0[i], p1[i], …
+  # Profiling hot path: an owning string argument decodes and allocates once
+  # per valid row. DuckStringRef keeps this generated callback zero-copy; see
+  # bench_callbacks/scalar_owning and scalar_borrowed.
   var callArgs: seq[NimNode]
   for j, pi in inputIdents:
     if params[j].borrowed:

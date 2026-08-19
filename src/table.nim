@@ -1,7 +1,8 @@
 ## Cross-chunk random-access Table API.
 ##
 ## Built on a `QResult[Materialized]`, builds a single `offsets` seq once
-## so per-row lookup is O(log(numChunks)) via binary search.
+## so per-row lookup is O(1) for regular chunks and O(log(numChunks)) via
+## binary search for irregular chunks.
 ##
 ## The `TableVector[kt]` is the typed view, analogous to the per-chunk
 ## `Vector[kt]` but spanning all chunks.
@@ -14,6 +15,7 @@ type
                   ## chunks; rows are addressed by a global index.
     q: QResult[Materialized]
     offsets: seq[int]
+    regularChunkStride: int
 
   TableVector*[kt: static DuckType] = object ## Typed column view over a
                                              ## `Table`, the cross-chunk
@@ -23,12 +25,28 @@ type
     views: seq[Vector[kt]]
 
 proc initTable*(q: sink QResult[Materialized]): Table =
-  ## Wraps a materialized result for global row indexing. Builds the O(1)
-  ## chunk-offset table once; subsequent `[]` lookups are O(log chunks).
+  ## Wraps a materialized result for global row indexing. Builds the chunk
+  ## offset table once and detects a regular positive chunk stride for O(1)
+  ## lookups; irregular chunks use binary search.
   result.q = q
   result.offsets = newSeq[int](q.chunks.len + 1)
   for ci in 0 ..< q.chunks.len:
     result.offsets[ci + 1] = result.offsets[ci] + q.chunks[ci].len
+
+  if q.chunks.len > 0:
+    let stride = q.chunks[0].len
+    if stride > 0:
+      var regular = true
+      for ci in 1 ..< q.chunks.len:
+        let chunkLen = q.chunks[ci].len
+        if ci < q.chunks.high:
+          if chunkLen != stride:
+            regular = false
+            break
+        elif chunkLen <= 0 or chunkLen > stride:
+          regular = false
+      if regular:
+        result.regularChunkStride = stride
 
 proc initTable*(q: sink QResult[Streaming]): Table {.inline.} =
   ## Materializes a streaming result, then wraps it like `initTable`.
@@ -50,6 +68,10 @@ proc chunkPosition(t: Table, i: int): (int, int) {.inline.} =
   ## Resolves a global row to its chunk index and local offset.
   if i < 0 or i >= t.len:
     raise newException(IndexDefect, "row index out of range: " & $i)
+  if t.regularChunkStride > 0:
+    result = (i div t.regularChunkStride, i mod t.regularChunkStride)
+    return
+  # Irregular chunks retain the offsets-based binary-search fallback.
   var lo = 0
   var hi = t.q.chunks.len
   while hi - lo > 1:
@@ -91,7 +113,11 @@ proc `[]`*[kt: static DuckType](v: TableVector[kt], i: int): nimOf(kt) {.inline.
   ## Global-index element access with the `qresult` `[]` semantics: NULL rows
   ## yield `default(nimOf(kt))`. Raises `IndexDefect` out of range.
   let (ci, off) = v.t.chunkPosition(i)
-  v.views[ci][off]
+  let vec = v.views[ci]
+  if vec.valid(off):
+    vec[off]
+  else:
+    default(nimOf(kt))
 
 iterator items*[kt: static DuckType](v: TableVector[kt]): nimOf(kt) =
   ## Iterates rows top to bottom; NULL rows yield `default(nimOf(kt))`.

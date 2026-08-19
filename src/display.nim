@@ -59,7 +59,7 @@ proc renderCell*(cv: ColumnView, i: int): string =
     result = $fromUHugeInt(cast[ptr UncheckedArray[duckdb_uhugeint]](cv.data)[i])
   of DuckType.Decimal:
     let raw = cv.bindAs(DuckType.Decimal).borrowDecimal(i)
-    result = formatDuckDecimal(raw[0], raw[2])
+    appendDuckDecimal(result, raw[0], raw[2])
   of DuckType.UUID:
     result = $fromDuckUuid(cast[ptr UncheckedArray[duckdb_hugeint]](cv.data)[i])
   else:

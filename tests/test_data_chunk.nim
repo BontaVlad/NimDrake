@@ -457,9 +457,50 @@ suite "DataChunk bulk insert via appender":
 # ---------------------------------------------------------------------------
 # Decimal write (conditional on x86)
 # ---------------------------------------------------------------------------
+suite "Duck decimal formatting":
+  test "append formatter handles sign, zero, scale, and padding":
+    var dest = "prefix:"
+    appendDuckDecimal(dest, i128(12345), 2'i8)
+    check dest == "prefix:123.45"
+
+    dest.setLen(0)
+    appendDuckDecimal(dest, i128(-12345), 2'i8)
+    check dest == "-123.45"
+
+    dest.setLen(0)
+    appendDuckDecimal(dest, i128(-42), 2'i8)
+    check dest == "-0.42"
+
+    dest.setLen(0)
+    appendDuckDecimal(dest, i128(0), 0'i8)
+    check dest == "0"
+
+    dest.setLen(0)
+    appendDuckDecimal(dest, i128(0), 4'i8)
+    check dest == "0.0000"
+
+    dest.setLen(0)
+    appendDuckDecimal(dest, i128(7), 4'i8)
+    check dest == "0.0007"
+
+  test "append formatter preserves format formatter parity":
+    let cases = [
+      (i128(1), 0'i8, "1"),
+      (i128(1), 1'i8, "0.1"),
+      (i128(123456789), 3'i8, "123456.789"),
+      (i128(-1), 3'i8, "-0.001"),
+      (i128(-123456789), 6'i8, "-123.456789"),
+      (i128(100500), 4'i8, "10.0500"),
+      (i128(0), 8'i8, "0.00000000"),
+    ]
+    for (raw, scale, expected) in cases:
+      var appended = ""
+      appendDuckDecimal(appended, raw, scale)
+      check appended == expected
+      check formatDuckDecimal(raw, scale) == expected
+
 when defined(i386) or defined(amd64):
   import decimal
-  import ../src/[codec]
 
   suite "DataChunk write []= — decimal":
     test "decimal round-trip via appender":

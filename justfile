@@ -186,6 +186,15 @@ benchmark-ffi target case iterations="100":
         "$binary" --profile-case "{{case}}" --iterations "{{iterations}}"
     python3 -m json.tool "$output"
 
+# Profile every benchmark case with perf, Heaptrack, the FFI counter, and Samply.
+# The command writes summary.json and ACTIVITY_REPORT.md to a timestamped directory.
+benchmark-profile-suite output="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    args=()
+    [[ -n "{{output}}" ]] && args+=(--output "{{output}}")
+    python3 "{{bench_root}}/profile_suite.py" "${args[@]}"
+
 # Regenerate FFI bindings from duckdb.h via Futhark.
 generate:
     nim c -r -d:useFuthark -d:nodeclguards:true -d:exportall:true src/nimdrake.nim

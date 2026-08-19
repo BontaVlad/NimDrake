@@ -255,7 +255,7 @@ proc appendFormat(result: var string, v: NimValue, quoteStr: bool) =
   of nvInterval:
     result.add $v.intervalVal
   of nvDecimal:
-    result.add formatDuckDecimal(v.decimalRaw, v.decimalScale)
+    appendDuckDecimal(result, v.decimalRaw, v.decimalScale)
   of nvEnum:
     result.add enumName(v)
   of nvString:

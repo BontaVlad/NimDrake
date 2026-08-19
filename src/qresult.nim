@@ -25,7 +25,9 @@
 ## allocation, and `borrowUuid` for the raw 128-bit UUID.  `toSeq`, `items`,
 ## `toSeqOpt`, and `itemsOpt` are explicit bulk operations; `items`/`toSeq` copy
 ## (NULL rows become `default(T)`), while the `Opt` variants preserve null-ness
-## via `Option[T]` at no per-row allocation cost for primitive kinds.
+## via `Option[T]` at no per-row allocation cost for primitive kinds. Repeated
+## owned scans can use `toSeqInto` and `toSeqOptInto` to reuse destination
+## capacity.
 ##
 ## A `ColumnView` is the *type-erased* intermediate you get from
 ## `chunk.vector(i)` or `chunk["name"]`; it carries a runtime `kind` and
@@ -365,30 +367,28 @@ proc makeColumnView(
   elif result.kind == DuckType.Enum:
     result.enumWidth = cast[DuckType](duckdb_enum_internal_type(ltype.handle))
 
-proc newColumnView(
-    c: DataChunk, i: int, col: Column
-): ColumnView {.inline.} =
+proc newColumnView(c: DataChunk, i: int): ColumnView {.inline.} =
   ## Fix #2: Use cached Column fields (kind, scale, width, enumWidth)
   ## instead of re-deriving them via FFI on every chunk.vector(i) call.
   ## These are invariant for the life of the QResult.
   let vec = duckdb_data_chunk_get_vector(c.handle, i.idx_t)
-  result.kind = col.kind
+  result.kind = c.meta.columns[i].kind
   result.vec = vec
-  result.ltype = col.ltype
+  result.ltype = c.meta.columns[i].ltype
   result.data = duckdb_vector_get_data(vec)
   result.length = c.len
   result.validity = cast[ptr UncheckedArray[uint64]](duckdb_vector_get_validity(vec))
   result.chunk = c
-  result.scale = col.scale
-  result.width = col.width
-  result.enumWidth = col.enumWidth
+  result.scale = c.meta.columns[i].scale
+  result.width = c.meta.columns[i].width
+  result.enumWidth = c.meta.columns[i].enumWidth
 
-proc newBoundVector[kt: static DuckType](
-    c: DataChunk, i: int, col: Column
-): Vector[kt] {.inline.} =
+proc newBoundVector[kt: static DuckType](c: DataChunk, i: int): Vector[kt] {.inline.} =
   ## Build a typed vector directly from a chunk column. This is the fast path
   ## for `DataChunk.bindAs`; it avoids materializing an intermediate
   ## type-erased `ColumnView` after the runtime kind check has succeeded.
+  # Profiling hot path: each call performs one vector lookup plus data and
+  # validity lookups. Keep this constructor inline and bind once per chunk.
   let vec = duckdb_data_chunk_get_vector(c.handle, i.idx_t)
   result.vec = vec
   result.data = duckdb_vector_get_data(vec)
@@ -396,19 +396,18 @@ proc newBoundVector[kt: static DuckType](
   result.validity = cast[ptr UncheckedArray[uint64]](duckdb_vector_get_validity(vec))
   result.chunk = c
   when kt == DuckType.Decimal:
-    result.scale = col.scale
-    result.width = col.width
+    result.scale = c.meta.columns[i].scale
+    result.width = c.meta.columns[i].width
   elif kt == DuckType.Enum:
-    result.enumWidth = col.enumWidth
+    result.enumWidth = c.meta.columns[i].enumWidth
   when kt in DuckComplexKind:
-    result.ltype = col.ltype
+    result.ltype = c.meta.columns[i].ltype
 
 proc vector*(c: DataChunk, i: int): ColumnView {.inline.} =
   ## The type-erased view of column `i`; raises `ValueError` out of range.
   if i < 0 or i >= c.meta.columns.len:
     raise newException(ValueError, "column index out of range: " & $i)
-  let col = c.meta.columns[i]
-  newColumnView(c, i, col)
+  newColumnView(c, i)
 
 proc vector*(c: DataChunk, name: string): ColumnView {.inline.} =
   ## The type-erased view of the named column; raises `KeyError` if absent.
@@ -526,13 +525,13 @@ proc bindAs*(c: DataChunk, i: int, kt: static DuckType): Vector[kt] {.inline.} =
   ## Binds column `i` of a chunk to a typed `Vector[kt]`; see `bindAs(ColumnView)`.
   if i < 0 or i >= c.meta.columns.len:
     raise newException(ValueError, "column index out of range: " & $i)
-  let col = c.meta.columns[i]
-  if col.kind != kt:
+  if c.meta.columns[i].kind != kt:
     raise newException(
       ValueError,
-      "Vector kind mismatch: column is " & $col.kind & ", requested " & $kt,
+      "Vector kind mismatch: column is " & $c.meta.columns[i].kind &
+        ", requested " & $kt,
     )
-  newBoundVector[kt](c, i, col)
+  newBoundVector[kt](c, i)
 
 proc bindAs*(c: DataChunk, name: string, kt: static DuckType): Vector[kt] {.inline.} =
   ## Binds the named column of a chunk to a typed `Vector[kt]`.
@@ -1398,27 +1397,33 @@ iterator borrowItems*[kt: static DuckType](sv: SliceView[kt]): DuckStringRef =
   else:
     {.error: "borrowItems() only defined for string/blob kinds; got " & $kt.}
 
-proc toSeq*[kt: static DuckType](sv: SliceView[kt]): seq[nimOf(kt)] =
-  ## Materializes the slice; NULLs become `default(nimOf(kt))`.
-  result = newSeq[nimOf(kt)](sv.length)
+proc toSeqInto*[kt: static DuckType](
+    sv: SliceView[kt], dest: var seq[nimOf(kt)]) =
+  ## Reuses `dest` storage to materialize the slice; NULLs become defaults.
+  dest.setLen(sv.length)
   let off = sv.offset
   when kt in DuckPrimitiveKind:
     if sv.vec.validity.isNil and sv.length > 0:
-      copyMem(addr result[0],
+      copyMem(addr dest[0],
         cast[ptr UncheckedArray[nimOf(kt)]](sv.vec.data)[off].addr,
         sv.length * sizeof(nimOf(kt)))
       return
   elif kt == DuckType.Boolean:
     if sv.vec.validity.isNil and sv.length > 0:
-      copyMem(addr result[0],
+      copyMem(addr dest[0],
         cast[ptr UncheckedArray[uint8]](sv.vec.data)[off].addr,
         sv.length)
       return
   for j in 0 ..< sv.length:
     if sv.vec.validity.isNil or sv.vec.valid(off + j):
-      result[j] = sv.vec[off + j]
+      dest[j] = sv.vec[off + j]
     else:
-      result[j] = default(nimOf(kt))
+      dest[j] = default(nimOf(kt))
+
+proc toSeq*[kt: static DuckType](sv: SliceView[kt]): seq[nimOf(kt)] =
+  ## Materializes the slice; NULLs become `default(nimOf(kt))`.
+  result = newSeq[nimOf(kt)](sv.length)
+  sv.toSeqInto(result)
 
 # ---------------------------------------------------------------------------
 # MapView / MapRowView — typed MAP column view + zero-copy row slice
@@ -1516,6 +1521,22 @@ iterator borrowValues*[ktKey, ktVal: static DuckType](
   else:
     {.error: "borrowValues() requires a string/blob value kind".}
 
+proc borrowedMapKeyMatches[ktKey: static DuckType](
+    candidate: DuckStringRef, key: nimOf(ktKey)): bool {.inline.} =
+  ## Compares a borrowed MAP key with an owned Nim key without decoding the
+  ## DuckDB candidate into a temporary string/blob.
+  when ktKey in DuckStringKind or ktKey in DuckBlobKind:
+    if not candidate.valid or candidate.length != key.len:
+      return false
+    if key.len == 0:
+      return true
+    when ktKey in DuckStringKind:
+      equalMem(candidate.data, cast[pointer](key.cstring), key.len)
+    else:
+      equalMem(candidate.data, key[0].unsafeAddr, key.len)
+  else:
+    false
+
 proc borrowLookup*[ktKey, ktVal: static DuckType](
     rv: MapRowView[ktKey, ktVal], key: DuckStringRef):
     tuple[value: DuckStringRef, found: bool] {.inline.} =
@@ -1560,22 +1581,35 @@ proc contains*[ktKey, ktVal: static DuckType](
   ## Whether the MAP row contains `key`.
   let off = rv.offset
   let n = rv.length
-  for j in 0 ..< n:
-    let idx = off + j
-    if (rv.keys.validity.isNil or rv.keys.valid(idx)) and rv.keys[idx] == key:
-      return true
+  when ktKey in DuckStringKind or ktKey in DuckBlobKind:
+    for j in 0 ..< n:
+      if borrowedMapKeyMatches[ktKey](rv.keys.borrow(off + j), key):
+        return true
+  else:
+    for j in 0 ..< n:
+      let idx = off + j
+      if (rv.keys.validity.isNil or rv.keys.valid(idx)) and rv.keys[idx] == key:
+        return true
 
 proc `[]`*[ktKey, ktVal: static DuckType](
     rv: MapRowView[ktKey, ktVal], key: nimOf(ktKey)): nimOf(ktVal) {.inline.} =
   ## Value for `key` in the MAP row; raises `KeyError` if the key is absent.
   let off = rv.offset
   let n = rv.length
-  for j in 0 ..< n:
-    let idx = off + j
-    if (rv.keys.validity.isNil or rv.keys.valid(idx)) and rv.keys[idx] == key:
-      if rv.vals.validity.isNil or rv.vals.valid(idx):
-        return rv.vals[idx]
-      return default(nimOf(ktVal))
+  when ktKey in DuckStringKind or ktKey in DuckBlobKind:
+    for j in 0 ..< n:
+      let idx = off + j
+      if borrowedMapKeyMatches[ktKey](rv.keys.borrow(idx), key):
+        if rv.vals.validity.isNil or rv.vals.valid(idx):
+          return rv.vals[idx]
+        return default(nimOf(ktVal))
+  else:
+    for j in 0 ..< n:
+      let idx = off + j
+      if (rv.keys.validity.isNil or rv.keys.valid(idx)) and rv.keys[idx] == key:
+        if rv.vals.validity.isNil or rv.vals.valid(idx):
+          return rv.vals[idx]
+        return default(nimOf(ktVal))
   raise newException(KeyError, "key not found: " & $key)
 
 proc getOrDefault*[ktKey, ktVal: static DuckType](
@@ -1583,12 +1617,20 @@ proc getOrDefault*[ktKey, ktVal: static DuckType](
   ## Value for `key` in the MAP row, or `default(nimOf(ktVal))` if absent.
   let off = rv.offset
   let n = rv.length
-  for j in 0 ..< n:
-    let idx = off + j
-    if (rv.keys.validity.isNil or rv.keys.valid(idx)) and rv.keys[idx] == key:
-      if rv.vals.validity.isNil or rv.vals.valid(idx):
-        return rv.vals[idx]
-      return default(nimOf(ktVal))
+  when ktKey in DuckStringKind or ktKey in DuckBlobKind:
+    for j in 0 ..< n:
+      let idx = off + j
+      if borrowedMapKeyMatches[ktKey](rv.keys.borrow(idx), key):
+        if rv.vals.validity.isNil or rv.vals.valid(idx):
+          return rv.vals[idx]
+        return default(nimOf(ktVal))
+  else:
+    for j in 0 ..< n:
+      let idx = off + j
+      if (rv.keys.validity.isNil or rv.keys.valid(idx)) and rv.keys[idx] == key:
+        if rv.vals.validity.isNil or rv.vals.valid(idx):
+          return rv.vals[idx]
+        return default(nimOf(ktVal))
   return default(nimOf(ktVal))
 
 proc getOrDefault*[ktKey, ktVal: static DuckType](
@@ -1597,12 +1639,20 @@ proc getOrDefault*[ktKey, ktVal: static DuckType](
   ## Value for `key` in the MAP row, or `fallback` if absent.
   let off = rv.offset
   let n = rv.length
-  for j in 0 ..< n:
-    let idx = off + j
-    if (rv.keys.validity.isNil or rv.keys.valid(idx)) and rv.keys[idx] == key:
-      if rv.vals.validity.isNil or rv.vals.valid(idx):
-        return rv.vals[idx]
-      return fallback
+  when ktKey in DuckStringKind or ktKey in DuckBlobKind:
+    for j in 0 ..< n:
+      let idx = off + j
+      if borrowedMapKeyMatches[ktKey](rv.keys.borrow(idx), key):
+        if rv.vals.validity.isNil or rv.vals.valid(idx):
+          return rv.vals[idx]
+        return fallback
+  else:
+    for j in 0 ..< n:
+      let idx = off + j
+      if (rv.keys.validity.isNil or rv.keys.valid(idx)) and rv.keys[idx] == key:
+        if rv.vals.validity.isNil or rv.vals.valid(idx):
+          return rv.vals[idx]
+        return fallback
   return fallback
 
 proc borrowMap*[ktKey, ktVal: static DuckType](
@@ -1619,6 +1669,8 @@ proc `[]`*[ktKey, ktVal: static DuckType](
     mv: MapView[ktKey, ktVal], i: int): OrderedTable[nimOf(ktKey), nimOf(ktVal)] =
   ## MAP row `i` as an `OrderedTable` (allocates per row); NULL rows yield an
   ## empty table. Use `borrowMap` for zero-copy row access.
+  # bench_map/owning_lookup confirms one table and owned key/value payloads per
+  # row. Use borrowMap for repeated scans and lookups.
   if not mv.valid(i):
     return initOrderedTable[nimOf(ktKey), nimOf(ktVal)](0)
   let row = mv.borrowMap(i)
@@ -1676,6 +1728,8 @@ proc bindAs*[T](c: DataChunk, i: int, U: typedesc[seq[T]]): ListView[colDuckType
 proc borrowList*[kt: static DuckType](
     lv: ListView[kt], i: int): SliceView[kt] {.inline.} =
   ## Zero-copy view of LIST row `i` as a `SliceView` — no per-row allocation.
+  # This is the allocation-free path measured by
+  # bench_data_paths/nested_borrowed. The returned view borrows lv.child.
   doAssert i >= 0 and i < lv.length, "ListView index out of bounds: " & $i
   let (off, ln) = lv.parent.listEntry(i)
   result.vec = lv.child
@@ -1684,6 +1738,8 @@ proc borrowList*[kt: static DuckType](
 
 proc `[]`*[kt: static DuckType](lv: ListView[kt], i: int): seq[nimOf(kt)] =
   ## The list at row `i` as a `seq`; NULL rows yield an empty `seq`.
+  # Profiling hot path: this allocates one seq per valid row. Use borrowList
+  # when the caller can consume the child values before the chunk is released.
   if not lv.valid(i):
     return newSeq[nimOf(kt)](0)
   let slice = lv.borrowList(i)
@@ -1824,6 +1880,7 @@ proc toSeq*[kt: static DuckType](v: Vector[kt]): seq[nimOf(kt)] =
 iterator itemsOpt*[kt: static DuckType](v: Vector[kt]): Option[nimOf(kt)] =
   ## Null-preserving `items`: yields `some(v)` for valid rows and `none` for
   ## NULL rows, at no per-row allocation cost for primitive kinds.
+  # bench_data_paths/nullable_items is the allocation-free nullable scan.
   let n = v.length
   if v.validity.isNil:
     for i in 0 ..< n:
@@ -1834,13 +1891,52 @@ iterator itemsOpt*[kt: static DuckType](v: Vector[kt]): Option[nimOf(kt)] =
 
 proc toSeqOpt*[kt: static DuckType](v: Vector[kt]): seq[Option[nimOf(kt)]] =
   ## Null-preserving `toSeq`: NULL rows become `none(nimOf(kt))`.
+  # Profiling hot path: this allocates one result seq per bound chunk. Use
+  # itemsOpt when the caller does not need owned random-access storage.
   result = newSeq[Option[nimOf(kt)]](v.length)
-  if v.validity.isNil:
-    for i in 0 ..< v.length:
-      result[i] = some(v[i])
+  v.toSeqOptInto(result)
+
+proc toSeqOptInto*[kt: static DuckType](
+    v: Vector[kt], dest: var seq[Option[nimOf(kt)]]) =
+  ## Reuses `dest` storage for a null-preserving materialization.
+  dest.setLen(v.length)
+  when kt in DuckPrimitiveKind:
+    let data = cast[ptr UncheckedArray[nimOf(kt)]](v.data)
+    let validity = v.validity
+    if validity.isNil:
+      for i in 0 ..< v.length:
+        dest[i] = some(data[i])
+    else:
+      var word = 0'u64
+      for i in 0 ..< v.length:
+        if (i and 63) == 0:
+          word = validity[i shr 6]
+        if (word and (1'u64 shl (i and 63))) != 0:
+          dest[i] = some(data[i])
+        else:
+          dest[i] = none(nimOf(kt))
+  elif kt == DuckType.Boolean:
+    let data = cast[ptr UncheckedArray[uint8]](v.data)
+    let validity = v.validity
+    if validity.isNil:
+      for i in 0 ..< v.length:
+        dest[i] = some(bool(data[i]))
+    else:
+      var word = 0'u64
+      for i in 0 ..< v.length:
+        if (i and 63) == 0:
+          word = validity[i shr 6]
+        if (word and (1'u64 shl (i and 63))) != 0:
+          dest[i] = some(bool(data[i]))
+        else:
+          dest[i] = none(bool)
   else:
-    for i in 0 ..< v.length:
-      if v.valid(i): result[i] = some(v[i]) else: result[i] = none(nimOf(kt))
+    if v.validity.isNil:
+      for i in 0 ..< v.length:
+        dest[i] = some(v[i])
+    else:
+      for i in 0 ..< v.length:
+        if v.valid(i): dest[i] = some(v[i]) else: dest[i] = none(nimOf(kt))
 
 # ---------------------------------------------------------------------------
 # materialize — drain a streaming result into a materialized one

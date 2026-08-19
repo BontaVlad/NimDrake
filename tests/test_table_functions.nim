@@ -189,6 +189,10 @@ test "T11: tuple yields — anonymous tuple (int, string)":
 iterator namedTupleIter(n: int): tuple[idx: int, label: string] {.closure.} =
   for i in 0 ..< n: yield (idx: i, label: $i)
 
+iterator repeatedIntRows(n: int): tuple[left, right: int] {.closure.} =
+  for i in 0 ..< n:
+    yield (left: i, right: i + 1)
+
 test "T12: tuple yields — named tuple":
   let conn = newDatabase().connect()
   conn.registerTableFunction(namedTupleIter)
@@ -233,6 +237,42 @@ test "T14: projection pushdown — select single named col from tuple":
     for i in 0 ..< v.len:
       vs.add v[i]
   check vs == @["0", "1", "2", "3"]
+
+test "T14a: projection pushdown — reordered columns":
+  let conn = newDatabase().connect()
+  conn.registerTableFunction(tupleIter)
+  let r = conn.execute("SELECT col1, col0 FROM tupleIter(3)")
+  var vs: seq[string]
+  var vi: seq[int64]
+  for chunk in r:
+    let v0 = chunk.vector(0).bindAs DuckType.Varchar
+    let v1 = chunk.vector(1).bindAs DuckType.BigInt
+    for i in 0 ..< v0.len:
+      vs.add v0[i]
+      vi.add v1[i]
+  check vs == @["0", "1", "2"]
+  check vi == @[0'i64, 1, 2]
+
+test "T14c: projection pushdown — zero requested columns":
+  let conn = newDatabase().connect()
+  conn.registerTableFunction(tupleIter)
+  let r = conn.execute("SELECT count(*) FROM tupleIter(5)")
+  for chunk in r:
+    check chunk.bindAs(0, DuckType.BigInt)[0] == 5'i64
+
+test "T14b: repeated table-function queries keep ORC roots thread-local":
+  const Rows = 65_537
+  const Expected = Rows.int64 * Rows.int64
+  let conn = newDatabase().connect()
+  conn.registerTableFunction(repeatedIntRows)
+  for _ in 0 ..< 8:
+    let resultSet = conn.execute(
+      "SELECT sum(\"left\" + \"right\")::BIGINT " &
+      "FROM repeatedIntRows(" & $Rows & ")")
+    var value = 0'i64
+    for chunk in resultSet:
+      value = chunk.bindAs(0, DuckType.BigInt)[0]
+    check value == Expected
 
 # ── T15: column name for single-column = function name ───────────────────────
 test "T15: single-col result has function name as column name":

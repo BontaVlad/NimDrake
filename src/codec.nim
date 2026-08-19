@@ -220,6 +220,7 @@ proc fromDuckEnum*(data: pointer, i: int, kt: DuckType): uint {.inline.} =
   else:
     raise newException(ValueError, "enum kind not supported: " & $kt)
 
+proc appendDuckDecimal*(dest: var string, raw: Int128, scale: int8)
 proc formatDuckDecimal*(raw: Int128, scale: int8): string
 
 proc fromDuckDecimal*(scale, width: int8, data: pointer, i: int): DecimalType {.inline.} =
@@ -238,8 +239,8 @@ proc fromDuckDecimal*(scale, width: int8, data: pointer, i: int): DecimalType {.
     val = fromHugeInt(raw)
   newDecimal(formatDuckDecimal(val, scale))
 
-proc formatDuckDecimal*(raw: Int128, scale: int8): string =
-  ## Formats an unscaled DuckDB DECIMAL value without constructing DecimalType.
+proc appendDuckDecimal*(dest: var string, raw: Int128, scale: int8) =
+  ## Appends an unscaled DuckDB DECIMAL value without constructing DecimalType.
   ## The sign is applied to the complete magnitude, which preserves values
   ## between -1 and 0 that a whole/fraction split can otherwise misrender.
   doAssert scale >= 0, "decimal scale must not be negative"
@@ -250,19 +251,23 @@ proc formatDuckDecimal*(raw: Int128, scale: int8): string =
   let magnitude = if negative: -raw else: raw
   let whole = magnitude div factor
   let fractional = magnitude mod factor
-  result = newStringOfCap(32)
   if negative:
-    result.add '-'
-  result.add $whole
+    dest.add '-'
+  dest.add $whole
   if scale > 0:
-    var fractionalText = $fractional
-    if fractionalText.len < scale:
-      result.add '.'
-      for _ in 0 ..< scale - fractionalText.len:
-        result.add '0'
-    else:
-      result.add '.'
-    result.add fractionalText
+    dest.add '.'
+    var divisor = factor div i128(10)
+    var remainder = fractional
+    for _ in 0 ..< scale:
+      let digit = remainder div divisor
+      dest.add char(ord('0') + int(digit.lo))
+      remainder = remainder mod divisor
+      divisor = divisor div i128(10)
+
+proc formatDuckDecimal*(raw: Int128, scale: int8): string =
+  ## Formats an unscaled DuckDB DECIMAL value without constructing DecimalType.
+  result = newStringOfCap(32)
+  appendDuckDecimal(result, raw, scale)
 
 # ---------------------------------------------------------------------------
 # Inverse encoders — write path for Vector[kt][] =

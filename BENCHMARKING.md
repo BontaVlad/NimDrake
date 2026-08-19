@@ -163,6 +163,8 @@ Use the following profile-case names with Heaptrack or the FFI counter.
 
 | File | Profile cases |
 |---|---|
+| `bench_callbacks.nim` | `scalar_owning`, `scalar_borrowed`, `aggregate_builtin`, `aggregate_row`, `aggregate_vector`, `table_all_columns`, `table_projected` |
+| `bench_data_paths.nim` | `streaming_scan`, `nullable_items`, `nullable_bulk`, `nested_borrowed`, `nested_owning`, `table_random_access` |
 | `bench_pass1.nim` | `integer_scan`, `string_scan`, `chunk_build` |
 | `bench_map.nim` | `owning_lookup`, `borrowed_lookup`, `borrowed_iteration` |
 | `bench_nimvalue.nim` | `scalar_materialization`, `nested_materialization`, `nested_format` |
@@ -178,6 +180,14 @@ For vector benchmarks, compare `column_view` with `bind_typed` and
 `bind_from_chunk`, then compare `indexed_read`, `iterator_read`, and `bulk_read`
 to separate view setup from row access. Compare `string_read` with
 `string_borrow` when string materialization is part of the workload.
+
+For nullable bulk paths, compare `nullable_items` with `nullable_bulk`. The
+`toSeqOpt` path preserves NULL values but allocates its result sequence; use
+`toSeqOptInto` when a repeated scan can reuse a caller-owned destination. For
+LIST slices, `toSeqInto` provides the same reuse pattern. `TableVector` uses a
+validated direct chunk calculation for regular chunk layouts and falls back to
+offset binary search for irregular layouts; include both layouts when testing
+cross-chunk access.
 
 For a list benchmark, compare `owning_lookup` with `borrowed_lookup` or
 `borrowed_iteration`. For projection work, compare `one_column` with
@@ -616,3 +626,281 @@ Compare FFI JSON files with the Python difference command from Section 6.2.
 Run the Arrow commands separately when the change affects Arrow integration.
 
 Record the results in `OPTIMIZATION_PASS_2.md` after the measurements pass.
+
+## 12. Build a Full Activity Report
+
+Run every profile case with perf, Heaptrack, the FFI counter, and Samply.
+
+```text
+just benchmark-profile-suite
+```
+
+The command calibrates each perf and Samply run to approximately one second.
+It limits Heaptrack to 10 workload iterations and the FFI counter to 100.
+
+These limits serve different purposes:
+
+- Perf and Samply need enough runtime to collect a useful sample population.
+  The calibration target provides a similar sample budget for fast and slow
+  workloads.
+- Heaptrack records allocation events and call stacks. A large iteration count
+  creates a large trace and increases analysis time. Ten iterations provide a
+  repeatable differential allocation count for most workloads.
+- The FFI counter records integer call counts. It has low trace overhead, so
+  100 iterations reduce startup-count noise and make per-workload call counts
+  easier to measure.
+
+The harness runs one iteration and then a repeated run for Heaptrack and the
+FFI counter. It subtracts the one-iteration result from the repeated result.
+It divides the difference by the number of additional iterations. The report
+therefore shows calls or allocations for one workload, not process startup.
+
+The values are caps. If calibration selects fewer iterations, the harness uses
+that lower value. The FFI counter uses at least two iterations so that it can
+calculate a differential value.
+
+Increase these caps when a workload has very low allocation or FFI activity.
+Keep the same caps for the baseline and candidate when you compare revisions.
+
+The command attempts the optional Arrow benchmark. If Arrow is not available,
+the report records each Arrow case as skipped and includes the compiler error.
+
+Use an explicit output directory when you need a stable path.
+
+```text
+just benchmark-profile-suite profiles/full-activity
+```
+
+The output directory contains these files:
+
+```text
+ACTIVITY_REPORT.md
+summary.json
+bin/
+cases/BENCHMARK/CASE/perf.data
+cases/BENCHMARK/CASE/heaptrack*.zst
+cases/BENCHMARK/CASE/samply.json.gz
+```
+
+`ACTIVITY_REPORT.md` contains these sections:
+
+- CPU activity by Nim, DuckDB, Arrow, runtime, kernel, and unknown code.
+- The top Nim self-time symbols.
+- The top allocation sources for each workload iteration.
+- Differential FFI calls for each additional workload iteration.
+- Unresolved symbols that require more debug information.
+- An activity matrix for all profile cases.
+
+Use `summary.json` for additional analysis. The JSON file includes decoded perf
+reports, full Heaptrack reports, raw FFI counters, and decompressed Samply JSON.
+It also includes calibration data, tool paths, and paths to binary trace files.
+
+Run selected benchmark files during harness development.
+
+```text
+python3 benchmarks/profile_suite.py --bench bench_vector --bench bench_map
+```
+
+Use `--skip-arrow` when the optional Arrow stack is intentionally absent.
+Use `--target-seconds` to change the perf and Samply sample duration.
+
+Resume an interrupted run and keep all successful cases.
+
+```text
+python3 benchmarks/profile_suite.py \
+  --output profiles/full-activity \
+  --resume
+```
+
+## 13. Write a Matched Comparison Report
+
+Use a matched comparison when you need a before-and-after performance report.
+Build the baseline and candidate with the same compiler, flags, dependencies,
+workload, machine, and benchmark command.
+
+### 13.1 Match the Conditions
+
+Record these values before you run the comparison:
+
+| Setting | Baseline | Candidate |
+|---|---|---|
+| Revision | `BASELINE_REVISION` | `CANDIDATE_REVISION` |
+| Machine | `HOST` | `HOST` |
+| Nim version | `NIM_VERSION` | `NIM_VERSION` |
+| DuckDB version | `DUCKDB_VERSION` | `DUCKDB_VERSION` |
+| Build flags | `BUILD_FLAGS` | `BUILD_FLAGS` |
+| Benchmark file | `BENCHMARK_FILE` | `BENCHMARK_FILE` |
+| Profile case | `CASE_NAME` | `CASE_NAME` |
+| Workload iterations | `N` | `N` |
+| Heaptrack iterations | `N` | `N` |
+| FFI iterations | `N` | `N` |
+
+Do not compare a full profile with a selected profile as one result.
+Do not compare Criterion timing with profile-mode timing as one result.
+Do not change the workload size between the baseline and candidate runs.
+Do not use different Heaptrack or FFI iteration counts.
+
+Build each revision into a different directory. Keep both binaries available
+until the report is complete.
+
+### 13.2 Measure Timing
+
+Use a fixed profile case and a fixed iteration count for both binaries.
+Run one iteration to measure startup cost. Then run `N` iterations.
+Calculate the workload time with this formula:
+
+```text
+workload_time = (time_N - time_one) / (N - 1)
+```
+
+Repeat the pair at least seven times. Use the median of the adjusted values.
+Use the same sample count for the baseline and candidate.
+
+The profile command has this form:
+
+```text
+BINARY --profile-case CASE_NAME --iterations 1
+BINARY --profile-case CASE_NAME --iterations N
+```
+
+Run the commands once before you collect samples. This warm-up run removes
+first-run effects from compilation caches and shared-library loading.
+
+Calculate the timing change with this formula:
+
+```text
+timing_change_percent = (before - after) / before * 100
+```
+
+A positive timing change means that the candidate is faster.
+A negative timing change means that the candidate is slower.
+
+Report a change below five percent as `within measurement noise` unless the
+repeated samples show a clear and stable difference.
+
+### 13.3 Measure Allocations
+
+Run Heaptrack once with one iteration and once with `N` iterations for each
+binary.
+
+```text
+just benchmark-heaptrack benchmarks/bench_map.nim CASE_NAME 10
+```
+
+Subtract the one-iteration allocation count from the `N`-iteration count.
+Divide the result by `N - 1`.
+
+```text
+allocations_per_workload = (allocations_N - allocations_one) / (N - 1)
+```
+
+Use the same Heaptrack version for both revisions.
+Report total allocations and temporary allocations in separate tables.
+
+Do not report a small negative differential as a real negative allocation
+count. Treat it as zero and record that measurement noise affected the result.
+
+### 13.4 Measure FFI Calls
+
+Run the FFI counter with one iteration and with `N` iterations for each binary.
+
+```text
+just benchmark-ffi benchmarks/bench_map.nim CASE_NAME 100
+```
+
+Normalize each counter with this formula:
+
+```text
+ffi_calls_per_workload = (ffi_N - ffi_one) / (N - 1)
+```
+
+Report only counters that relate to the optimization. Include all counters
+when the change affects general binding or ownership behavior.
+
+FFI counts are structural evidence. They can prove that a code path performs
+fewer DuckDB calls even when total elapsed time does not change.
+
+### 13.5 Group the Report
+
+Group the result into four sections. Keep timing, allocation, and FFI evidence
+separate because each measure answers a different question.
+
+#### Timing
+
+Use one row for each measured workload:
+
+| Workload | Before | After | Change |
+|---|---:|---:|---:|
+| `WORKLOAD_NAME` | `X.XXX ms` | `Y.YYY ms` | `Z.Z% faster` |
+
+Use `slower` when the candidate time is higher. Use `unchanged` when the
+difference is within measurement noise.
+
+#### Allocations
+
+Use one row for total allocations and one row for temporary allocations when
+both values help explain the change:
+
+| Workload | Before | After | Change |
+|---|---:|---:|---:|
+| `WORKLOAD_NAME` allocations | `X.X/workload` | `Y.Y/workload` | `Z.Z% fewer` |
+| `WORKLOAD_NAME` temporary allocations | `X.X/workload` | `Y.Y/workload` | `Z.Z% fewer` |
+
+#### FFI Calls
+
+Use one row for each relevant FFI counter:
+
+| Workload | Before | After | Change |
+|---|---:|---:|---:|
+| `duckdb_data_chunk_get_vector` | `X.X/workload` | `Y.Y/workload` | `Z.Z% fewer` |
+
+#### Conclusion
+
+State the largest measured gain first. State allocation changes next. State
+structural FFI changes that do not change elapsed time. State paths that remain
+unchanged because their ownership contract requires allocation.
+
+Use this report order:
+
+```text
+Matched Conditions
+Timing
+Allocations
+FFI Calls
+Conclusion
+```
+
+### 13.6 Example Report
+
+The following example shows the required format. The values are examples only.
+
+**Timing**
+
+| Workload | Before | After | Change |
+|---|---:|---:|---:|
+| TableVector random access | 12.759 ms | 3.028 ms | 76.3% faster, about 4.2x |
+| Nullable bulk `toSeqOpt` | 0.465 ms | 0.480 ms | 3.3% slower, within noise |
+| Projected table function | 3.502 ms | 3.504 ms | Unchanged |
+
+**Allocations**
+
+| Workload | Before | After | Change |
+|---|---:|---:|---:|
+| Nullable bulk `toSeqOpt` | 130.0/workload | 64.3/workload | 50.5% fewer |
+| Projected table function | 1,311.7/workload | 1,053.0/workload | 19.7% fewer |
+| MAP owning materialization | 110,484.4/workload | 110,482.6/workload | Unchanged |
+
+**FFI Calls**
+
+| Workload | Before | After | Change |
+|---|---:|---:|---:|
+| Projected table function vector setup | 1,033/workload | 130/workload | 87.4% fewer, about 8x |
+| All-column table function vector setup | 1,033/workload | 1,033/workload | Unchanged |
+
+**Conclusion**
+
+Regular table indexing provides the largest timing gain. Nullable bulk copying
+cuts allocation activity but does not show a stable timing gain in this run.
+Projection reduces vector setup calls by about 8x, while DuckDB work keeps total
+table-function time nearly unchanged. MAP owning materialization remains
+allocation-heavy because it returns fully owned tables.
