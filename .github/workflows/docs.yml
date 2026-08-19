@@ -49,6 +49,9 @@ jobs:
           sudo apt-get install -y libpcre3
           nimble install -y --useSystemNim nimibook
 
+      - name: Install just
+        uses: extractions/setup-just@v2
+
       - name: Build cookbook (runs every snippet)
         run: just cookbook
 
