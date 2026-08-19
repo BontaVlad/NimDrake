@@ -205,6 +205,15 @@ proc `=destroy`(h: var DuckdbResultHandle) =
 proc `=wasMoved`(h: var DuckdbResultHandle) =
   h.raw.internal_data = nil
 
+## `DuckdbResultHandle` is move-only: the underlying `duckdb_result` has
+## single-ownership, so a bitwise copy would double-free on destruction.
+## The `{.error.}` hooks turn any accidental copy (or `=dup`) into a
+## compile-time error, matching the move-only convention already enforced
+## on `ChunkBuilder`. Transfer ownership via `takeHandle` / `sink` parameters
+## / `move` instead.
+proc `=copy`*(dest: var DuckdbResultHandle; src: DuckdbResultHandle) {.error.}
+proc `=dup`*(src: DuckdbResultHandle): DuckdbResultHandle {.error.}
+
 proc takeHandle*(q: sink QResult[Streaming]): DuckdbResultHandle =
   ## Moves the underlying duckdb_result handle out of `q`, neutering `q`'s
   ## `=destroy` so the handle is freed exactly once (by the returned handle).

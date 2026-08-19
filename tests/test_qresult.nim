@@ -402,7 +402,7 @@ suite "QResult zero-copy API":
     let duck = newDatabase().connect()
     var stmt = duck.newStatement("SELECT seq FROM generate_series(1, 5) AS t(seq)")
     var r = duck.executeStreaming(stmt)
-    let _: QResult[Streaming] = r
+    static: doAssert typeof(r) is QResult[Streaming]
     var sum = 0
     for chunk in r:
       let v = chunk.bindAs(0, DuckType.BigInt)
