@@ -482,9 +482,13 @@ proc valid*(v: ColumnView, i: int): bool {.inline.} =
   ## Whether row `i` is non-NULL (true when the validity mask is absent).
   v.validity.isNil or validBit(v.validity, i)
 
+template validAt*(v: untyped, i: untyped): bool =
+  ## Checks validity without copying a Vector view.
+  v.validity.isNil or validBit(v.validity, i)
+
 proc valid*[kt: static DuckType](v: Vector[kt], i: int): bool {.inline.} =
   ## Whether row `i` is non-NULL.
-  v.validity.isNil or validBit(v.validity, i)
+  validAt(v, i)
 
 proc setNullBit*(v: var ColumnView, i: int) {.inline.} =
   ## Marks row `i` as NULL, ensuring the validity mask is writable first.
@@ -741,60 +745,63 @@ proc `==`*(a, b: DuckStringRef): bool {.inline.} =
 # hot decimal columns use `borrowDecimal` to read the raw `(Int128, width,
 # scale)` triple without allocating.
 
-proc `[]`*[kt: static DuckType](v: Vector[kt], i: int): nimOf(kt) {.inline.} =
+proc readAt*[kt: static DuckType](v: ptr Vector[kt], i: int): nimOf(kt) {.inline.} =
   ## Element access: zero-copy for primitive/temporal/hugeint/enum/interval kinds
   ## (returns value types built from the raw buffer); VARCHAR/BIT/BLOB allocate
   ## and copy per row unless you use `borrow`. NULL rows yield
   ## `default(nimOf(kt))` / empty string / empty blob.
-  doAssert i >= 0 and i < v.length, "Vector index out of bounds: " & $i
+  doAssert i >= 0 and i < v[].length, "Vector index out of bounds: " & $i
   when kt in DuckStringKind or kt in DuckBlobKind:
     # DuckDB does not initialize the string_t cell of NULL rows; its length and
     # pointer fields are garbage. Dereferencing them wild-reads arbitrary
     # memory (crash under ASan). Read NULLs as empty values.
-    if not v.valid(i):
-      when kt in DuckStringKind:
-        return ""
-      else:
-        return @[]
+    if not validAt(v[], i):
+      return default(nimOf(kt))
   when kt in DuckPrimitiveKind:
-    cast[ptr UncheckedArray[nimOf(kt)]](v.data)[i]
+    cast[ptr UncheckedArray[nimOf(kt)]](v[].data)[i]
   elif kt == DuckType.Boolean:
-    bool(cast[ptr UncheckedArray[uint8]](v.data)[i])
+    bool(cast[ptr UncheckedArray[uint8]](v[].data)[i])
   elif kt in DuckStringKind:
-    decodeDuckString(addr cast[ptr UncheckedArray[duckdb_string_t]](v.data)[i])
+    decodeDuckString(addr cast[ptr UncheckedArray[duckdb_string_t]](v[].data)[i])
   elif kt in DuckBlobKind:
-    decodeDuckBlob(addr cast[ptr UncheckedArray[duckdb_string_t]](v.data)[i])
+    decodeDuckBlob(addr cast[ptr UncheckedArray[duckdb_string_t]](v[].data)[i])
   elif kt == DuckType.Timestamp:
-    fromTimestamp(cast[ptr UncheckedArray[int64]](v.data)[i])
+    fromTimestamp(cast[ptr UncheckedArray[int64]](v[].data)[i])
   elif kt == DuckType.TimestampS:
-    fromDuckTimestampS(cast[ptr UncheckedArray[int64]](v.data)[i])
+    fromDuckTimestampS(cast[ptr UncheckedArray[int64]](v[].data)[i])
   elif kt == DuckType.TimestampMs:
-    fromDuckTimestampMs(cast[ptr UncheckedArray[int64]](v.data)[i])
+    fromDuckTimestampMs(cast[ptr UncheckedArray[int64]](v[].data)[i])
   elif kt == DuckType.TimestampNs:
-    fromDuckTimestampNs(cast[ptr UncheckedArray[int64]](v.data)[i])
+    fromDuckTimestampNs(cast[ptr UncheckedArray[int64]](v[].data)[i])
   elif kt == DuckType.Date:
-    fromDuckDate(cast[ptr UncheckedArray[int32]](v.data)[i])
+    fromDuckDate(cast[ptr UncheckedArray[int32]](v[].data)[i])
   elif kt == DuckType.Time:
-    fromDuckTime(cast[ptr UncheckedArray[int64]](v.data)[i])
+    fromDuckTime(cast[ptr UncheckedArray[int64]](v[].data)[i])
   elif kt == DuckType.TimeTz:
-    fromDuckTimeTz(cast[ptr UncheckedArray[int64]](v.data)[i])
+    fromDuckTimeTz(cast[ptr UncheckedArray[int64]](v[].data)[i])
   elif kt == DuckType.TimestampTz:
-    fromDuckTimestampTz(cast[ptr UncheckedArray[int64]](v.data)[i])
+    fromDuckTimestampTz(cast[ptr UncheckedArray[int64]](v[].data)[i])
   elif kt == DuckType.HugeInt:
-    fromHugeInt(cast[ptr UncheckedArray[duckdb_hugeint]](v.data)[i])
+    fromHugeInt(cast[ptr UncheckedArray[duckdb_hugeint]](v[].data)[i])
   elif kt == DuckType.UHugeInt:
-    fromUHugeInt(cast[ptr UncheckedArray[duckdb_uhugeint]](v.data)[i])
+    fromUHugeInt(cast[ptr UncheckedArray[duckdb_uhugeint]](v[].data)[i])
   elif kt == DuckType.UUID:
-    fromDuckUuid(cast[ptr UncheckedArray[duckdb_hugeint]](v.data)[i])
+    fromDuckUuid(cast[ptr UncheckedArray[duckdb_hugeint]](v[].data)[i])
   elif kt == DuckType.Interval:
-    fromInterval(cast[ptr UncheckedArray[duckdb_interval]](v.data)[i])
+    fromInterval(cast[ptr UncheckedArray[duckdb_interval]](v[].data)[i])
   elif kt == DuckType.Decimal:
-    fromDuckDecimal(v.scale, v.width, v.data, i)
+    fromDuckDecimal(v[].scale, v[].width, v[].data, i)
   elif kt == DuckType.Enum:
-    fromDuckEnum(v.data, i, v.enumWidth)
+    fromDuckEnum(v[].data, i, v[].enumWidth)
   elif kt in DuckComplexKind:
     {.error: "Vector[" & $kt & "] does not support `[]`; use listChild/" &
             "structChild/mapEntriesChild/unionMemberChild descent procs".}
+
+proc `[]`*[kt: static DuckType](v: Vector[kt], i: int): nimOf(kt) {.inline.} =
+  ## Element access: zero-copy for primitive/temporal/hugeint/enum/interval kinds
+  ## (returns value types constructed from the raw buffer); VARCHAR/BIT/BLOB
+  ## allocate and copy per row unless `borrow` is used.
+  readAt[kt](addr v, i)
 
 # ---------------------------------------------------------------------------
 # Vector[kt] `[]=` — compile-time dispatch, zero-copy for primitives
@@ -977,15 +984,16 @@ proc append*[kt: static DuckType](
   doAssert col in 0 ..< b.colRows.len, "column out of range"
   doAssert b.colRows[col] < b.capacity, "chunk capacity exceeded"
   let row = b.colRows[col]
-  let cv = b.vectors[col]
+  let cv = addr b.vectors[col]
   when kt in DuckPrimitiveKind:
-    cast[ptr UncheckedArray[nimOf(kt)]](cv.data)[row] = val
+    cast[ptr UncheckedArray[nimOf(kt)]](cv[].data)[row] = val
   elif kt == DuckType.Boolean:
-    cast[ptr UncheckedArray[uint8]](cv.data)[row] = uint8(val)
+    cast[ptr UncheckedArray[uint8]](cv[].data)[row] = uint8(val)
   elif kt in DuckStringKind or kt in DuckBlobKind:
-    duckdb_vector_assign_string_element_len(cv.vec, row.idx_t, val.cstring, val.len.idx_t)
+    duckdb_vector_assign_string_element_len(
+      cv[].vec, row.idx_t, val.cstring, val.len.idx_t)
   else:
-    var w = cv.bindAs(kt)
+    var w = cv[].bindAs(kt)
     w[row] = val
   inc b.colRows[col]
 
@@ -1085,14 +1093,18 @@ macro newChunk*(pairs: varargs[typed]): untyped =
 # borrow() — non-allocating view for VARCHAR / Bit / Blob
 # ---------------------------------------------------------------------------
 
-proc borrow*[kt: static DuckType](v: Vector[kt], i: int): DuckStringRef {.inline.} =
-  ## Zero-copy view of a VARCHAR/BIT/BLOB cell; see `DuckStringRef`.
+proc borrowAt*[kt: static DuckType](v: ptr Vector[kt], i: int): DuckStringRef {.inline.} =
+  ## Creates a borrowed string/blob view without copying a Vector.
   when kt in DuckStringKind or kt in DuckBlobKind:
-    if not v.valid(i):
+    if not validAt(v[], i):
       return DuckStringRef(data: nil, length: 0)
-    borrow(addr cast[ptr UncheckedArray[duckdb_string_t]](v.data)[i])
+    borrow(addr cast[ptr UncheckedArray[duckdb_string_t]](v[].data)[i])
   else:
     {.error: "borrow() only defined for string/blob kinds; got " & $kt.}
+
+proc borrow*[kt: static DuckType](v: Vector[kt], i: int): DuckStringRef {.inline.} =
+  ## Zero-copy view of a VARCHAR/BIT/BLOB cell; see `DuckStringRef`.
+  borrowAt[kt](addr v, i)
 
 iterator borrowItems*[kt: static DuckType](v: Vector[kt]): DuckStringRef =
   ## Zero-copy bulk iteration for VARCHAR/BIT/BLOB columns.  Yields a
@@ -1301,8 +1313,8 @@ proc unionMemberChild*(v: Vector[DuckType.Union], j: int,
 
 type
   SliceView*[kt: static DuckType] = object ## Zero-copy window over a slice
-    ## of a child vector; valid for the lifetime of the view itself.
-    vec: Vector[kt]
+    ## of a child vector; valid while the parent view remains alive.
+    vec: ptr Vector[kt]
     offset*: int
     length*: int
 
@@ -1367,19 +1379,19 @@ proc valid*(av: ArrayView, i: int): bool {.inline.} =
 proc `[]`*[kt: static DuckType](sv: SliceView[kt], j: int): nimOf(kt) {.inline.} =
   ## Element `j` of the slice with the containing vector's `[]` semantics.
   doAssert j >= 0 and j < sv.length, "SliceView index out of bounds: " & $j
-  sv.vec[sv.offset + j]
+  readAt[kt](sv.vec, sv.offset + j)
 
 proc valid*[kt: static DuckType](sv: SliceView[kt], j: int): bool {.inline.} =
   ## Whether slice element `j` is non-NULL.
-  sv.vec.valid(sv.offset + j)
+  validAt(sv.vec[], sv.offset + j)
 
 iterator items*[kt: static DuckType](sv: SliceView[kt]): nimOf(kt) =
   ## Iterates slice elements; NULLs yield `default(nimOf(kt))`.
   let off = sv.offset
   let n = sv.length
   for j in 0 ..< n:
-    if sv.vec.validity.isNil or sv.vec.valid(off + j):
-      yield sv.vec[off + j]
+    if sv.vec[].validity.isNil or validAt(sv.vec[], off + j):
+      yield readAt[kt](sv.vec, off + j)
     else:
       yield default(nimOf(kt))
 
@@ -1390,8 +1402,8 @@ iterator borrowItems*[kt: static DuckType](sv: SliceView[kt]): DuckStringRef =
     let off = sv.offset
     let n = sv.length
     for j in 0 ..< n:
-      if sv.vec.validity.isNil or sv.vec.valid(off + j):
-        yield borrow(addr cast[ptr UncheckedArray[duckdb_string_t]](sv.vec.data)[off + j])
+      if sv.vec[].validity.isNil or validAt(sv.vec[], off + j):
+        yield borrow(addr cast[ptr UncheckedArray[duckdb_string_t]](sv.vec[].data)[off + j])
       else:
         yield DuckStringRef(data: nil, length: 0)
   else:
@@ -1403,20 +1415,20 @@ proc toSeqInto*[kt: static DuckType](
   dest.setLen(sv.length)
   let off = sv.offset
   when kt in DuckPrimitiveKind:
-    if sv.vec.validity.isNil and sv.length > 0:
+    if sv.vec[].validity.isNil and sv.length > 0:
       copyMem(addr dest[0],
-        cast[ptr UncheckedArray[nimOf(kt)]](sv.vec.data)[off].addr,
+        cast[ptr UncheckedArray[nimOf(kt)]](sv.vec[].data)[off].addr,
         sv.length * sizeof(nimOf(kt)))
       return
   elif kt == DuckType.Boolean:
-    if sv.vec.validity.isNil and sv.length > 0:
+    if sv.vec[].validity.isNil and sv.length > 0:
       copyMem(addr dest[0],
-        cast[ptr UncheckedArray[uint8]](sv.vec.data)[off].addr,
+        cast[ptr UncheckedArray[uint8]](sv.vec[].data)[off].addr,
         sv.length)
       return
   for j in 0 ..< sv.length:
-    if sv.vec.validity.isNil or sv.vec.valid(off + j):
-      dest[j] = sv.vec[off + j]
+    if sv.vec[].validity.isNil or validAt(sv.vec[], off + j):
+      dest[j] = readAt[kt](sv.vec, off + j)
     else:
       dest[j] = default(nimOf(kt))
 
@@ -1726,15 +1738,20 @@ proc bindAs*[T](c: DataChunk, i: int, U: typedesc[seq[T]]): ListView[colDuckType
   c.vector(i).bindAs(U)
 
 proc borrowList*[kt: static DuckType](
-    lv: ListView[kt], i: int): SliceView[kt] {.inline.} =
+    lv: ptr ListView[kt], i: int): SliceView[kt] {.inline.} =
   ## Zero-copy view of LIST row `i` as a `SliceView` — no per-row allocation.
   # This is the allocation-free path measured by
-  # bench_data_paths/nested_borrowed. The returned view borrows lv.child.
-  doAssert i >= 0 and i < lv.length, "ListView index out of bounds: " & $i
-  let (off, ln) = lv.parent.listEntry(i)
-  result.vec = lv.child
+  # bench_data_paths/nested_borrowed. The returned view borrows lv[].child.
+  doAssert i >= 0 and i < lv[].length, "ListView index out of bounds: " & $i
+  let (off, ln) = lv[].parent.listEntry(i)
+  result.vec = addr lv[].child
   result.offset = int(off)
   result.length = int(ln)
+
+template borrowList*[kt: static DuckType](
+    lv: ListView[kt], i: int): SliceView[kt] =
+  ## Borrows a list row from the caller-owned `ListView`.
+  borrowList[kt](addr lv, i)
 
 proc `[]`*[kt: static DuckType](lv: ListView[kt], i: int): seq[nimOf(kt)] =
   ## The list at row `i` as a `seq`; NULL rows yield an empty `seq`.
@@ -1793,12 +1810,17 @@ proc bindAsArray*(c: DataChunk, i: int, kt: static DuckType): ArrayView[kt] {.in
   c.vector(i).bindAsArray(kt)
 
 proc borrowArray*[kt: static DuckType](
-    av: ArrayView[kt], i: int): SliceView[kt] {.inline.} =
+    av: ptr ArrayView[kt], i: int): SliceView[kt] {.inline.} =
   ## Zero-copy view of the array element at row `i` as a fixed-width slice.
-  doAssert i >= 0 and i < av.length, "ArrayView index out of bounds: " & $i
-  result.vec = av.child
-  result.offset = i * av.arraySize
-  result.length = av.arraySize
+  doAssert i >= 0 and i < av[].length, "ArrayView index out of bounds: " & $i
+  result.vec = addr av[].child
+  result.offset = i * av[].arraySize
+  result.length = av[].arraySize
+
+template borrowArray*[kt: static DuckType](
+    av: ArrayView[kt], i: int): SliceView[kt] =
+  ## Borrows an array row from the caller-owned `ArrayView`.
+  borrowArray[kt](addr av, i)
 
 proc `[]`*[kt: static DuckType](av: ArrayView[kt], i: int): seq[nimOf(kt)] =
   ## The array at row `i` as a `seq`; NULL rows yield an empty `seq`.

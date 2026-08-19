@@ -113,36 +113,36 @@ proc `[]`*[kt: static DuckType](v: TableVector[kt], i: int): nimOf(kt) {.inline.
   ## Global-index element access with the `qresult` `[]` semantics: NULL rows
   ## yield `default(nimOf(kt))`. Raises `IndexDefect` out of range.
   let (ci, off) = v.t.chunkPosition(i)
-  let vec = v.views[ci]
-  if vec.valid(off):
-    vec[off]
+  let vec = addr v.views[ci]
+  if validAt(vec[], off):
+    readAt[kt](vec, off)
   else:
     default(nimOf(kt))
 
 iterator items*[kt: static DuckType](v: TableVector[kt]): nimOf(kt) =
   ## Iterates rows top to bottom; NULL rows yield `default(nimOf(kt))`.
   for ci in 0 ..< v.t.q.chunks.len:
-    let vec = v.views[ci]
-    for j in 0 ..< vec.len:
-      if vec.valid(j): yield vec[j]
+    let vec = addr v.views[ci]
+    for j in 0 ..< vec[].length:
+      if validAt(vec[], j): yield readAt[kt](vec, j)
       else: yield default(nimOf(kt))
 
 proc toSeq*[kt: static DuckType](v: TableVector[kt]): seq[nimOf(kt)] =
   ## Materializes the whole column; NULL rows become `default(nimOf(kt))`.
   result = newSeqOfCap[nimOf(kt)](v.len)
   for ci in 0 ..< v.t.q.chunks.len:
-    let vec = v.views[ci]
-    for li in 0 ..< vec.len:
-      if vec.valid(li): result.add vec[li]
+    let vec = addr v.views[ci]
+    for li in 0 ..< vec[].length:
+      if validAt(vec[], li): result.add readAt[kt](vec, li)
       else: result.add default(nimOf(kt))
 
 proc borrow*[kt: static DuckType](v: TableVector[kt], i: int): DuckStringRef {.inline.} =
   ## Zero-copy borrowed view of the cell at global index `i` (varchar/blob);
   ## the borrowed pointer stays valid while the table is alive.
   let (ci, off) = v.t.chunkPosition(i)
-  v.views[ci].borrow(off)
+  borrowAt[kt](addr v.views[ci], off)
 
 proc valid*[kt: static DuckType](v: TableVector[kt], i: int): bool {.inline.} =
   ## Whether the cell at global index `i` is non-NULL.
   let (ci, off) = v.t.chunkPosition(i)
-  v.views[ci].valid(off)
+  validAt((addr v.views[ci])[], off)
