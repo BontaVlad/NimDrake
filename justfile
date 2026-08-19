@@ -166,6 +166,40 @@ benchmark-heaptrack target case iterations="100":
     python3 "{{bench_root}}/heaptrack_summary.py" "$trace.txt" --output "$trace.json"
     echo "Heaptrack trace: $trace"
 
+# Record a samply CPU profile of one Criterion benchmark or unittest2 test run.
+# `target` is a benchmark or test file; optional `pattern` is the unittest2
+# test-name glob passed to the binary as a single argument.
+# Example: `just samply benchmarks/bench_map.nim`,
+# `just samply tests/test_dsl_complex.nim "samply workload*"`.
+samply target pattern="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    samply_bin=""
+    if command -v samply >/dev/null 2>&1; then
+        samply_bin="$(command -v samply)"
+    elif [[ -x "$HOME/.cargo/bin/samply" ]]; then
+        samply_bin="$HOME/.cargo/bin/samply"
+    else
+        echo "samply is required" >&2
+        echo "hint: install it with: cargo install samply" >&2
+        exit 127
+    fi
+    file="{{target}}"
+    [[ -f "$file" ]] || { echo "benchmark file not found: $file" >&2; exit 2; }
+    mkdir -p "{{bench_out}}" "{{profile_out}}"
+    name="$(basename "$file" .nim)"
+    binary="{{bench_out}}/$name"
+    nim c --verbosity:0 --hints:off -d:release -d:samply --opt:speed --mm:orc -d:useMalloc \
+        --debuginfo:on --passC:-g --passC:-fno-omit-frame-pointer \
+        --passL:-g -o:"$binary" "$file"
+    output="{{profile_out}}/${name}-$(date +%Y%m%d_%H%M%S).json.gz"
+    if [[ -n "{{pattern}}" ]]; then
+        "$samply_bin" record -o "$output" -- "$binary" '{{pattern}}'
+    else
+        "$samply_bin" record -o "$output" -- "$binary"
+    fi
+    echo "Samply profile: $output"
+
 # Count selected DuckDB FFI calls for one deterministic profile case.
 benchmark-ffi target case iterations="100":
     #!/usr/bin/env bash

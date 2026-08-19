@@ -659,6 +659,120 @@ The values are caps. If calibration selects fewer iterations, the harness uses
 that lower value. The FFI counter uses at least two iterations so that it can
 calculate a differential value.
 
+### 12.1 Add Custom Samply Markers
+
+Use `src/samplyprofiler.nim` to add named interval markers to a Samply profile.
+The module is enabled only by `-d:samply`. In normal builds, the `profile`
+template expands to its body and emits no marker file.
+
+The thread-local `profile "name":` template initializes the profiler on first
+use in each thread, so the marker file attaches to whichever thread actually
+runs the profiled scope. Call `closeThreadProfiler` once at the end of the
+thread that owns the workload:
+
+```nim
+import ../src/samplyprofiler
+
+profile "execute-query":
+  let result = connection.execute(sql)
+  consume(result)
+
+closeThreadProfiler()
+```
+
+At module scope, call `closeThreadProfiler` explicitly at the end of the file.
+`defer` is not supported at module scope; inside a `proc`, this form works:
+
+```nim
+proc run() =
+  defer: closeThreadProfiler()
+  profile "execute-query":
+    let result = connection.execute(sql)
+    consume(result)
+```
+
+To initialize with non-default options (for example `PerProcess` mode), call
+`initThreadProfiler` explicitly before the first `profile` block; the explicit
+call replaces the automatic one.
+
+For an explicit profiler, use the overload that receives the profiler first:
+
+```nim
+var profiler = initSamplyProfiler(PerThread)
+defer: profiler.close()
+
+profile(profiler, "parse-request"):
+  let request = parseRequest(input)
+  validateRequest(request)
+```
+
+Scopes can be nested. Each scope closes its own interval in a `finally` block,
+so the inner marker is completed before the outer marker. This also records a
+closed interval when the scoped body raises an exception:
+
+```nim
+profile(profiler, "query-pipeline"):
+  profile(profiler, "parse"):
+    parse(sql)
+  profile(profiler, "plan"):
+    buildPlan()
+  profile(profiler, "execute"):
+    executePlan()
+```
+
+Use `begin` and `finish` when the interval does not match one lexical block:
+
+```nim
+let start = profiler.begin("stream rows")
+for row in scanRows():
+  consume(row)
+profiler.finish(start, "stream rows")
+```
+
+The default `PerThread` mode writes `marker-<pid>-<tid>.txt`. Samply uses the
+mapping event for that file to associate markers with the correct thread.
+`PerProcess` writes `marker-<pid>.txt` and is appropriate when one thread owns
+the profiler:
+
+```nim
+var profiler = initSamplyProfiler(PerProcess)
+defer: profiler.close()
+profile(profiler, "single-threaded workload"):
+  runWorkload()
+```
+
+The file is created in the working directory. When that directory cannot host
+a writable shared memory mapping (for example a Windows drive accessed from
+WSL), the module falls back to the system temp directory automatically; read
+`profiler.path` if you need the actual location. On `close`, the mapping is
+flushed (`msync` + `munmap`) and the file is trimmed to the marker bytes
+(`ftruncate`); on abrupt exit the OS still writes back `MAP_SHARED` pages,
+so markers are not lost, only the trim is skipped.
+
+Build the instrumented binary and record it with Samply:
+
+```text
+nim c -d:release -d:samply -o:myapp src/myapp.nim
+samply record ./myapp
+```
+
+The repository recipe adds `-d:samply` automatically:
+
+```text
+just samply tests/test_dsl_complex.nim "samply workload*"
+```
+
+Each completed interval is stored as one line with monotonic nanoseconds:
+
+```text
+<start_ns> <end_ns> <name>
+```
+
+Names may contain spaces. Newline characters in names are replaced with spaces
+to preserve the line format. Samply's external marker-file support is unstable,
+so treat this file format as an integration detail rather than a public data
+format.
+
 Increase these caps when a workload has very low allocation or FFI activity.
 Keep the same caps for the baseline and candidate when you compare revisions.
 

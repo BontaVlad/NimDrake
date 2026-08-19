@@ -28,11 +28,13 @@
 ## connection, so each test seeds its own dbgen dataset (cheap at sf=0.01).
 ## Expected values were captured against DuckDB 1.5.4 + tpch at sf=0.01.
 
-import std/[algorithm, sequtils, strutils]
+import std/[algorithm, sequtils, strutils, strformat]
 import unittest2
 import decimal
 import ../src/nimdrake
 import nimdrake/dsl/queries
+import ../src/samplyprofiler
+
 
 proc freshCon(): Connection =
   result = newDatabase().connect()
@@ -291,3 +293,81 @@ suite "NimDrake DSL — TPC-H complex queries":
       where r_regionkey == ?(0)
     check res.len == 1
     check strs(res)[0].startsWith("AFRICA, ")
+
+  test "samply workload: sf=1.0 dbgen, Q1-style aggregate, streaming scan":
+    ## Heavy, deterministic workload (~10s+ at release speed) so samply has a
+    ## stable window to sample. Data is generated in-memory with
+    ## `CALL dbgen(sf = 1.0)` (~8.66M rows total): customer(150000),
+    ## lineitem(6.0M), nation(25), orders(1.5M), part(200000),
+    ## partsupp(800000), region(5), supplier(10000).
+    let con = newDatabase().connect()
+    con.execute("INSTALL tpch")
+    con.execute("LOAD tpch")
+    con.execute("CALL dbgen(sf = 1.0)")
+
+    let created = con.execute(
+      "SELECT (SELECT count(*) FROM customer) + (SELECT count(*) FROM lineitem) + " &
+      "(SELECT count(*) FROM nation) + (SELECT count(*) FROM orders) + " &
+      "(SELECT count(*) FROM part) + (SELECT count(*) FROM partsupp) + " &
+      "(SELECT count(*) FROM region) + (SELECT count(*) FROM supplier)")
+    let nCreated = created.scalar(DuckType.BigInt)
+    echo "samply workload rows: ", nCreated
+    check nCreated == 8_661_245  # captured against DuckDB 1.5.4 + tpch at sf=1.0
+
+    # Q1-style grouped aggregate over lineitem, delivered chunk by chunk.
+    # The DECIMAL sums are CAST to BIGINT * 100 so the values arrive as
+    # primitive integers (scale-2 cents) instead of Decimal objects.
+    let aggregate = con.newStatement(
+      "SELECT l_returnflag, l_linestatus, " &
+      "CAST(SUM(l_quantity) * 100 AS BIGINT) AS sum_qty_cents, " &
+      "CAST(AVG(l_quantity) * 100 AS BIGINT) AS avg_qty_cents, " &
+      "count(l_orderkey) AS count_order " &
+      "FROM lineitem WHERE l_shipdate <= DATE '1998-09-02' " &
+      "GROUP BY l_returnflag, l_linestatus ORDER BY l_returnflag")
+    var buckets = 0
+    var filterRows = 0'i64
+    var sumQty = 0'i64
+    let aggregateStream = con.executeStreaming(aggregate)
+    for chunk in aggregateStream:
+      let counts = chunk.bindAs(4, DuckType.Bigint)
+      let quantities = chunk.bindAs(2, DuckType.Bigint)
+      for i in 0 ..< counts.len:
+        inc buckets
+        filterRows += counts[i]
+        sumQty += quantities[i]
+    echo "Q1-style buckets: ", buckets, ", rows past filter: ", filterRows,
+         ", sum(l_quantity) cents: ", sumQty
+    check buckets == 4
+    check filterRows == 5_916_591  # captured against DuckDB 1.5.4 at sf=1.0
+    check sumQty == 15_092_131_700  # 150921317.00 * 100, DuckDB 1.5.4
+
+    # Consume the full filtered projection row by row through a streaming
+    # result. The DECIMAL column is CAST to BIGINT * 100 (cents) so the loop
+    # is plain int64 arithmetic — this is what samply should sample. Run
+    # twice so the workload lasts long enough to sample.
+    let scan = con.newStatement(
+      "SELECT CAST(l_extendedprice * 100 AS BIGINT), CAST(l_quantity AS BIGINT) " &
+      "FROM lineitem WHERE l_shipdate <= DATE '1998-09-02'")
+    var scanned = 0'i64
+    var scanQty = 0'i64
+    var scanPrice = 0'i64
+    for pass in 1 .. 2:
+      profile "Executing query":
+        let scanStream = con.executeStreaming(scan)
+        var chunkN = 0
+        for chunk in scanStream:
+          profile fmt"Parsing chunk {chunkN}":
+            let prices = chunk.bindAs(0, DuckType.Bigint)
+            let quantities = chunk.bindAs(1, DuckType.Bigint)
+            for i in 0 ..< prices.len:
+              inc scanned
+              scanQty += quantities[i]
+              scanPrice += prices[i]
+            chunkN += 1
+    echo "streamed rows (2 passes): ", scanned, ", sum(l_quantity): ", scanQty,
+         ", sum(l_extendedprice) cents: ", scanPrice
+    check scanned == 2 * filterRows
+    check scanQty == 2 * 150_921_317
+    check scanPrice == 45_268_766_037_950  # 452687660379.50 * 100, DuckDB 1.5.4
+
+closeThreadProfiler()
