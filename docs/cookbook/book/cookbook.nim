@@ -45,13 +45,16 @@ When a recipe uses `con`, it means a live connection created with this pattern.
 
 ## Contents
 
-* [Database and Connections](database_and_connections.html)
-* [Query Execution](query_execution.html)
-* [Working with Results](working_with_results.html)
-* [Prepared Statements](prepared_statements.html)
-* [Bulk Insert with Appender](bulk_insert.html)
-* [User-Defined Functions](user_defined_functions.html)
-* [Complex Types](complex_types.html)
-* [Arrow Results](arrow_results.html)
+* [Basics](basics/index.html)
+  * [Database and Connections](basics/database_and_connections.html)
+  * [Query Execution](basics/query_execution.html)
+  * [Working with Results](basics/working_with_results.html)
+* [Advanced Recipes](advanced/index.html)
+  * [Prepared Statements](advanced/prepared_statements.html)
+  * [Bulk Insert with Appender](advanced/bulk_insert.html)
+  * [User-Defined Functions](advanced/user_defined_functions.html)
+* [Data Types](datatypes/index.html)
+  * [Complex Types](datatypes/complex_types.html)
+  * [Arrow Results](datatypes/arrow_results.html)
 """
 nbSave

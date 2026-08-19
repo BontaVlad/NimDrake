@@ -4,10 +4,10 @@ htmldocs/
 docs/*
 !docs/cookbook/
 !docs/index.html
-docs/cookbook/*.html
+docs/cookbook/**/*.html
 docs/cookbook/assets/
 docs/cookbook/book.json
-docs/cookbook/*.log
+docs/cookbook/**/*.log
 testresults/
 src/nimdrake
 !src/nimdrake/

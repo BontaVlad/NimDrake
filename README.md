@@ -241,7 +241,7 @@ echo con.execute("SELECT * FROM countToN(5)")
 
 Use named tuples for table functions with multiple output columns. Use
 `Option[T]` parameters or return values for nullable values. See the
-[user-defined functions cookbook](https://bontavlad.github.io/NimDrake/cookbook/user_defined_functions.html)
+[user-defined functions cookbook](https://bontavlad.github.io/NimDrake/cookbook/advanced/user_defined_functions.html)
 for more examples.
 
 ## Query DSL
@@ -261,7 +261,7 @@ let result = query(con):
   where t1.id == ?(1)
 ```
 
-The [query execution cookbook](https://bontavlad.github.io/NimDrake/cookbook/query_execution.html)
+The [query execution cookbook](https://bontavlad.github.io/NimDrake/cookbook/basics/query_execution.html)
 documents inserts, updates, deletes, grouping, joins, parameters, and raw SQL
 splices.
 
@@ -293,7 +293,7 @@ The views keep access to DuckDB's result buffers. Reading a complete row into a
 Nim container allocates that container; `borrowList`, `borrowMap`, and
 `borrowArray` provide allocation-free row views.
 
-See the [complex types cookbook](https://bontavlad.github.io/NimDrake/cookbook/complex_types.html)
+See the [complex types cookbook](https://bontavlad.github.io/NimDrake/cookbook/datatypes/complex_types.html)
 and the [API reference](https://bontavlad.github.io/NimDrake/theindex.html) for
 the complete type and operation mapping.
 
@@ -311,7 +311,7 @@ for batch in result.toArrowStream():
 ```
 
 See [Optional Arrow support](#optional-arrow-support) for installation
-requirements and the [Arrow results cookbook](https://bontavlad.github.io/NimDrake/cookbook/arrow_results.html)
+requirements and the [Arrow results cookbook](https://bontavlad.github.io/NimDrake/cookbook/datatypes/arrow_results.html)
 for streaming, materialized tables, and Arrow-to-DuckDB round trips.
 
 ## Documentation
