@@ -50,10 +50,7 @@ jobs:
           nimble install -y --useSystemNim nimibook
 
       - name: Build cookbook (runs every snippet)
-        working-directory: docs/cookbook
-        run: |
-          nim r nbook.nim init
-          nim r nbook.nim build --mm:arc
+        run: just cookbook
 
       - name: Generate API docs
         run: |
