@@ -120,7 +120,7 @@ type
   DataChunkObj = object of RootObj
     nonOwning: bool
     handle: duckdb_data_chunk
-    meta: ChunkMeta
+    meta*: ChunkMeta
     size: int
 
   DataChunk* = ref DataChunkObj ## One DuckDB chunk: a fixed-size block of
