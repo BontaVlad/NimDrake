@@ -1,7 +1,7 @@
 ## Low-overhead custom interval markers for the Samply profiler.
 ##
 ## Build the program with `-d:samply` to enable marker output. Without that
-## define, `profile` expands to its body and `initSamplyProfiler` is disabled.
+## define, `marker` expands to its body and `initSamplyProfiler` is disabled.
 ## On Linux, Samply discovers marker files from mmap events, so this module
 ## keeps the marker file mapped for the lifetime of the profiler. The marker
 ## file is created in the working directory, or in the system temp directory
@@ -302,15 +302,15 @@ proc finish*(p: var SamplyProfiler, start: uint64, name: string) {.inline.} =
     inc position
     p.length = position
 
-template profile*(p: var SamplyProfiler, name: string, body: untyped) =
-  ## Profiles a lexical scope. Nested scopes and exceptions are supported.
+template marker*(p: var SamplyProfiler, name: string, body: untyped) =
+  ## Marks a lexical scope. Nested scopes and exceptions are supported.
   when defined(samply):
     if p.enabled:
-      let profileStart = p.begin(name)
+      let markerStart = p.begin(name)
       try:
         body
       finally:
-        p.finish(profileStart, name)
+        p.finish(markerStart, name)
     else:
       body
   else:
@@ -321,9 +321,9 @@ var threadProfilerInit {.threadvar.}: bool
 
 proc initThreadProfiler*(mode = PerThread,
                          initialCapacity = 64 * 1024) =
-  ## Initializes the profiler used by `profile "name": ...` in this thread.
-  ## Called automatically on first use of the `profile "name"` template, so
-  ## markers attach to whichever thread actually runs the profiled scope.
+  ## Initializes the profiler used by `marker "name": ...` in this thread.
+  ## Called automatically on first use of the `marker "name"` template, so
+  ## markers attach to whichever thread actually runs the marked scope.
   close(threadProfiler)
   threadProfiler = initSamplyProfiler(mode, initialCapacity)
   threadProfilerInit = true
@@ -337,14 +337,14 @@ proc flushThreadProfiler*() =
   ## Flushes the current thread's marker mapping.
   flush(threadProfiler)
 
-template profile*(name: string, body: untyped) =
-  ## Profiles a scope with the current thread's profiler. The profiler is
+template marker*(name: string, body: untyped) =
+  ## Marks a scope with the current thread's profiler. The profiler is
   ## initialized on first use in each thread, so the marker file attaches to
   ## the thread that runs this scope.
   when defined(samply):
     if not threadProfilerInit:
       initThreadProfiler()
-    profile(threadProfiler, name):
+    marker(threadProfiler, name):
       body
   else:
     body
