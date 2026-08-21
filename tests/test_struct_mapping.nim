@@ -141,3 +141,4 @@ suite "Test struct_mapping — seq[Object] via ToSeq":
     let users = res.toSeq(User)
     check users.len == 1
     check users[0].homeAddress == "p1"
+    check users[0].age == 99

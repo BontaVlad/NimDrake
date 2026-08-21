@@ -96,6 +96,15 @@ proc logicalTypeForImpl[T](_: typedesc[T]): LogicalType =
       logicalTypeFor(InnerOpt)
     else:
       {.error: "logicalTypeFor: cannot unwrap Option type " & $T.}
+  elif T is enum:
+    # Build ENUM logical type from Nim enum labels
+    var labels: seq[string] = @[]
+    for v in low(T)..high(T):
+      labels.add($v)
+    var cstrs = newSeq[cstring](labels.len)
+    for i, s in labels: cstrs[i] = s.cstring
+    let raw = duckdb_create_enum_type(addr cstrs[0], labels.len.idx_t)
+    newLogicalType(raw)
   elif T is object or T is tuple:
     structLogicalType(T)
   else:
@@ -184,6 +193,11 @@ proc sqlTypeForImpl[T](_: typedesc[T]): string =
       sqlTypeFor(InnerOpt)
     else:
       {.error: "sqlTypeFor Option unwrap failed " & $T.}
+  elif T is enum:
+    var labels: seq[string] = @[]
+    for v in low(T)..high(T):
+      labels.add("'" & ($v).replace("'", "''") & "'")
+    "ENUM (" & labels.join(", ") & ")"
   elif T is object or T is tuple:
     var dummy: T
     var parts: seq[string] = @[]
@@ -302,6 +316,17 @@ proc decodeField*(dst: var TimeInterval, cv: ColumnView, row: int) =
   if not cv.valid(row): raise newException(ValueError, "NULL in non-optional Interval field")
   dst = cv.bindAs(DuckType.Interval)[row]
 
+proc decodeField*[T: enum](dst: var T, cv: ColumnView, row: int) =
+  if not cv.valid(row):
+    raise newException(ValueError, "NULL in non-optional ENUM field")
+  if cv.kind != DuckType.Enum:
+    raise newException(ValueError, "expected ENUM for enum field, got " & $cv.kind)
+  let v = cv.bindAs(DuckType.Enum)
+  let idx = v[row].int
+  if idx < ord(low(T)) or idx > ord(high(T)):
+    raise newException(ValueError, "enum index out of range: " & $idx & " for " & $T)
+  dst = T(idx)
+
 proc decodeField*(dst: var seq[byte], cv: ColumnView, row: int) =
   if not cv.valid(row): raise newException(ValueError, "NULL in non-optional BLOB field")
   dst = cv.bindAs(DuckType.Blob)[row]
@@ -369,6 +394,35 @@ proc toSeq*[T: object](r: QResult[Materialized], _: typedesc[T]): seq[T] =
   var dummy: T
   for fname, _ in fieldPairs(dummy):
     fieldToCol[fname] = colMapLower.getOrDefault(fname.toLowerAscii, -1)
+  # Fallback: single STRUCT column containing all fields (e.g., SELECT data FROM t WHERE data is STRUCT)
+  var useSingleStruct = false
+  if meta.columns.len == 1 and meta.columns[0].kind == DuckType.Struct:
+    var allMissing = true
+    for v in fieldToCol.values:
+      if v != -1: allMissing = false
+    if allMissing:
+      let ltype = meta.columns[0].ltype
+      if ltype.childNames != nil:
+        var childMap = initTable[string,int]()
+        for i, n in ltype.childNames[]:
+          childMap[n.toLowerAscii] = i
+        var canDecode = true
+        for fname, _ in fieldPairs(dummy):
+          if not childMap.hasKey(fname.toLowerAscii):
+            canDecode = false
+        if canDecode:
+          useSingleStruct = true
+  if useSingleStruct:
+    for chunk in r:
+      for row in 0..<chunk.len:
+        var obj: T
+        let cv = chunk.vector(0)
+        decodeField(obj, cv, row)
+        result[idx] = obj
+        inc idx
+    if idx != result.len:
+      result.setLen(idx)
+    return
   for chunk in r:
     for row in 0..<chunk.len:
       var obj: T
@@ -402,6 +456,28 @@ proc toSeq*[T: object](chunk: DataChunk, _: typedesc[T]): seq[T] =
   var dummy: T
   for fname, _ in fieldPairs(dummy):
     fieldToCol[fname] = colMapLower.getOrDefault(fname.toLowerAscii, -1)
+  # Single-STRUCT fallback (same logic as QResult version)
+  if meta.columns.len == 1 and meta.columns[0].kind == DuckType.Struct:
+    var allMissing = true
+    for v in fieldToCol.values:
+      if v != -1: allMissing = false
+    if allMissing and meta.columns[0].ltype.childNames != nil:
+      var childMap = initTable[string,int]()
+      for i, n in meta.columns[0].ltype.childNames[]:
+        childMap[n.toLowerAscii] = i
+      var canDecode = true
+      for fname, _ in fieldPairs(dummy):
+        if not childMap.hasKey(fname.toLowerAscii):
+          canDecode = false
+      if canDecode:
+        var idx2 = 0
+        for row in 0..<chunk.len:
+          var obj: T
+          let cv = chunk.vector(0)
+          decodeField(obj, cv, row)
+          result[idx2] = obj
+          inc idx2
+        return
   var idx = 0
   for row in 0..<chunk.len:
     var obj: T
@@ -495,9 +571,113 @@ proc createType*[T: tuple](con: Connection, _: typedesc[T],
   discard con.execute(finalDdl)
 
 proc registerType*[T: object](con: Connection, _: typedesc[T],
-                              typeName: string = $T, orReplace = false): LogicalType {.inline.} =
+                               typeName: string = $T, orReplace = false): LogicalType {.inline.} =
   ## Alias for `createType`.
   con.createType(T, typeName, orReplace)
+
+proc createEnumType*[T: enum](con: Connection, _: typedesc[T],
+                               typeName: string = $T, orReplace = false): LogicalType =
+  ## Creates an ENUM type from a Nim enum's labels.
+  ## Example: `type Mood = enum happy, sad, curious` → `CREATE TYPE mood AS ENUM ('happy','sad','curious')`
+  var labels: seq[string] = @[]
+  for v in low(T)..high(T):
+    labels.add("'" & ($v).replace("'", "''") & "'")
+  let ddl = "CREATE TYPE " & quoteIdent(typeName) & " AS ENUM (" & labels.join(", ") & ")"
+  let finalDdl = if orReplace: ddl.replace("CREATE TYPE", "CREATE OR REPLACE TYPE") else: ddl
+  if not orReplace:
+    let exists = con.execute(
+      "SELECT 1 FROM duckdb_types() WHERE lower(type_name) = lower('" & typeName.replace("'", "''") & "') LIMIT 1"
+    )
+    var has = false
+    for ch in exists:
+      if ch.len > 0: has = true
+    if has:
+      raise newException(OperationError, "Type already exists: " & typeName & " (use orReplace=true)")
+  discard con.execute(finalDdl)
+  # Build logical type for return (dictionary)
+  var cstrs: seq[string] = @[]
+  for v in low(T)..high(T): cstrs.add($v)
+  var cptrs = newSeq[cstring](cstrs.len)
+  for i, s in cstrs: cptrs[i] = s.cstring
+  let raw = duckdb_create_enum_type(addr cptrs[0], cstrs.len.idx_t)
+  result = newLogicalType(raw)
+
+proc createAliasType*(con: Connection, aliasName: string, baseType: string,
+                      orReplace = false): LogicalType =
+  ## Creates a type alias: `CREATE TYPE alias AS baseType`
+  ## Example: `createAliasType(con, "x_index", "INTEGER")`
+  let ddl = "CREATE TYPE " & quoteIdent(aliasName) & " AS " & baseType
+  let finalDdl = if orReplace: ddl.replace("CREATE TYPE", "CREATE OR REPLACE TYPE") else: ddl
+  if not orReplace:
+    let exists = con.execute(
+      "SELECT 1 FROM duckdb_types() WHERE lower(type_name) = lower('" & aliasName.replace("'", "''") & "') LIMIT 1"
+    )
+    var has = false
+    for ch in exists:
+      if ch.len > 0: has = true
+    if has:
+      raise newException(OperationError, "Type already exists: " & aliasName & " (use orReplace=true)")
+  discard con.execute(finalDdl)
+  # Alias logical type: we return logical type of base if known, else invalid
+  # Try to interpret baseType as simple DuckType
+  let upper = baseType.strip().toUpperAscii()
+  case upper
+  of "INTEGER", "INT", "INT4": result = newLogicalType(DuckType.Integer)
+  of "BIGINT", "INT8": result = newLogicalType(DuckType.BigInt)
+  of "VARCHAR", "TEXT", "STRING": result = newLogicalType(DuckType.Varchar)
+  of "BOOLEAN", "BOOL": result = newLogicalType(DuckType.Boolean)
+  of "DOUBLE", "FLOAT8": result = newLogicalType(DuckType.Double)
+  of "FLOAT", "FLOAT4": result = newLogicalType(DuckType.Float)
+  else: result = newLogicalType(DuckType.Varchar) # fallback
+
+proc createUnionType*(con: Connection, typeName: string, membersDDL: string,
+                      orReplace = false): LogicalType =
+  ## Creates a UNION type: `CREATE TYPE name AS UNION(memberDDL)`
+  ## Example: `createUnionType(con, "one_thing", "number INTEGER, string VARCHAR")`
+  let ddl = "CREATE TYPE " & quoteIdent(typeName) & " AS UNION(" & membersDDL & ")"
+  let finalDdl = if orReplace: ddl.replace("CREATE TYPE", "CREATE OR REPLACE TYPE") else: ddl
+  if not orReplace:
+    let exists = con.execute(
+      "SELECT 1 FROM duckdb_types() WHERE lower(type_name) = lower('" & typeName.replace("'", "''") & "') LIMIT 1"
+    )
+    var has = false
+    for ch in exists:
+      if ch.len > 0: has = true
+    if has:
+      raise newException(OperationError, "Type already exists: " & typeName & " (use orReplace=true)")
+  discard con.execute(finalDdl)
+  # For return, we build a generic union logical type placeholder (actual members via DDL)
+  # We try to infer at least 2 members if ddl contains ',' else 1
+  # Simpler: return Invalid placeholder and let caller ignore; but to keep non-nil, create via ffi if possible
+  # Build from membersDDL counting commas: we need actual member types to create union logical type
+  # Fallback: create simple union of INTEGER,VARCHAR if ddl contains those strings
+  var memberTypes: seq[duckdb_logical_type] = @[]
+  var memberNames: seq[cstring] = @[]
+  # naive parse: split by ',' then by space
+  for part in membersDDL.split(','):
+    let trimmed = part.strip()
+    if trimmed.len == 0: continue
+    let pieces = trimmed.splitWhitespace()
+    if pieces.len >= 2:
+      let mName = pieces[0]
+      let mTypeStr = pieces[1].toUpperAscii()
+      var lt: LogicalType
+      case mTypeStr
+      of "INTEGER", "INT", "INT4": lt = newLogicalType(DuckType.Integer)
+      of "BIGINT": lt = newLogicalType(DuckType.BigInt)
+      of "VARCHAR", "TEXT": lt = newLogicalType(DuckType.Varchar)
+      of "BOOLEAN", "BOOL": lt = newLogicalType(DuckType.Boolean)
+      of "DOUBLE": lt = newLogicalType(DuckType.Double)
+      else: lt = newLogicalType(DuckType.Varchar)
+      memberTypes.add(lt.handle)
+      memberNames.add(mName.cstring)
+  if memberTypes.len > 0:
+    var namePtrs = newSeq[cstring](memberNames.len)
+    for i, n in memberNames: namePtrs[i] = n
+    let raw = duckdb_create_union_type(addr memberTypes[0], addr namePtrs[0], memberTypes.len.idx_t)
+    result = newLogicalType(raw)
+  else:
+    result = newLogicalType(DuckType.Union)
 
 proc encodeFieldAppInner(app: Appender, val: string) = discard duckdb_append_varchar(app, val.cstring)
 proc encodeFieldAppInner(app: Appender, val: bool) = discard duckdb_append_bool(app, val)
