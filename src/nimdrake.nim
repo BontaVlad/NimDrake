@@ -31,6 +31,7 @@ import
     types, config, complex, ffi, database, qresult, codec, table,
     query, table_functions, scalar_functions, replacement_scans, display,
     table_scan, aggregate_functions, catalog, transaction, exceptions,
+    struct_mapping, ddl,
   ]
 
 when defined(features.nimdrake.arrow):
@@ -54,7 +55,8 @@ runnableExamples:
 export
   types, config, complex, ffi, database, query, qresult, codec, table,
   table_functions, scalar_functions, replacement_scans, display,
-  table_scan, aggregate_functions, catalog, transaction, exceptions
+  table_scan, aggregate_functions, catalog, transaction, exceptions,
+  struct_mapping, ddl
 
 when defined(features.nimdrake.arrow):
   export arrow, narrow_table_scan

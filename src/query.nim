@@ -383,6 +383,21 @@ template append*(appender: Appender, val: string): untyped =
   checkAppender(duckdb_append_varchar_length(appender, val.cstring, val.len.idx_t),
     appender, "Failed to append string value: " & val)
 
+template append*(appender: Appender, val: Uuid): untyped =
+  ## Appends a UUID through its canonical text representation. The current
+  ## DuckDB C API does not expose a typed appender for UUID values.
+  let text = $val
+  checkAppender(
+    duckdb_append_varchar_length(appender, text.cstring, text.len.idx_t),
+    appender, "Failed to append UUID value: " & text)
+
+template append*[T: enum](appender: Appender, val: T): untyped =
+  ## Appends an enum label as VARCHAR; DuckDB coerces it to an ENUM column.
+  let text = $val
+  checkAppender(
+    duckdb_append_varchar_length(appender, text.cstring, text.len.idx_t),
+    appender, "Failed to append enum value: " & text)
+
 template append*(appender: Appender, val: Int128): untyped =
   ## Appends a HugeInt value to the appender.
   checkAppender(duckdb_append_hugeint(appender, val.toHugeInt),
