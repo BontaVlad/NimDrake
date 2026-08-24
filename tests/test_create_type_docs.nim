@@ -20,7 +20,7 @@ suite "Docs — CREATE TYPE examples":
   test "ENUM — CREATE TYPE mood AS ENUM ('happy','sad','curious') via helper":
     let db = newDatabase()
     let con = db.connect()
-    let lt = con.createEnumType(Mood, "mood", orReplace = true)
+    let lt = con.createType(Mood, "mood", orReplace = true)
     check lt != nil
     check lt.toDuckType == DuckType.Enum
     let dt = con.execute("SELECT 1 FROM duckdb_types() WHERE type_name='mood'")
@@ -50,7 +50,7 @@ suite "Docs — CREATE TYPE examples":
   test "ENUM — inserting a label outside the dictionary raises and keeps the table unchanged":
     let db = newDatabase()
     let con = db.connect()
-    discard con.createEnumType(Mood, "mood_bad_insert", orReplace = true)
+    discard con.createType(Mood, "mood_bad_insert", orReplace = true)
     con.execute("CREATE TABLE t_mood_bad_insert (id INTEGER, m mood_bad_insert)")
     con.execute("INSERT INTO t_mood_bad_insert VALUES (1, 'happy')")
 
@@ -67,7 +67,7 @@ suite "Docs — CREATE TYPE examples":
   test "ENUM — an invalid label does not partially insert a multi-row statement":
     let db = newDatabase()
     let con = db.connect()
-    discard con.createEnumType(Mood, "mood_atomic", orReplace = true)
+    discard con.createType(Mood, "mood_atomic", orReplace = true)
     con.execute("CREATE TABLE t_mood_atomic (id INTEGER, m mood_atomic)")
 
     expect(OperationError):
@@ -232,7 +232,7 @@ suite "Docs — CREATE TYPE examples":
     check after.len == 2
     # Helper with orReplace=true should also succeed
     type NewMood = enum cheerful, gloomy
-    discard con.createEnumType(NewMood, "mood", orReplace = true)
+    discard con.createType(NewMood, "mood", orReplace = true)
     let r3 = con.execute("SELECT unnest(enum_range(NULL::mood)) ORDER BY 1")
     var after2: seq[string] = @[]
     for chunk in r3:
@@ -246,7 +246,7 @@ suite "Docs — CREATE TYPE examples":
       mood: Mood2
     let db = newDatabase()
     let con = db.connect()
-    discard con.createEnumType(Mood2, "mood2", orReplace = true)
+    discard con.createType(Mood2, "mood2", orReplace = true)
     con.execute("CREATE TABLE t_enum_row (id INTEGER, mood mood2)")
     con.execute("INSERT INTO t_enum_row VALUES (1, 'happy'), (2, 'curious')")
     let rows = con.execute("SELECT id, mood FROM t_enum_row ORDER BY id").toSeq(RowWithEnum)
@@ -259,7 +259,7 @@ suite "Docs — CREATE TYPE examples":
     type Mood3 = enum a, b
     let db = newDatabase()
     let con = db.connect()
-    discard con.createEnumType(Mood3, "mood3", orReplace = true)
+    discard con.createType(Mood3, "mood3", orReplace = true)
     # Create struct type that contains enum — will use inline ENUM definition inside struct
     # Our sqlTypeFor for enum inside struct generates inline ENUM('a','b'), so no need for prior enum for struct member
     # But we test both: create table with STRUCT containing enum column

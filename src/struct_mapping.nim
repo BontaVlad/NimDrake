@@ -2,173 +2,29 @@
 ##
 ## Column names are matched case-insensitively. Extra columns are ignored,
 ## missing optional fields become `none`, and missing required fields raise
-## `ValueError`. Decoded values own their storage.
+## `ValueError`. When *no* field name matches any column and the result has
+## exactly one STRUCT column, that column is decoded as the object itself
+## (e.g. `SELECT data FROM t` into the struct's own type). Decoded values
+## own their storage.
+##
+## Decoding is planned once per chunk: `rowPlan` resolves every field of the
+## target object against the chunk schema, binds all column and STRUCT-child
+## views up front, translates ENUM dictionaries into Nim ordinals, and binds
+## LIST views. The per-row pass then performs no FFI calls. Materialize with
+## `toSeq` / `toSeqInto`, or iterate lazily with `rows`. DDL generation and
+## named-type creation live in the `ddl` module.
 
 import std/[options, strutils, times]
 
-import nint128
-import uuid4
-
-import ./database
-import ./ffi
 import ./qresult
-import ./query
 import ./types
 
-proc quoteIdent*(name: string): string =
-  result = "\""
-  for character in name:
-    if character == '"':
-      result.add("\"\"")
-    else:
-      result.add(character)
-  result.add('"')
-
-# Logical and SQL types
-
-proc logicalTypeForImpl[T](_: typedesc[T]): LogicalType
-proc structLogicalType*[T: object](_: typedesc[T]): LogicalType
-proc structLogicalTypeTuple*[T: tuple](_: typedesc[T]): LogicalType
-
-proc logicalTypeFor*[T](_: typedesc[T]): LogicalType =
-  logicalTypeForImpl(T)
-
-proc logicalTypeForImpl[T](_: typedesc[T]): LogicalType =
-  when T is seq[byte]:
-    newLogicalType(DuckType.Blob)
-  elif T is seq:
-    type Element = typeof(default(T)[0])
-    let elementType = logicalTypeFor(Element)
-    newLogicalType(duckdb_create_list_type(elementType.handle))
-  elif T is Option:
-    type Value = typeof(default(T).get())
-    logicalTypeFor(Value)
-  elif T is enum:
-    var labels: seq[string]
-    for value in low(T)..high(T):
-      labels.add($value)
-    var labelPointers = newSeq[cstring](labels.len)
-    for index, label in labels:
-      labelPointers[index] = label.cstring
-    newLogicalType(duckdb_create_enum_type(
-      addr labelPointers[0], labels.len.idx_t))
-  elif T is object:
-    const kind = toDuckType(T)
-    when kind == DuckType.Invalid:
-      structLogicalType(T)
-    else:
-      newLogicalType(kind)
-  elif T is tuple:
-    structLogicalTypeTuple(T)
-  else:
-    const kind = toDuckType(T)
-    when kind == DuckType.Invalid:
-      {.error: "logicalTypeFor: unsupported type " & $T.}
-    else:
-      newLogicalType(kind)
-
-proc structLogicalTypeImpl[T](_: typedesc[T]): LogicalType =
-  var value: T
-  var childNames: seq[string]
-  var childTypes: seq[LogicalType]
-  for name, field in fieldPairs(value):
-    let index = childNames.len
-    childNames.add(if name.len == 0: "field" & $index else: name)
-    childTypes.add(logicalTypeFor(typeof(field)))
-
-  if childTypes.len == 0:
-    raise newException(ValueError, "cannot create an empty STRUCT for " & $T)
-
-  var handles = newSeq[duckdb_logical_type](childTypes.len)
-  var names = newSeq[cstring](childNames.len)
-  for index in 0..<childTypes.len:
-    handles[index] = childTypes[index].handle
-    names[index] = childNames[index].cstring
-  result = newLogicalType(duckdb_create_struct_type(
-    addr handles[0], addr names[0], handles.len.idx_t))
-
-proc structLogicalType*[T: object](_: typedesc[T]): LogicalType =
-  structLogicalTypeImpl(T)
-
-proc structLogicalTypeTuple*[T: tuple](_: typedesc[T]): LogicalType =
-  structLogicalTypeImpl(T)
-
-proc sqlTypeForImpl[T](_: typedesc[T]): string
-
-proc sqlTypeName(kind: DuckType): string =
-  case kind
-  of DuckType.Boolean: "BOOLEAN"
-  of DuckType.TinyInt: "TINYINT"
-  of DuckType.SmallInt: "SMALLINT"
-  of DuckType.Integer: "INTEGER"
-  of DuckType.BigInt: "BIGINT"
-  of DuckType.UTinyInt: "UTINYINT"
-  of DuckType.USmallInt: "USMALLINT"
-  of DuckType.UInteger: "UINTEGER"
-  of DuckType.UBigInt: "UBIGINT"
-  of DuckType.Float: "FLOAT"
-  of DuckType.Double: "DOUBLE"
-  of DuckType.Varchar: "VARCHAR"
-  of DuckType.Blob: "BLOB"
-  of DuckType.HugeInt: "HUGEINT"
-  of DuckType.UHugeInt: "UHUGEINT"
-  of DuckType.UUID: "UUID"
-  of DuckType.Timestamp: "TIMESTAMP"
-  of DuckType.Time: "TIME"
-  of DuckType.Interval: "INTERVAL"
-  else:
-    raise newException(ValueError, "no SQL name for " & $kind)
-
-proc sqlTypeFor*[T](_: typedesc[T]): string =
-  sqlTypeForImpl(T)
-
-proc sqlStructFields[T](_: typedesc[T]): string =
-  var value: T
-  var fields: seq[string]
-  for name, field in fieldPairs(value):
-    let index = fields.len
-    let fieldName = if name.len == 0: "field" & $index else: name
-    fields.add(quoteIdent(fieldName) & " " & sqlTypeFor(typeof(field)))
-  fields.join(", ")
-
-proc sqlStructType[T](_: typedesc[T]): string =
-  "STRUCT(" & sqlStructFields(T) & ")"
-
-proc sqlTypeForImpl[T](_: typedesc[T]): string =
-  when T is seq[byte]:
-    "BLOB"
-  elif T is seq:
-    type Element = typeof(default(T)[0])
-    sqlTypeFor(Element) & "[]"
-  elif T is Option:
-    type Value = typeof(default(T).get())
-    sqlTypeFor(Value)
-  elif T is enum:
-    var labels: seq[string]
-    for value in low(T)..high(T):
-      labels.add("'" & ($value).replace("'", "''") & "'")
-    "ENUM (" & labels.join(", ") & ")"
-  elif T is object:
-    const kind = toDuckType(T)
-    when kind == DuckType.Invalid:
-      sqlStructType(T)
-    else:
-      sqlTypeName(kind)
-  elif T is tuple:
-    sqlStructType(T)
-  else:
-    const kind = toDuckType(T)
-    when kind == DuckType.Invalid:
-      {.error: "sqlTypeFor: unsupported type " & $T.}
-    else:
-      sqlTypeName(kind)
-
-proc ddlForStruct*[T: object](_: typedesc[T], typeName: string): string =
-  "CREATE TYPE " & quoteIdent(typeName) & " AS " & sqlStructType(T)
-
-# Row decoding
+template unwrapped[T](_: typedesc[Option[T]]): typedesc[T] = T
+  ## The value type inside an `Option[T]`.
 
 proc findField(names: openArray[string], wanted, context: string): int =
+  ## Exact-match lookup with a case-insensitive fallback; raises `ValueError`
+  ## when several columns match equally well.
   result = -1
   for index, name in names:
     if name == wanted:
@@ -192,12 +48,235 @@ proc requireKind(view: ColumnView, expected: DuckType, valueType: string) =
     raise newException(ValueError,
       "cannot decode " & $view.kind & " as " & valueType)
 
+# ---------------------------------------------------------------------------
+# Chunk decode plan
+#
+# A `DecodePlan` lays out one plan node per decodable field node of the
+# target type, depth-first in field order. `slotsFor`, `collect`, and
+# `decodeAt` walk the identical structure, so slot numbers computed during
+# planning line up with the ones consumed while decoding a row.
+# ---------------------------------------------------------------------------
+
+func slotsFor[T](_: typedesc[T]): int =
+  ## Number of plan nodes (bound views) that decoding a value of type `T`
+  ## occupies: one per scalar/list/struct node, plus the nodes of every
+  ## contained field.
+  when T is Option:
+    1 + slotsFor(unwrapped(T))
+  elif T is seq:
+    1
+  elif T is tuple:
+    var value: T
+    result = 1
+    for _, field in fieldPairs(value):
+      result += slotsFor(typeof(field))
+  elif T is object:
+    const kind = toDuckType(T)
+    when kind == DuckType.Invalid:
+      var value: T
+      result = 1
+      for _, field in fieldPairs(value):
+        result += slotsFor(typeof(field))
+    else:
+      1
+  else:
+    1
+
+type
+  ListViewBox[kt: static DuckType] = ref object of RootObj
+    ## Type-erased holder for a chunk-bound `ListView`, stored in
+    ## `DecodePlan.lists` and cast back by `decodeAt` for `seq` fields.
+    view: ListView[kt]
+
+  DecodePlan = object
+    ## All per-chunk state needed to decode rows without further FFI calls.
+    ##
+    ## `slots` holds one bound `ColumnView` per node. `enumBySlot` maps an
+    ## ENUM node's slot to a dictionary-index -> Nim-ordinal table. `lists`
+    ## holds chunk-bound `ListView`s for `seq` nodes. `missing` records the
+    ## slots of optional nodes whose source column/field is absent.
+    slots: seq[ColumnView]
+    enumBySlot: seq[seq[int32]]
+    lists: seq[RootRef]
+    missing: seq[int]
+    hasMissing: bool
+    rootStruct: bool ## True when the whole object is decoded from a single
+                     ## STRUCT column (slot 0 is the root node).
+
+proc storeValidated[T](view: ColumnView, plan: var DecodePlan,
+                       slot: int): int =
+  ## Validates `view` against the canonical DuckDB kind of `T`, stores it,
+  ## and returns the next slot. Compile-time error for unmapped types.
+  const kind = toDuckType(T)
+  when kind == DuckType.Invalid:
+    {.error: "unsupported struct mapping field type " & $T.}
+  view.requireKind(kind, $T)
+  plan.slots[slot] = view
+  slot + 1
+
+proc collect[T](view: ColumnView, plan: var DecodePlan, slot: int,
+                context: string): int
+  ## Resolves node `slot` (and recursively its children) for target type `T`
+  ## against `view`, storing bound views and enum tables into `plan`.
+  ## Returns the next unconsumed slot. Raises `ValueError` for kind
+  ## mismatches and missing non-optional fields.
+
+proc collectTupleChildren[T: tuple](structView: ColumnView,
+                                    plan: var DecodePlan, slot: int): int =
+  ## Plans the positional children of a STRUCT node decoded into tuple `T`.
+  let bound = structView.bindAs(DuckType.Struct)
+  var expected = 0
+  var probe: T
+  for _, _ in fieldPairs(probe):
+    inc expected
+  if bound.structChildCount != expected:
+    raise newException(ValueError,
+      "tuple arity mismatch: expected " & $expected & ", got " &
+      $bound.structChildCount)
+  result = slot + 1
+  var index = 0
+  for _, field in fieldPairs(probe):
+    result = collect[typeof(field)](
+      bound.structChild(index), plan, result, "tuple " & $T)
+    inc index
+
+proc collectObjectChildren[T: object](structView: ColumnView,
+                                      plan: var DecodePlan, slot: int,
+                                      context: string): int =
+  ## Plans the children of a STRUCT node decoded into object `T`; children
+  ## are matched to STRUCT members by (case-insensitive) field name.
+  if structView.ltype.childNames == nil:
+    raise newException(ValueError, "STRUCT field names are unavailable")
+  let names = structView.ltype.childNames[]
+  result = slot + 1
+  let bound = structView.bindAs(DuckType.Struct)
+  var probe: T
+  for name, field in fieldPairs(probe):
+    let index = findField(names, name, context)
+    if index >= 0:
+      result = collect[typeof(field)](
+        bound.structChild(index), plan, result, context)
+    elif field is Option:
+      plan.hasMissing = true
+      plan.missing.add(result)
+      inc result, slotsFor(typeof(field))
+    else:
+      raise newException(ValueError,
+        "missing non-optional STRUCT field '" & name & "'")
+
+proc collect[T](view: ColumnView, plan: var DecodePlan, slot: int,
+                context: string): int =
+  when T is Option:
+    plan.slots[slot] = view
+    collect[unwrapped(T)](view, plan, slot + 1, context)
+  elif T is seq[byte]:
+    storeValidated[T](view, plan, slot)
+  elif T is seq:
+    view.requireKind(DuckType.List, $T)
+    plan.slots[slot] = view
+    type Element = typeof(default(T)[0])
+    plan.lists[slot] = ListViewBox[colDuckTypeOf(Element)](
+      view: view.bindAs(seq[Element]))
+    slot + 1
+  elif T is enum:
+    view.requireKind(DuckType.Enum, $T)
+    if view.ltype.enumLabels == nil:
+      raise newException(ValueError, "ENUM labels are unavailable for " & $T)
+    let labels = view.ltype.enumLabels[]
+    var table = newSeq[int32](labels.len)
+    for index, label in labels:
+      block found:
+        for value in low(T)..high(T):
+          if $value == label:
+            table[index] = ord(value).int32
+            break found
+        raise newException(ValueError,
+          "DuckDB ENUM label '" & label & "' is not present in " & $T)
+    plan.slots[slot] = view
+    plan.enumBySlot[slot] = table
+    slot + 1
+  elif T is DateTime:
+    case view.kind
+    of DuckType.Timestamp, DuckType.Date, DuckType.TimestampS,
+        DuckType.TimestampMs, DuckType.TimestampNs:
+      plan.slots[slot] = view
+      slot + 1
+    else:
+      raise newException(ValueError,
+        "cannot decode " & $view.kind & " as DateTime")
+  elif T is tuple:
+    view.requireKind(DuckType.Struct, $T)
+    plan.slots[slot] = view
+    collectTupleChildren[T](view, plan, slot)
+  elif T is object:
+    const kind = toDuckType(T)
+    when kind == DuckType.Invalid:
+      view.requireKind(DuckType.Struct, $T)
+      plan.slots[slot] = view
+      collectObjectChildren[T](view, plan, slot, "STRUCT " & $T)
+    else:
+      storeValidated[T](view, plan, slot)
+  else:
+    storeValidated[T](view, plan, slot)
+
+proc newPlan(total: int): DecodePlan =
+  result.slots = newSeq[ColumnView](total)
+  result.enumBySlot = newSeq[seq[int32]](total)
+  result.lists = newSeq[RootRef](total)
+
+proc rowPlan*[T: object](chunk: DataChunk): DecodePlan =
+  ## Resolves every field of object `T` against `chunk.meta` and binds all
+  ## needed views once for the whole chunk. Raises `ValueError` if a
+  ## non-optional field has no matching column.
+  ##
+  ## If no field name matches any column and the chunk has exactly one
+  ## STRUCT column, the whole object is decoded from that column instead.
+  var names = newSeq[string](chunk.meta.columns.len)
+  for index, column in chunk.meta.columns:
+    names[index] = column.name
+
+  block chooseStrategy:
+    var probe: T
+    for name, _ in fieldPairs(probe):
+      if findField(names, name, "query result") >= 0:
+        break chooseStrategy
+    if chunk.meta.columns.len == 1 and
+        chunk.meta.columns[0].kind == DuckType.Struct:
+      result = newPlan(slotsFor(T))
+      result.rootStruct = true
+      discard collect[T](chunk.vector(0), result, 0, "query result")
+      return
+
+  var probe: T
+  var total = 0
+  for _, field in fieldPairs(probe):
+    inc total, slotsFor(typeof(field))
+  result = newPlan(total)
+
+  var slot = 0
+  for name, field in fieldPairs(probe):
+    let index = findField(names, name, "query result")
+    if index >= 0:
+      slot = collect[typeof(field)](
+        chunk.vector(index), result, slot, "query result")
+    elif field is Option:
+      result.hasMissing = true
+      result.missing.add(slot)
+      inc slot, slotsFor(typeof(field))
+    else:
+      raise newException(ValueError,
+        "missing non-optional column '" & name & "' for " & $T)
+  doAssert slot == total
+
+# ---------------------------------------------------------------------------
+# Row decoding
+# ---------------------------------------------------------------------------
+
 proc decodeScalar[T](destination: var T, view: ColumnView, row: int) =
   const kind = toDuckType(T)
   when kind == DuckType.Invalid:
     {.error: "unsupported struct mapping field type " & $T.}
   else:
-    view.requireKind(kind, $T)
     let values = view.bindAs(kind)
     when T is int:
       destination = int(values[row])
@@ -206,302 +285,160 @@ proc decodeScalar[T](destination: var T, view: ColumnView, row: int) =
     else:
       destination = values[row]
 
-proc decodeField[T](destination: var T, view: ColumnView, row: int)
-
-proc decodeEnum[T: enum](destination: var T, view: ColumnView, row: int) =
-  view.requireKind(DuckType.Enum, $T)
-  if view.ltype.enumLabels == nil:
-    raise newException(ValueError, "ENUM labels are unavailable for " & $T)
-  let index = view.bindAs(DuckType.Enum)[row].int
-  if index notin 0..<view.ltype.enumLabels[].len:
-    raise newException(ValueError, "ENUM index is outside its schema")
-  let label = view.ltype.enumLabels[][index]
-  for value in low(T)..high(T):
-    if $value == label:
-      destination = value
-      return
-  raise newException(ValueError,
-    "DuckDB ENUM label '" & label & "' is not present in " & $T)
-
-proc decodeStruct[T](destination: var T, view: ColumnView, row: int) =
-  view.requireKind(DuckType.Struct, $T)
-  let structView = view.bindAs(DuckType.Struct)
-  if view.ltype.childNames == nil:
-    raise newException(ValueError, "STRUCT field names are unavailable")
-  let names = view.ltype.childNames[]
-
-  for name, field in fieldPairs(destination):
-    let index = findField(names, name, "STRUCT " & $T)
-    if index >= 0:
-      decodeField(field, structView.structChild(index), row)
-    else:
-      when field is Option:
-        type Value = typeof(field.get())
-        field = none(Value)
-      else:
-        raise newException(ValueError,
-          "missing non-optional STRUCT field '" & name & "'")
-
-proc decodeTuple[T: tuple](destination: var T, view: ColumnView, row: int) =
-  view.requireKind(DuckType.Struct, $T)
-  let structView = view.bindAs(DuckType.Struct)
-  var expected = 0
-  for _, _ in fieldPairs(destination):
-    inc expected
-  if structView.structChildCount != expected:
+proc requireCell[T](plan: DecodePlan, slot, row: int): ColumnView =
+  ## The bound view for node `slot`; raises `ValueError` when the cell is
+  ## NULL (never called for `Option` nodes, which accept NULL).
+  result = plan.slots[slot]
+  if not result.valid(row):
     raise newException(ValueError,
-      "tuple arity mismatch: expected " & $expected & ", got " &
-      $structView.structChildCount)
-  var index = 0
-  for _, field in fieldPairs(destination):
-    decodeField(field, structView.structChild(index), row)
-    inc index
+      "NULL in non-optional field of type " & $T)
 
-proc decodeField[T](destination: var T, view: ColumnView, row: int) =
+proc decodeAt[T](destination: var T, plan: DecodePlan, slot: int,
+                 row: int): int
+  ## Decodes the node at `slot` for `row` into `destination` and returns the
+  ## next slot. Mirrors `collect` exactly.
+
+proc decodeAt[T](destination: var T, plan: DecodePlan, slot: int,
+                 row: int): int =
   when T is Option:
-    type Value = typeof(default(T).get())
-    if not view.valid(row):
+    type Value = unwrapped(T)
+    let absent = plan.hasMissing and slot in plan.missing
+    if absent or not plan.slots[slot].valid(row):
       destination = none(Value)
+      result = slot + 1 + slotsFor(Value)
     else:
       var value: Value
-      decodeField(value, view, row)
+      result = decodeAt[Value](value, plan, slot + 1, row)
       destination = some(value)
-  else:
-    if not view.valid(row):
+  elif T is seq[byte]:
+    decodeScalar(destination, requireCell[T](plan, slot, row), row)
+    result = slot + 1
+  elif T is seq:
+    type Element = typeof(default(T)[0])
+    discard requireCell[T](plan, slot, row)
+    destination = cast[ListViewBox[colDuckTypeOf(Element)]](
+      plan.lists[slot]).view[row]
+    result = slot + 1
+  elif T is enum:
+    let view = requireCell[T](plan, slot, row)
+    let raw = view.bindAs(DuckType.Enum)[row].int
+    let table = plan.enumBySlot[slot]
+    if raw < 0 or raw >= table.len:
+      raise newException(ValueError, "ENUM index is outside its schema")
+    destination = T(table[raw])
+    result = slot + 1
+  elif T is DateTime:
+    let view = requireCell[T](plan, slot, row)
+    case view.kind
+    of DuckType.Timestamp:
+      destination = DateTime(view.bindAs(DuckType.Timestamp)[row])
+    of DuckType.Date:
+      destination = view.bindAs(DuckType.Date)[row]
+    of DuckType.TimestampS:
+      destination = view.bindAs(DuckType.TimestampS)[row]
+    of DuckType.TimestampMs:
+      destination = view.bindAs(DuckType.TimestampMs)[row]
+    of DuckType.TimestampNs:
+      destination = view.bindAs(DuckType.TimestampNs)[row]
+    else:
       raise newException(ValueError,
-        "NULL in non-optional field of type " & $T)
-    when T is seq[byte]:
-      decodeScalar(destination, view, row)
-    elif T is seq:
-      type Element = typeof(default(T)[0])
-      view.requireKind(DuckType.List, $T)
-      destination = view.bindAs(seq[Element])[row]
-    elif T is enum:
-      decodeEnum(destination, view, row)
-    elif T is DateTime:
-      case view.kind
-      of DuckType.Timestamp:
-        destination = DateTime(view.bindAs(DuckType.Timestamp)[row])
-      of DuckType.Date:
-        destination = view.bindAs(DuckType.Date)[row]
-      of DuckType.TimestampS:
-        destination = view.bindAs(DuckType.TimestampS)[row]
-      of DuckType.TimestampMs:
-        destination = view.bindAs(DuckType.TimestampMs)[row]
-      of DuckType.TimestampNs:
-        destination = view.bindAs(DuckType.TimestampNs)[row]
-      else:
-        raise newException(ValueError,
-          "cannot decode " & $view.kind & " as DateTime")
-    elif T is tuple:
-      decodeTuple(destination, view, row)
-    elif T is object:
-      const kind = toDuckType(T)
-      when kind == DuckType.Invalid:
-        decodeStruct(destination, view, row)
-      else:
-        decodeScalar(destination, view, row)
+        "cannot decode " & $view.kind & " as DateTime")
+    result = slot + 1
+  elif T is tuple:
+    discard requireCell[T](plan, slot, row).bindAs(DuckType.Struct)
+    result = slot + 1
+    for _, field in fieldPairs(destination):
+      result = decodeAt[typeof(field)](field, plan, result, row)
+  elif T is object:
+    const kind = toDuckType(T)
+    when kind == DuckType.Invalid:
+      discard requireCell[T](plan, slot, row).bindAs(DuckType.Struct)
+      result = slot + 1
+      for _, field in fieldPairs(destination):
+        result = decodeAt[typeof(field)](field, plan, result, row)
     else:
-      decodeScalar(destination, view, row)
+      decodeScalar(destination, requireCell[T](plan, slot, row), row)
+      result = slot + 1
+  else:
+    decodeScalar(destination, requireCell[T](plan, slot, row), row)
+    result = slot + 1
 
-type RowMapping = object
-  structColumn: int
-  columns: seq[int]
-
-proc rowMapping[T: object](meta: ChunkMeta, _: typedesc[T]): RowMapping =
-  result.structColumn = -1
-  var names = newSeq[string](meta.columns.len)
-  for index, column in meta.columns:
-    names[index] = column.name
-
-  var value: T
-  for name, _ in fieldPairs(value):
-    result.columns.add(findField(names, name, "query result"))
-
-  var anyMatch = false
-  for index in result.columns:
-    if index >= 0:
-      anyMatch = true
-  if not anyMatch and meta.columns.len == 1 and
-      meta.columns[0].kind == DuckType.Struct:
-    result.structColumn = 0
-    result.columns.setLen(0)
+proc decodeRow[T: object](plan: DecodePlan, row: int): T =
+  if plan.rootStruct:
+    discard decodeAt(result, plan, 0, row)
     return
-
-  var index = 0
-  for name, field in fieldPairs(value):
-    if result.columns[index] < 0:
-      when field isnot Option:
-        raise newException(ValueError,
-          "missing non-optional column '" & name & "' for " & $T)
-    inc index
-
-proc decodeRow[T: object](mapping: RowMapping, chunk: DataChunk,
-                          row: int): T =
-  if mapping.structColumn >= 0:
-    decodeField(result, chunk.vector(mapping.structColumn), row)
-    return
-
-  var index = 0
+  var slot = 0
   for _, field in fieldPairs(result):
-    let column = mapping.columns[index]
-    if column >= 0:
-      decodeField(field, chunk.vector(column), row)
-    else:
-      when field is Option:
-        type Value = typeof(field.get())
-        field = none(Value)
-    inc index
+    slot = decodeAt[typeof(field)](field, plan, slot, row)
 
-proc decodeChunkInto[T: object](destination: var seq[T], chunk: DataChunk,
-                                mapping: RowMapping) =
-  for row in 0..<chunk.len:
-    destination.add(decodeRow[T](mapping, chunk, row))
+# ---------------------------------------------------------------------------
+# Public surface: toSeq / toSeqInto / rows
+# ---------------------------------------------------------------------------
 
 proc toSeqInto*[T: object](chunk: DataChunk, destination: var seq[T]) =
-  let mapping = rowMapping(chunk.meta, T)
-  destination.setLen(0)
-  destination.decodeChunkInto(chunk, mapping)
+  ## Decodes every row of `chunk` into `destination`, replacing its contents.
+  let plan = rowPlan[T](chunk)
+  destination.setLen(chunk.len)
+  for row in 0..<chunk.len:
+    destination[row] = decodeRow[T](plan, row)
 
 proc toSeqInto*[T: object](resultSet: QResult[Materialized],
                            destination: var seq[T]) =
-  let mapping = rowMapping(resultSet.meta, T)
-  destination.setLen(0)
+  ## Decodes every row of a materialized result into `destination`,
+  ## replacing its contents. The destination is sized once from the known
+  ## row count.
+  destination.setLen(resultSet.rlen)
+  var next = 0
   for chunk in resultSet.chunks:
-    destination.decodeChunkInto(chunk, mapping)
+    let plan = rowPlan[T](chunk)
+    for row in 0..<chunk.len:
+      destination[next] = decodeRow[T](plan, row)
+      inc next
 
 proc toSeqInto*[T: object](resultSet: sink QResult[Streaming],
                            destination: var seq[T]) =
-  let mapping = rowMapping(resultSet.meta, T)
-  destination.setLen(0)
-  for chunk in qresult.items(resultSet):
-    destination.decodeChunkInto(chunk, mapping)
+  ## Drains a streaming result into `destination`, replacing its contents;
+  ## each chunk is planned and decoded as it arrives.
+  for chunk in items(resultSet):
+    let base = destination.len
+    let plan = rowPlan[T](chunk)
+    destination.setLen(base + chunk.len)
+    for row in 0..<chunk.len:
+      destination[base + row] = decodeRow[T](plan, row)
 
 proc toSeq*[T: object](chunk: DataChunk, _: typedesc[T]): seq[T] =
+  ## Decodes every row of `chunk` into a fresh `seq[T]`.
   chunk.toSeqInto(result)
 
 proc toSeq*[T: object](resultSet: QResult[Materialized],
                        _: typedesc[T]): seq[T] =
+  ## Decodes every row of a materialized result into a fresh `seq[T]`.
   resultSet.toSeqInto(result)
 
 proc toSeq*[T: object](resultSet: sink QResult[Streaming],
                        _: typedesc[T]): seq[T] =
+  ## Drains a streaming result into a fresh `seq[T]`.
   resultSet.toSeqInto(result)
 
-proc toSeqInto*[T: object](chunk: DataChunk, destination: var seq[T],
-                           _: typedesc[T]) =
-  chunk.toSeqInto(destination)
-
-proc toSeqInto*[T: object](resultSet: QResult[Materialized],
-                           destination: var seq[T], _: typedesc[T]) =
-  resultSet.toSeqInto(destination)
-
-proc toSeqInto*[T: object](resultSet: sink QResult[Streaming],
-                           destination: var seq[T], _: typedesc[T]) =
-  resultSet.toSeqInto(destination)
-
-iterator items*[T: object](chunk: DataChunk, _: typedesc[T]): T =
-  let mapping = rowMapping(chunk.meta, T)
+iterator rows*[T: object](chunk: DataChunk, _: typedesc[T]): T =
+  ## Yields each row of `chunk` decoded into `T` without building a sequence.
+  let plan = rowPlan[T](chunk)
   for row in 0..<chunk.len:
-    yield decodeRow[T](mapping, chunk, row)
+    yield decodeRow[T](plan, row)
 
-iterator items*[T: object](resultSet: QResult[Materialized],
-                           _: typedesc[T]): T =
-  let mapping = rowMapping(resultSet.meta, T)
+iterator rows*[T: object](resultSet: QResult[Materialized],
+                          _: typedesc[T]): T =
+  ## Yields each row of a materialized result decoded into `T`.
   for chunk in resultSet.chunks:
+    let plan = rowPlan[T](chunk)
     for row in 0..<chunk.len:
-      yield decodeRow[T](mapping, chunk, row)
+      yield decodeRow[T](plan, row)
 
-iterator items*[T: object](resultSet: QResult[Streaming],
-                           _: typedesc[T]): T =
-  let mapping = rowMapping(resultSet.meta, T)
-  for chunk in qresult.items(resultSet):
+iterator rows*[T: object](resultSet: QResult[Streaming],
+                          _: typedesc[T]): T =
+  ## Yields each row of a streaming result decoded into `T`, planning one
+  ## chunk at a time.
+  for chunk in items(resultSet):
+    let plan = rowPlan[T](chunk)
     for row in 0..<chunk.len:
-      yield decodeRow[T](mapping, chunk, row)
-
-proc bindAs*[T: object](resultSet: QResult[Materialized],
-                        _: typedesc[T]): seq[T] =
-  resultSet.toSeq(T)
-
-proc bindAs*[T: object](resultSet: sink QResult[Streaming],
-                        _: typedesc[T]): seq[T] =
-  resultSet.toSeq(T)
-
-proc bindAs*[T: object](chunk: DataChunk, _: typedesc[T]): seq[T] =
-  chunk.toSeq(T)
-
-proc rows*[T: object](resultSet: QResult[Materialized],
-                      _: typedesc[T]): seq[T] =
-  resultSet.toSeq(T)
-
-proc rows*[T: object](resultSet: sink QResult[Streaming],
-                      _: typedesc[T]): seq[T] =
-  resultSet.toSeq(T)
-
-# Table and named-type creation
-
-proc createTable*[T: object](connection: Connection, tableName: string,
-                             _: typedesc[T], orReplace = false) =
-  let command =
-    (if orReplace: "CREATE OR REPLACE TABLE " else: "CREATE TABLE ") &
-    quoteIdent(tableName) & " (" & sqlStructFields(T) & ")"
-  discard connection.execute(command)
-
-proc createTableFromObject*[T: object](connection: Connection,
-                                       tableName: string, _: typedesc[T],
-                                       orReplace = false) =
-  connection.createTable(tableName, T, orReplace)
-
-proc createType*[T: object](connection: Connection, _: typedesc[T],
-                            typeName: string = $T,
-                            orReplace = false): LogicalType =
-  result = structLogicalType(T)
-  let command =
-    (if orReplace: "CREATE OR REPLACE TYPE " else: "CREATE TYPE ") &
-    quoteIdent(typeName) & " AS " & sqlStructType(T)
-  discard connection.execute(command)
-
-proc createType*[T: tuple](connection: Connection, _: typedesc[T],
-                           typeName: string,
-                           orReplace = false): LogicalType =
-  result = structLogicalTypeTuple(T)
-  let command =
-    (if orReplace: "CREATE OR REPLACE TYPE " else: "CREATE TYPE ") &
-    quoteIdent(typeName) & " AS " & sqlStructType(T)
-  discard connection.execute(command)
-
-proc registerType*[T: object](connection: Connection, _: typedesc[T],
-                              typeName: string = $T,
-                              orReplace = false): LogicalType =
-  connection.createType(T, typeName, orReplace)
-
-proc createEnumType*[T: enum](connection: Connection, _: typedesc[T],
-                              typeName: string = $T,
-                              orReplace = false): LogicalType =
-  result = logicalTypeFor(T)
-  let command =
-    (if orReplace: "CREATE OR REPLACE TYPE " else: "CREATE TYPE ") &
-    quoteIdent(typeName) & " AS " & sqlTypeFor(T)
-  discard connection.execute(command)
-
-proc createdTypeLogicalType(connection: Connection,
-                            typeName: string): LogicalType =
-  let resultSet = connection.execute(
-    "SELECT NULL::" & quoteIdent(typeName) & " AS __nimdrake_type")
-  resultSet.column(0).ltype
-
-proc createAliasType*(connection: Connection, aliasName, baseType: string,
-                      orReplace = false): LogicalType =
-  let command =
-    (if orReplace: "CREATE OR REPLACE TYPE " else: "CREATE TYPE ") &
-    quoteIdent(aliasName) & " AS " & baseType
-  discard connection.execute(command)
-  connection.createdTypeLogicalType(aliasName)
-
-proc createUnionType*(connection: Connection, typeName, membersDDL: string,
-                      orReplace = false): LogicalType =
-  let command =
-    (if orReplace: "CREATE OR REPLACE TYPE " else: "CREATE TYPE ") &
-    quoteIdent(typeName) & " AS UNION(" & membersDDL & ")"
-  discard connection.execute(command)
-  connection.createdTypeLogicalType(typeName)
+      yield decodeRow[T](plan, row)

@@ -204,7 +204,7 @@ suite "Test struct_mapping — seq[Object] via ToSeq":
   test "items decodes rows without a result sequence":
     let con = newDatabase().connect()
     var ages: seq[int64] = @[]
-    for row in con.execute("SELECT 'x' AS homeAddress, 7::BIGINT AS age").items(User):
+    for row in con.execute("SELECT 'x' AS homeAddress, 7::BIGINT AS age").rows(User):
       ages.add(row.age)
     check ages == @[7'i64]
 
@@ -214,5 +214,5 @@ suite "Test struct_mapping — seq[Object] via ToSeq":
     let queryResult = con.execute(
       "SELECT 'new' AS homeAddress, 8::BIGINT AS age"
     )
-    queryResult.toSeqInto(rows, User)
+    queryResult.toSeqInto(rows)
     check rows == @[User(homeAddress: "new", age: 8)]
