@@ -12,6 +12,27 @@ type
     age: Option[int64]
     nickname: Option[string]
 
+  Mood = enum
+    calm
+    excited
+
+  MoodRow = object
+    mood: Mood
+
+  UuidRow = object
+    id: Uuid
+
+  ListRow = object
+    xs: seq[int32]
+
+  Address = object
+    city: string
+    zip: int32
+
+  AddressRow = object
+    id: int64
+    address: Address
+
 suite "Test struct_mapping — seq[Object] via ToSeq":
 
   test "Simple Users via ToSeq from materialized result":
@@ -132,13 +153,66 @@ suite "Test struct_mapping — seq[Object] via ToSeq":
     check users.len == 2
     check users[1].age == 20
 
-  test "createTableFromObject + appendRows round-trip":
+  test "createTable + appendRows round-trip":
     let db = newDatabase()
     let con = db.connect()
-    con.createTableFromObject("users8", User)
+    con.createTable("users8", User)
     con.appendRows("users8", @[User(homeAddress: "p1", age: 99)])
     let res = con.execute("SELECT homeAddress, age FROM users8")
     let users = res.toSeq(User)
     check users.len == 1
     check users[0].homeAddress == "p1"
     check users[0].age == 99
+
+  test "appendRows and ToSeq preserve enum labels":
+    let db = newDatabase()
+    let con = db.connect()
+    con.execute("CREATE TABLE moods (mood ENUM ('excited', 'calm'))")
+    con.appendRows("moods", @[MoodRow(mood: calm)])
+    let rows = con.execute("SELECT mood FROM moods").toSeq(MoodRow)
+    check rows.len == 1
+    check rows[0].mood == calm
+
+  test "logicalTypeFor supports tuples":
+    let lt = logicalTypeFor(tuple[city: string, zip: int32])
+    check lt != nil
+    check lt.childNames != nil
+    check lt.childNames[] == @["city", "zip"]
+
+  test "ToSeq decodes UUID fields":
+    let con = newDatabase().connect()
+    let expected = initUuid("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11")
+    let rows = con.execute(
+      "SELECT 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11'::UUID AS id"
+    ).toSeq(UuidRow)
+    check rows.len == 1
+    check rows[0].id == expected
+
+  test "ToSeq reuses list destination storage":
+    let con = newDatabase().connect()
+    let rows = con.execute("SELECT [1, 2, 3]::INTEGER[] AS xs").toSeq(ListRow)
+    check rows == @[ListRow(xs: @[1'i32, 2, 3])]
+
+  test "ToSeq decodes nested structs":
+    let con = newDatabase().connect()
+    let rows = con.execute(
+      "SELECT 3::BIGINT AS id, {'city': 'Paris', 'zip': 75001} AS address"
+    ).toSeq(AddressRow)
+    check rows == @[
+      AddressRow(id: 3, address: Address(city: "Paris", zip: 75001))]
+
+  test "items decodes rows without a result sequence":
+    let con = newDatabase().connect()
+    var ages: seq[int64] = @[]
+    for row in con.execute("SELECT 'x' AS homeAddress, 7::BIGINT AS age").items(User):
+      ages.add(row.age)
+    check ages == @[7'i64]
+
+  test "toSeqInto reuses the destination sequence":
+    let con = newDatabase().connect()
+    var rows = @[User(homeAddress: "old", age: 0)]
+    let queryResult = con.execute(
+      "SELECT 'new' AS homeAddress, 8::BIGINT AS age"
+    )
+    queryResult.toSeqInto(rows, User)
+    check rows == @[User(homeAddress: "new", age: 8)]

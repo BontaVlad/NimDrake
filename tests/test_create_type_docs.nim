@@ -47,6 +47,35 @@ suite "Docs — CREATE TYPE examples":
     check rows[0].m == happy
     check rows[1].m == sad
 
+  test "ENUM — inserting a label outside the dictionary raises and keeps the table unchanged":
+    let db = newDatabase()
+    let con = db.connect()
+    discard con.createEnumType(Mood, "mood_bad_insert", orReplace = true)
+    con.execute("CREATE TABLE t_mood_bad_insert (id INTEGER, m mood_bad_insert)")
+    con.execute("INSERT INTO t_mood_bad_insert VALUES (1, 'happy')")
+
+    expect(OperationError):
+      con.execute("INSERT INTO t_mood_bad_insert VALUES (2, 'bad')")
+
+    for chunk in con.execute("SELECT count(*) FROM t_mood_bad_insert"):
+      check chunk.bindAs(0, DuckType.BigInt)[0] == 1
+    for chunk in con.execute("SELECT m FROM t_mood_bad_insert"):
+      let values = chunk.bindAs(0, DuckType.Enum)
+      check values.len == 1
+      check values[0] == 0
+
+  test "ENUM — an invalid label does not partially insert a multi-row statement":
+    let db = newDatabase()
+    let con = db.connect()
+    discard con.createEnumType(Mood, "mood_atomic", orReplace = true)
+    con.execute("CREATE TABLE t_mood_atomic (id INTEGER, m mood_atomic)")
+
+    expect(OperationError):
+      con.execute("INSERT INTO t_mood_atomic VALUES (1, 'happy'), (2, 'bad')")
+
+    for chunk in con.execute("SELECT count(*) FROM t_mood_atomic"):
+      check chunk.bindAs(0, DuckType.BigInt)[0] == 0
+
   test "ENUM — raw DDL CREATE TYPE mood AS ENUM (...)":
     let db = newDatabase()
     let con = db.connect()
