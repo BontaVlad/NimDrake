@@ -10,14 +10,14 @@ when defined(samply):
     doAssert profiler.path.endsWith(".txt")
 
     var bodyRuns = 0
-    profile(profiler, "outer scope"):
+    marker(profiler, "outer scope"):
       inc bodyRuns
-      profile(profiler, "inner scope with spaces"):
+      marker(profiler, "inner scope with spaces"):
         inc bodyRuns
     doAssert bodyRuns == 2
 
     try:
-      profile(profiler, "exception scope"):
+      marker(profiler, "exception scope"):
         raise newException(ValueError, "expected test exception")
     except ValueError:
       discard
@@ -62,7 +62,7 @@ else:
     var profiler = initSamplyProfiler()
     doAssert not profiler.enabled
     var bodyRuns = 0
-    profile(profiler, "not emitted"):
+    marker(profiler, "not emitted"):
       inc bodyRuns
     doAssert bodyRuns == 1
     profiler.close()

@@ -352,11 +352,11 @@ suite "NimDrake DSL — TPC-H complex queries":
     var scanQty = 0'i64
     var scanPrice = 0'i64
     for pass in 1 .. 2:
-      profile "Executing query":
+      marker "Executing query":
         let scanStream = con.executeStreaming(scan)
         var chunkN = 0
         for chunk in scanStream:
-          profile fmt"Parsing chunk {chunkN}":
+          marker fmt"Parsing chunk {chunkN}":
             let prices = chunk.bindAs(0, DuckType.Bigint)
             let quantities = chunk.bindAs(1, DuckType.Bigint)
             for i in 0 ..< prices.len:
