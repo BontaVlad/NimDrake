@@ -12,5 +12,6 @@ var book = initBookWithToc:
     entry("User-Defined Functions", "user_defined_functions")
   section("Data Types", "datatypes/index"):
     entry("Complex Types", "complex_types")
+    entry("Struct Mapping", "struct_mapping")
     entry("Arrow Results", "arrow_results")
 nimibookCli(book)

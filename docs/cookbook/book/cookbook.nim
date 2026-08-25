@@ -55,6 +55,7 @@ When a recipe uses `con`, it means a live connection created with this pattern.
   * [User-Defined Functions](advanced/user_defined_functions.html)
 * [Data Types](datatypes/index.html)
   * [Complex Types](datatypes/complex_types.html)
+  * [Struct Mapping](datatypes/struct_mapping.html)
   * [Arrow Results](datatypes/arrow_results.html)
 """
 nbSave
