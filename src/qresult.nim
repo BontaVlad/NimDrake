@@ -212,6 +212,7 @@ proc `=wasMoved`(h: var DuckdbResultHandle) =
 ## on `ChunkBuilder`. Transfer ownership via `takeHandle` / `sink` parameters
 ## / `move` instead.
 proc `=copy`*(dest: var DuckdbResultHandle; src: DuckdbResultHandle) {.error.}
+## Prevents compiler-generated duplication of the move-only result handle.
 proc `=dup`*(src: DuckdbResultHandle): DuckdbResultHandle {.error.}
 
 proc takeHandle*(q: sink QResult[Streaming]): DuckdbResultHandle =

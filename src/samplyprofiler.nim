@@ -65,16 +65,14 @@ when defined(linux):
     const getTidSyscall = 186.clong
 
 type
-  ## Selects the marker file ownership model.
-  SamplyProfilerMode* = enum
+  SamplyProfilerMode* = enum ## Selects the marker file ownership model.
     PerThread
     PerProcess
 
-  ## Owns one Samply marker file and its memory mapping.
-  ##
-  ## A profiler is move-only. Call `close` when the profiling scope ends; the
-  ## destructor also closes an unclosed profiler.
-  SamplyProfiler* = object
+  SamplyProfiler* = object ## Owns one Samply marker file and its memory mapping.
+    ##
+    ## A profiler is move-only. Call `close` when the profiling scope ends; the
+    ## destructor also closes an unclosed profiler.
     enabled*: bool
     path*: string
     when defined(linux):
@@ -84,6 +82,7 @@ type
       length: int
       hasFile: bool
 
+## Closes the profiler and releases its marker file resources.
 proc close*(p: var SamplyProfiler) {.raises: [].}
 
 proc `=destroy`(p: var SamplyProfiler) =
