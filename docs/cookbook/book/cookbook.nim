@@ -1,6 +1,7 @@
 import nimib, nimibook
+import ./cookbook_theme
 
-nbInit(theme = useNimibook)
+nbInit(theme = useCookbook)
 
 nbText: """
 # NimDrake Cookbook
