@@ -1,11 +1,12 @@
 import nimib, nimibook
+import ../cookbook_theme
 import std/strutils
 
 when defined(features.nimdrake.arrow):
   import nimdrake
   import narrow
 
-nbInit(theme = useNimibook)
+nbInit(theme = useCookbook)
 
 proc stripBlockCode(code: string): string =
   let lines = code.splitLines()

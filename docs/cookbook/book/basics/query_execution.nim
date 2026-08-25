@@ -1,9 +1,10 @@
 import nimib, nimibook
+import ../cookbook_theme
 import nimdrake
 import nimdrake/dsl/queries
 import std/[os, strutils, tables, algorithm]
 
-nbInit(theme = useNimibook)
+nbInit(theme = useCookbook)
 
 proc stripBlockCode(code: string): string =
   let lines = code.splitLines()
